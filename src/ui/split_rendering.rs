@@ -531,6 +531,11 @@ impl SplitRenderer {
                 source_to_view.insert(*src, view_idx);
             }
         }
+        for (view_idx, src_opt) in &view_extra_sources {
+            if let Some(src) = src_opt {
+                source_to_view.insert(*src, *view_idx);
+            }
+        }
 
         // Viewport anchoring for transformed view
         let view_top = source_to_view
