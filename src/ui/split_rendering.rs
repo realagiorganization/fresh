@@ -498,7 +498,7 @@ impl SplitRenderer {
         view_mode: ViewMode,
         compose_width: Option<u16>,
         _compose_column_guides: Option<Vec<u16>>,
-        _view_transform: Option<ViewTransformPayload>,
+        view_transform: Option<ViewTransformPayload>,
         estimated_line_length: usize,
         _buffer_id: BufferId,
         hide_cursor: bool,
@@ -512,6 +512,36 @@ impl SplitRenderer {
         let overlay_count = state.overlays.all().len();
         if overlay_count > 0 {
             tracing::trace!("render_content: {} overlays present", overlay_count);
+        }
+
+        // Flatten view transform if present
+        let mut view_lines: Option<Vec<(usize, String)>> = None;
+        let mut source_to_view: Option<HashMap<usize, usize>> = None;
+        if let Some(vt) = view_transform {
+            let (view_text, mapping) = flatten_tokens(&vt.tokens);
+            // Build source->view map (first occurrence)
+            let mut src_to_view = HashMap::new();
+            for (view_idx, src_opt) in mapping.iter().enumerate() {
+                if let Some(src) = src_opt {
+                    src_to_view.entry(*src).or_insert(view_idx);
+                }
+            }
+            // Split into lines with starting view offsets
+            let mut lines = Vec::new();
+            let mut offset = 0;
+            for line in view_text.split_inclusive('\n') {
+                let mut text = line.to_string();
+                if text.ends_with('\n') {
+                    text.pop();
+                }
+                lines.push((offset, text));
+                offset += line.len();
+            }
+            if view_text.is_empty() {
+                lines.push((0, String::new()));
+            }
+            view_lines = Some(lines);
+            source_to_view = Some(src_to_view);
         }
 
         // Update margin width based on buffer size
@@ -604,7 +634,13 @@ impl SplitRenderer {
             state
                 .cursors
                 .iter()
-                .map(|(_, cursor)| cursor.position)
+                .map(|(_, cursor)| {
+                    if let Some(map) = source_to_view.as_ref() {
+                        map.get(&cursor.position).copied().unwrap_or(cursor.position)
+                    } else {
+                        cursor.position
+                    }
+                })
                 .collect()
         } else {
             Vec::new()
