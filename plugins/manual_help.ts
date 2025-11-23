@@ -2,6 +2,8 @@
 
 import { VirtualBufferFactory } from "./lib/index.ts";
 
+
+
 const MANUAL_MODE = "help-manual";
 const SHORTCUTS_MODE = "help-keyboard";
 
@@ -28,13 +30,40 @@ const COLORS = {
 
 const createEntriesFromLines = (lines: string[]): TextPropertyEntry[] =>
   lines.map((line) => ({
-    text: line.endsWith("\n") ? line : `${line}\n`,
+    text: `${line}\n`,
     properties: {},
   }));
+
+
 
 const buildManualEntries = (): TextPropertyEntry[] => {
   const C = COLORS;
   const manualText = [
+    // Content from example.html converted to ANSI
+    "",
+    `${C.BOLD}${C.BRIGHT_GREEN}███████╗██████╗ ███████╗███████╗██╗  ██╗`,
+    `${C.BOLD}${C.BRIGHT_GREEN}██╔════╝██╔══██╗██╔════╝██╔════╝██║  ██║`,
+    `${C.BOLD}${C.BRIGHT_GREEN}█████╗  ██████╔╝█████╗  ███████╗███████║`,
+    `${C.BOLD}${C.BRIGHT_GREEN}██╔══╝  ██╔══██╗██╔══╝  ╚════██║██╔══██║`,
+    `${C.BOLD}${C.BRIGHT_GREEN}██║     ██║  ██║███████╗███████║██║  ██║`,
+    `${C.BOLD}${C.BRIGHT_GREEN}╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝${C.RESET}`,
+    "",
+    `${C.BOLD}${C.BRIGHT_YELLOW}The Terminal Text Editor${C.RESET}`,
+    "",
+    `${C.BOLD}${C.BRIGHT_GREEN}Easy To Use${C.RESET} | ${C.BOLD}${C.BRIGHT_MAGENTA}TypeScript Extensible${C.RESET} | ${C.BOLD}${C.BRIGHT_BLUE}Light And Fast${C.RESET} | ${C.BOLD}${C.BRIGHT_YELLOW}Huge File Support${C.RESET}`,
+    "",
+    `${C.BOLD}${C.BRIGHT_BLUE}Discovery & Ease of Use${C.RESET}`,
+    `Fresh is designed for discovery. It features native UIs, a full ${C.BOLD}${C.BRIGHT_GREEN}Menu${C.RESET} system, and a powerful ${C.BOLD}${C.BRIGHT_GREEN}Command Palette${C.RESET}. With full ${C.BOLD}${C.BRIGHT_GREEN}mouse support${C.RESET}, transitioning from graphical editors is seamless.`,
+    "",
+    `${C.BOLD}${C.BRIGHT_BLUE}Modern Extensibility${C.RESET}`,
+    `Extend Fresh easily using modern tools. Plugins are written in ${C.BOLD}${C.BRIGHT_MAGENTA}TypeScript${C.RESET} and run securely in a ${C.BOLD}${C.BRIGHT_MAGENTA}sandboxed Deno environment${C.RESET}, providing access to a modern JavaScript ecosystem without compromising stability.`,
+    "",
+    `${C.BOLD}${C.BRIGHT_BLUE}Zero-Latency Performance${C.RESET}`,
+    `Fresh is engineered for speed. It delivers a near zero-latency experience, with text appearing instantly. The editor is designed to be ${C.BOLD}${C.BRIGHT_YELLOW}light and fast${C.RESET}, reliably opening and editing ${C.BOLD}${C.BRIGHT_YELLOW}huge files${C.RESET} up to multi-gigabyte sizes without slowdown.`,
+    "",
+    "", // Add an extra empty line for spacing
+
+    // Original manual entries content
     `${C.BOLD}${C.BRIGHT_CYAN}╔════════════════════════════════════════════════════════════╗${C.RESET}`,
     `${C.BOLD}${C.BRIGHT_CYAN}║${C.RESET}         ${C.BOLD}${C.BRIGHT_YELLOW}Welcome to Fresh - A Modern Code Editor${C.RESET}            ${C.BOLD}${C.BRIGHT_CYAN}║${C.RESET}`,
     `${C.BOLD}${C.BRIGHT_CYAN}╚════════════════════════════════════════════════════════════╝${C.RESET}`,
@@ -76,29 +105,8 @@ const buildManualEntries = (): TextPropertyEntry[] => {
   return createEntriesFromLines(manualText);
 };
 
-const buildShortcutEntries = (bindings: { key: string; action: string }[]): TextPropertyEntry[] => {
-  const C = COLORS;
-  const header = [
-    `${C.BOLD}${C.BRIGHT_CYAN}╔════════════════════════════════════════════════════════════╗${C.RESET}`,
-    `${C.BOLD}${C.BRIGHT_CYAN}║${C.RESET}                 ${C.BOLD}${C.BRIGHT_YELLOW}⌨️  Keyboard Shortcuts${C.RESET}                      ${C.BOLD}${C.BRIGHT_CYAN}║${C.RESET}`,
-    `${C.BOLD}${C.BRIGHT_CYAN}╚════════════════════════════════════════════════════════════╝${C.RESET}`,
-    "",
-  ];
 
-  const lines: string[] = bindings.map((binding) => {
-    const keyLabel = binding.key.padEnd(22);
-    return `  ${C.CYAN}${keyLabel}${C.RESET} ${C.DIM}→${C.RESET} ${binding.action}`;
-  });
 
-  const paddedLines = lines.length ? lines : [`  ${C.DIM}(No bindings available)${C.RESET}`];
-
-  const footer = [
-    "",
-    `${C.DIM}Press ${C.YELLOW}q${C.RESET}${C.DIM} or ${C.YELLOW}Esc${C.RESET}${C.DIM} to close | ${C.YELLOW}F1${C.RESET}${C.DIM} for the main help${C.RESET}`,
-  ];
-
-  return createEntriesFromLines([...header, ...paddedLines, ...footer]);
-};
 
 const openVirtualBuffer = async (
   name: string,
