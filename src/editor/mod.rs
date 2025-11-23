@@ -1809,14 +1809,28 @@ impl Editor {
                 let insert_position = *position;
                 let insert_len = text.len();
 
-                // Invalidate byte ranges that overlap with the insertion point
-                // After insert, content at insert_position has changed, so any range
-                // containing this position needs re-processing
+                // Adjust byte ranges for the insertion
                 if let Some(seen) = self.seen_byte_ranges.get_mut(&buffer_id) {
-                    // Ranges containing the insert position are invalidated
-                    // Ranges after the insert position have shifted - their start/end positions
-                    // are now stale, so we remove them too (they'll be re-added with correct positions)
-                    seen.retain(|&(start, end)| end <= insert_position);
+                    // Collect adjusted ranges:
+                    // - Ranges ending before insert: keep unchanged
+                    // - Ranges containing insert point: remove (content changed)
+                    // - Ranges starting after insert: shift by insert_len
+                    let adjusted: std::collections::HashSet<(usize, usize)> = seen
+                        .iter()
+                        .filter_map(|&(start, end)| {
+                            if end <= insert_position {
+                                // Range ends before insert - unchanged
+                                Some((start, end))
+                            } else if start >= insert_position {
+                                // Range starts at or after insert - shift forward
+                                Some((start + insert_len, end + insert_len))
+                            } else {
+                                // Range contains insert point - invalidate
+                                None
+                            }
+                        })
+                        .collect();
+                    *seen = adjusted;
                 }
 
                 Some((
@@ -1838,11 +1852,30 @@ impl Editor {
             } => {
                 let delete_start = range.start;
 
-                // Invalidate byte ranges that overlap with the deletion range
-                // After delete, content at delete_start has changed (different content now there)
-                // Ranges after the delete have shifted positions
+                // Adjust byte ranges for the deletion
+                let delete_end = range.end;
+                let delete_len = delete_end - delete_start;
                 if let Some(seen) = self.seen_byte_ranges.get_mut(&buffer_id) {
-                    seen.retain(|&(start, end)| end <= delete_start);
+                    // Collect adjusted ranges:
+                    // - Ranges ending before delete start: keep unchanged
+                    // - Ranges overlapping deletion: remove (content changed)
+                    // - Ranges starting after delete end: shift backward by delete_len
+                    let adjusted: std::collections::HashSet<(usize, usize)> = seen
+                        .iter()
+                        .filter_map(|&(start, end)| {
+                            if end <= delete_start {
+                                // Range ends before delete - unchanged
+                                Some((start, end))
+                            } else if start >= delete_end {
+                                // Range starts after delete - shift backward
+                                Some((start - delete_len, end - delete_len))
+                            } else {
+                                // Range overlaps deletion - invalidate
+                                None
+                            }
+                        })
+                        .collect();
+                    *seen = adjusted;
                 }
 
                 Some((
