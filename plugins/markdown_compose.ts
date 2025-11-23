@@ -1095,7 +1095,7 @@ function transformTokensForMarkdown(
   return result;
 }
 
-// Handle render_start - enable highlighting for markdown files and clear if dirty
+// Handle render_start - enable highlighting for markdown files
 globalThis.onMarkdownRenderStart = function(data: { buffer_id: number }): void {
   // Auto-enable highlighting for markdown files on first render
   if (!highlightingBuffers.has(data.buffer_id)) {
@@ -1107,12 +1107,9 @@ globalThis.onMarkdownRenderStart = function(data: { buffer_id: number }): void {
       return;
     }
   }
-
-  // Only clear and recreate overlays if the buffer content changed
-  if (dirtyBuffers.has(data.buffer_id)) {
-    clearHighlights(data.buffer_id);
-    dirtyBuffers.delete(data.buffer_id);
-  }
+  // Note: Don't clear overlays here - the after-insert/after-delete handlers
+  // already clear affected ranges via clearOverlaysInRange(). Clearing all
+  // overlays here would cause flicker since lines_changed hasn't fired yet.
 };
 
 // Handle lines_changed - process visible lines incrementally
@@ -1160,7 +1157,6 @@ globalThis.onMarkdownAfterInsert = function(data: {
   // These overlays may now span incorrect content after the insertion
   // The affected lines will be re-processed via lines_changed with correct content
   editor.clearOverlaysInRange(data.buffer_id, data.affected_start, data.affected_end);
-  dirtyBuffers.add(data.buffer_id);
 };
 
 globalThis.onMarkdownAfterDelete = function(data: {
@@ -1178,9 +1174,8 @@ globalThis.onMarkdownAfterDelete = function(data: {
   // But overlays spanning the deletion boundary may now be incorrect
   // Use a slightly expanded range to catch boundary cases
   const clearStart = data.affected_start > 0 ? data.affected_start - 1 : 0;
-  const clearEnd = data.affected_start + 1;
+  const clearEnd = data.affected_start + data.deleted_len + 1;
   editor.clearOverlaysInRange(data.buffer_id, clearStart, clearEnd);
-  dirtyBuffers.add(data.buffer_id);
 };
 
 // Handle buffer close events
