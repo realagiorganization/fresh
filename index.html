@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fresh - The Terminal Text Editor</title>
+    <!-- Load JetBrains Mono for the authentic terminal/code feel --><link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* General Reset and Body Styles */
+        body {
+            /* Solid dark background for isolation */
+            background-color: #1A1A1A; 
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            margin: 0;
+            padding: 0;
+            font-family: 'JetBrains Mono', monospace;
+            box-sizing: border-box;
+            /* Set full height and hide main browser scrollbar */
+            height: 100vh; 
+            overflow: hidden; 
+        }
+
+        /* Color Variables based on the required palette */
+        :root {
+            --bg-dark: #1A1A1A;          /* Deep Black/Near Black */
+            --text-light: #F5F5F5;       /* Off-White/Light Gray */
+            --accent-yellow: #FFEA00;    /* Primary Accent */
+            --accent-blue: #60a5fa;      /* Syntax Blue */
+            --accent-purple: #c084fc;    /* Syntax Purple */
+            --accent-green: #10b981;     /* Syntax Green */
+        }
+
+        /* The main content container (Base styles for Mobile First) */
+        .terminal-window {
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            /* Base mobile padding */
+            padding: 20px 30px 20px 20px; 
+            border-radius: 0;
+            width: 100%; 
+            /* Set full height to act as the scroll container */
+            height: 100vh; 
+            max-width: 1200px; /* Limit terminal width on very large screens */
+            box-shadow: none; 
+            
+            /* --- Custom Scrollbar Setup --- */
+            position: relative; 
+            overflow-y: auto; 
+            
+            /* --- HIDE DEFAULT SCROLLBAR (Cross-Browser) --- */
+            scrollbar-width: none; /* Firefox */
+            -ms-overflow-style: none; /* IE and Edge Legacy */
+            
+            /* --- UNIFORM FONT SIZE (Base) --- */
+            font-size: 14px; 
+        }
+        
+        /* Webkit (Chrome, Safari, new Edge) - MUST be separate from .terminal-window */
+        .terminal-window::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* --- GitHub Link Styling (Top Right - Adjusted for flush-right scrollbar) --- */
+        .github-link {
+            position: absolute;
+            top: 20px; /* Matching mobile padding top */
+            /* Shift left by 1ch (scrollbar width) plus the original 20px padding */
+            right: calc(20px + 1ch); 
+            font-size: 1em;
+            z-index: 20; /* Ensure it's above other content */
+        }
+        .github-link a {
+            color: var(--accent-yellow);
+            text-decoration: none;
+            transition: color 0.1s;
+        }
+        .github-link a:hover {
+            color: var(--text-light);
+        }
+
+        /* --- Custom Scrollbar Styles (Positioned Flush Right) --- */
+        .custom-scrollbar {
+            position: absolute;
+            /* Fixed position relative to the scrollable container's viewport */
+            top: 0; 
+            right: 0; /* MOVED TO ABSOLUTE RIGHT EDGE */
+            width: 1ch; 
+            height: 100vh; 
+            z-index: 10;
+        }
+
+        /* The vertical thin gray line (Track) */
+        .scrollbar-track {
+            position: absolute;
+            width: 2px; 
+            height: 100%;
+            background-color: #666; 
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* The block-style handle (Thumb) */
+        .scrollbar-handle {
+            position: absolute;
+            width: 1ch; 
+            background-color: var(--text-light); 
+            color: var(--text-light); 
+            line-height: 1;
+            text-align: center;
+            min-height: 48px; 
+            border-radius: 1px;
+            left: 0;
+            cursor: grab; 
+            /* Ensure the handle is visible above the native scrollbar */
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.5); 
+        }
+        
+        .scrollbar-handle.dragging {
+            cursor: grabbing;
+        }
+
+        /* ASCII Art Styling (Shrunk for Mobile) */
+        .h1-ascii {
+            font-weight: 700;
+            color: var(--accent-green);
+            white-space: pre; 
+            line-height: 0.8; /* Tighter line spacing for mobile */
+            margin-bottom: 20px; 
+            margin-top: 10px; 
+            font-size: 0.5em; /* Significantly smaller on mobile */
+        }
+
+
+        .subtitle {
+            font-size: 1em; 
+            color: var(--accent-yellow); 
+            margin-bottom: 20px;
+            display: block;
+            opacity: 1; 
+        }
+
+        /* Accent Colors for text highlighting */
+        .c-yellow { color: var(--accent-yellow); font-weight: 700; } 
+        .c-blue { color: var(--accent-blue); font-weight: 700; }
+        .c-purple { color: var(--accent-purple); font-weight: 700; }
+        .c-green { color: var(--accent-green); font-weight: 700; }
+        
+        /* Ensure all bolding uses the accent color for prominence */
+        b { 
+            font-weight: 700; 
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.1); 
+        }
+
+        /* Feature List Styling - UPDATED FOR WRAPPING */
+        .feature-list {
+            margin: 20px 0;
+            padding: 10px 0;
+            font-size: 0.9em; 
+            white-space: normal; /* Allows wrapping */
+            overflow-x: visible; /* Prevents horizontal scrolling */
+            border: none; 
+            text-align: center;
+            line-height: 1.8; /* Added vertical space for wrapped lines */
+        }
+
+        .feature-list b {
+            font-weight: 700; 
+            text-transform: none; 
+        }
+        
+        /* Main Body Text Styling */
+        .content-section {
+            padding: 20px 0;
+            border-left: none; 
+            padding-left: 0; 
+            margin-bottom: 30px;
+            line-height: 1.6;
+            font-size: 1em; 
+        }
+        
+        /* --- MEDIA QUERY FOR DESKTOP/TABLET (min-width: 768px) --- */
+        @media (min-width: 768px) {
+            .terminal-window {
+                /* Restore desktop padding */
+                padding: 40px 40px 40px 40px; 
+                font-size: 16px; 
+            }
+            .h1-ascii {
+                font-size: 1em; /* Restore larger size */
+                line-height: 1;
+            }
+            /* Custom scrollbar position remains right: 0 */
+            .github-link {
+                top: 40px; /* Matching desktop padding top */
+                /* Shift left by 1ch (scrollbar width) plus the original 40px padding */
+                right: calc(40px + 1ch); 
+            }
+        }
+
+        /* --- Other non-responsive styles remain the same --- */
+        .content-section:not(:first-of-type) {
+            border-top: 1px solid rgba(255, 255, 255, 0.1); 
+            padding-top: 30px;
+        }
+        .content-section:first-of-type {
+            margin-top: 30px;
+        }
+
+        .content-section h2 {
+            font-size: 1em; 
+            margin-bottom: 10px;
+            color: var(--accent-blue);
+        }
+        
+        .screenshot-area {
+            text-align: center;
+            margin-top: 50px;
+            padding: 20px;
+            border: 1px dashed var(--accent-yellow); 
+            background-color: #252525;
+            border-radius: 5px;
+        }
+
+        .screenshot-area img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px auto;
+            border: 1px solid var(--text-light);
+            box-shadow: 0 0 15px rgba(255, 234, 0, 0.2); 
+        }
+        
+        /* Fallback for the image using CSS if path fails */
+        .screenshot-area img:not([src]):before {
+            content: "docs/screenshot1.png is missing. Showing text placeholder.";
+            display: block;
+            width: 100%;
+            height: 300px;
+            background-color: #333;
+            color: #ccc;
+            line-height: 300px;
+            text-align: center;
+            font-size: 1.2em;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main content container is now the only scrollable element -->
+    <div id="terminal-window" class="terminal-window">
+        
+        <!-- GitHub Link -->
+        <div class="github-link">
+            <a href="https://github.com/sinelaw/fresh" target="_blank">
+                [GitHub]
+            </a>
+        </div>
+        
+        <!-- Custom Scrollbar Elements -->
+        <div class="custom-scrollbar">
+            <div class="scrollbar-track"></div>
+            <div id="scrollbar-handle" class="scrollbar-handle"></div>
+        </div>
+        
+        <div>
+
+            <!-- HEADER: FRESH ASCII ART (New UNICODE Style) -->
+            <div class="h1-ascii">
+███████╗██████╗ ███████╗███████╗██╗  ██╗
+██╔════╝██╔══██╗██╔════╝██╔════╝██║  ██║
+█████╗  ██████╔╝█████╗  ███████╗███████║
+██╔══╝  ██╔══██╗██╔══╝  ╚════██║██╔══██║
+██║     ██║  ██║███████╗███████║██║  ██║
+╚═╝     ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
+            </div>
+            
+            <!-- SUBTITLE: The Terminal Text Editor (Now visible instantly) -->
+            <span id="tagline" class="subtitle">The Terminal Text Editor</span>
+            
+            <!-- FEATURE LIST -->
+            <div class="feature-list">
+                <b class="c-green">Easy To Use</b> | <b class="c-purple">TypeScript Extensible</b> | <b class="c-blue">Light And Fast</b> | <b class="c-yellow">Huge File Support</b>
+            </div>
+
+            <!-- 1. INTUITIVE EDITING -->
+            <div class="content-section">
+                <h2>Discovery & Ease of Use</h2>
+                <p>
+                    Fresh is designed for discovery. It features native UIs, a full <b class="c-green">Menu</b> system, and a powerful <b class="c-green">Command Palette</b>. With full <b class="c-green">mouse support</b>, transitioning from graphical editors is seamless.
+                </p>
+            </div>
+
+            <!-- 2. EXTENSIBILITY -->
+            <div class="content-section">
+                <h2>Modern Extensibility</h2>
+                <p>
+                    Extend Fresh easily using modern tools. Plugins are written in <b class="c-purple">TypeScript</b> and run securely in a <b class="c-purple">sandboxed Deno environment</b>, providing access to a modern JavaScript ecosystem without compromising stability.
+                </p>
+            </div>
+            
+            <!-- 3. PERFORMANCE -->
+            <div class="content-section">
+                <h2>Zero-Latency Performance</h2>
+                <p>
+                    Fresh is engineered for speed. It delivers a near zero-latency experience, with text appearing instantly. The editor is designed to be <b class="c-yellow">light and fast</b>, reliably opening and editing <b class="c-yellow">huge files</b> up to multi-gigabyte sizes without slowdown.
+                </p>
+            </div>
+
+            <!-- SCREENSHOT AREA -->
+            <div class="screenshot-area">
+                <p class="c-yellow"><b>The Interface</b></p>
+                <!-- Placeholder image path -->
+                <img src="docs/screenshot1.png" 
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" 
+                     alt="A screenshot of the Fresh terminal text editor's user interface, showing syntax-highlighted code and a status bar."/>
+                
+                <!-- Text fallback for the image -->
+                <div style="display:none; color: #ccc; padding: 50px;">
+                    [Image Placeholder: The Fresh TUI Interface]
+                </div>
+            </div>
+
+        </div>
+    </div>
+    
+    <script>
+        const terminalWindow = document.getElementById('terminal-window');
+        const scrollbarHandle = document.getElementById('scrollbar-handle');
+        const customScrollbar = document.querySelector('.custom-scrollbar');
+        
+        // Minimum handle height in pixels (mimicking 3 lines of text)
+        const MIN_HANDLE_HEIGHT = 48; 
+        
+        let isDragging = false;
+        let startY;
+        let startScrollTop;
+        
+        function updateScrollbar() {
+            // Metrics of the scrollable content area
+            const scrollHeight = terminalWindow.scrollHeight;
+            const clientHeight = terminalWindow.clientHeight;
+            const scrollTop = terminalWindow.scrollTop;
+
+            // Lock the custom scrollbar track to the visible viewport.
+            customScrollbar.style.top = `${scrollTop}px`;
+
+            // Hide scrollbar if content doesn't overflow
+            if (scrollHeight <= clientHeight) {
+                customScrollbar.style.display = 'none';
+                return;
+            }
+
+            customScrollbar.style.display = 'block';
+
+            // Total height of the scrollable track (which is the client height of the container)
+            const trackHeight = clientHeight; 
+            
+            // Calculate Handle Size (proportional to visible content)
+            const visibleRatio = clientHeight / scrollHeight;
+            let handleHeight = Math.max(trackHeight * visibleRatio, MIN_HANDLE_HEIGHT);
+
+            // Calculate Handle Position
+            const scrollableDistance = scrollHeight - clientHeight;
+            const handleTravelDistance = trackHeight - handleHeight;
+            
+            // Handle position ratio relative to the content scroll ratio
+            const scrollPositionRatio = scrollTop / scrollableDistance;
+
+            // Use Math.round() to stabilize the position and prevent sub-pixel jumping
+            let handleTop = Math.round(scrollPositionRatio * handleTravelDistance);
+
+            // Apply styles
+            scrollbarHandle.style.height = `${handleHeight}px`;
+            scrollbarHandle.style.top = `${handleTop}px`; 
+        }
+        
+        // --- Dragging Logic ---
+
+        scrollbarHandle.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // Prevent text selection
+            isDragging = true;
+            startY = e.clientY;
+            startScrollTop = terminalWindow.scrollTop;
+            scrollbarHandle.classList.add('dragging');
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const dy = e.clientY - startY; // Vertical movement since mousedown
+            const trackHeight = terminalWindow.clientHeight;
+            
+            // Total distance the content can travel
+            const scrollableContentDistance = terminalWindow.scrollHeight - trackHeight; 
+            
+            // Total distance the handle can travel
+            const handleTravelDistance = trackHeight - scrollbarHandle.clientHeight;
+
+            // Calculate the content scroll amount per pixel of handle drag
+            const contentScrollPerPixel = scrollableContentDistance / handleTravelDistance;
+
+            // New scroll top based on drag movement
+            let newScrollTop = startScrollTop + (dy * contentScrollPerPixel);
+
+            // Clamp the new scroll position to prevent overscrolling
+            newScrollTop = Math.max(0, Math.min(newScrollTop, scrollableContentDistance));
+
+            terminalWindow.scrollTop = newScrollTop;
+
+            // The 'scroll' event triggered by setting scrollTop will call updateScrollbar
+        });
+        
+        // --- Touch/Mobile Dragging Logic ---
+        scrollbarHandle.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            const touch = e.touches[0];
+            isDragging = true;
+            startY = touch.clientY;
+            startScrollTop = terminalWindow.scrollTop;
+            scrollbarHandle.classList.add('dragging');
+        }, { passive: false });
+
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const touch = e.touches[0];
+            
+            const dy = touch.clientY - startY;
+            const trackHeight = terminalWindow.clientHeight;
+            
+            const scrollableContentDistance = terminalWindow.scrollHeight - trackHeight; 
+            const handleTravelDistance = trackHeight - scrollbarHandle.clientHeight;
+            const contentScrollPerPixel = scrollableContentDistance / handleTravelDistance;
+
+            let newScrollTop = startScrollTop + (dy * contentScrollPerPixel);
+
+            newScrollTop = Math.max(0, Math.min(newScrollTop, scrollableContentDistance));
+
+            terminalWindow.scrollTop = newScrollTop;
+        }, { passive: false });
+
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            scrollbarHandle.classList.remove('dragging');
+        });
+        
+        document.addEventListener('touchend', () => {
+            isDragging = false;
+            scrollbarHandle.classList.remove('dragging');
+        });
+        
+        // --- Initialization and Event Listeners ---
+        
+        // Initialize and listen for events
+        terminalWindow.addEventListener('scroll', updateScrollbar);
+        window.addEventListener('resize', updateScrollbar);
+        
+        // Initial calculation (need a slight delay to ensure all content/font metrics are loaded)
+        setTimeout(updateScrollbar, 50);
+    </script>
+
+</body>
+</html>
