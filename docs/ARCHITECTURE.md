@@ -13,12 +13,12 @@ Fresh is a high-performance, terminal-based text editor built in Rust. It's desi
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   MAIN THREAD (Sync)                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  │
-│  │ Event Loop   │→ │  Editor      │→ │  Renderer   │  │
-│  │ (crossterm)  │  │  (state)     │  │  (ratatui)  │  │
-│  └──────────────┘  └──────────────┘  └─────────────┘  │
-│         ↓                 ↑                              │
+│                   MAIN THREAD (Sync)                    │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐    │
+│  │ Event Loop   │→ │  Editor      │→ │  Renderer   │    │
+│  │ (crossterm)  │  │  (state)     │  │  (ratatui)  │    │
+│  └──────────────┘  └──────────────┘  └─────────────┘    │
+│         ↓                 ↑                             │
 │    Input Queue      EventQueue (mpsc)                   │
 └─────────────────────────────────────────────────────────┘
          ↑                      ↑
