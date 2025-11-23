@@ -2444,23 +2444,7 @@ impl Editor {
 
     /// Handle a file change notification (from file watcher)
     pub fn handle_file_changed(&mut self, changed_path: &str) {
-        use std::time::{Duration, Instant};
-
-        const DEBOUNCE_DURATION: Duration = Duration::from_secs(1);
-
         let path = PathBuf::from(changed_path);
-
-        // Debounce: skip if we reverted this file recently (within 1 second)
-        if let Some(last_revert) = self.file_last_revert_times.get(&path) {
-            if last_revert.elapsed() < DEBOUNCE_DURATION {
-                tracing::debug!(
-                    "Skipping file change for {:?} (debounced, {}ms since last revert)",
-                    path,
-                    last_revert.elapsed().as_millis()
-                );
-                return;
-            }
-        }
 
         // Find buffers that have this file open
         let buffer_ids: Vec<BufferId> = self
@@ -2517,8 +2501,6 @@ impl Editor {
                     tracing::error!("Failed to auto-revert file {:?}: {}", path, e);
                 } else {
                     tracing::info!("Auto-reverted file: {:?}", path);
-                    // Record revert time for debouncing
-                    self.file_last_revert_times.insert(path.clone(), Instant::now());
                 }
 
                 // Switch back to original buffer
@@ -3221,6 +3203,41 @@ impl Editor {
                     }
                 }
                 AsyncMessage::FileChanged { path } => {
+                    use std::time::Duration;
+                    const DEBOUNCE_DURATION: Duration = Duration::from_secs(1);
+
+                    // Skip if auto-revert is disabled
+                    if !self.auto_revert_enabled {
+                        continue;
+                    }
+
+                    let path_buf = PathBuf::from(&path);
+
+                    // If we received an event within the debounce window, the file is updating
+                    // too frequently - disable auto-revert
+                    if let Some(last_time) = self.file_last_revert_times.get(&path_buf) {
+                        if last_time.elapsed() < DEBOUNCE_DURATION {
+                            // Disable auto-revert and stop the file watcher
+                            self.auto_revert_enabled = false;
+                            self.file_watcher = None;
+                            self.watched_dirs.clear();
+                            self.status_message = Some(format!(
+                                "Auto-revert disabled: {} is updating too frequently (use Ctrl+Shift+R to re-enable)",
+                                path_buf.file_name().unwrap_or_default().to_string_lossy()
+                            ));
+                            tracing::info!(
+                                "Auto-revert disabled for {:?} (file updating faster than 1/sec)",
+                                path_buf
+                            );
+                            continue;
+                        }
+                    }
+
+                    // Record the event time before processing
+                    self.file_last_revert_times
+                        .insert(path_buf, std::time::Instant::now());
+
+                    // TODO: preserve cursor position across auto-revert (currently only viewport is preserved)
                     tracing::info!("File changed externally: {}", path);
                     self.handle_file_changed(&path);
                 }
