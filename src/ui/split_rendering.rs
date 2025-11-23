@@ -2757,4 +2757,97 @@ mod tests {
             "Cursor moved to the newline on line 0"
         );
     }
+
+    // =========================================================================
+    // View Transform Tests - Injected tokens at byte 0
+    // =========================================================================
+
+    /// Test that calculate_view_anchor correctly handles injected tokens at byte 0.
+    ///
+    /// When a view transform injects a header (with source_offset: None) BEFORE
+    /// content at byte 0, the anchor calculation should NOT skip over the header.
+    ///
+    /// Bug: The current implementation looks for the first mapping >= top_byte,
+    /// but tokens with source_offset: None return false from map_or, so they're skipped.
+    #[test]
+    fn calculate_view_anchor_includes_injected_header_at_byte_zero() {
+        // Simulate a view transform that injects a header before content at byte 0:
+        // Position 0-21: "== HEADER AT BYTE 0 ==" (source_offset: None)
+        // Position 22: newline (source_offset: None)
+        // Position 23-28: "Line 1" (source_offset: Some(0))
+        // Position 29: newline (source_offset: Some(6))
+        // Position 30-35: "Line 2" (source_offset: Some(7))
+
+        let view_lines = vec![
+            ViewLine {
+                offset: 0,
+                text: "== HEADER AT BYTE 0 ==\n".to_string(),
+                ends_with_newline: true,
+            },
+            ViewLine {
+                offset: 23,
+                text: "Line 1\n".to_string(),
+                ends_with_newline: true,
+            },
+            ViewLine {
+                offset: 30,
+                text: "Line 2\n".to_string(),
+                ends_with_newline: true,
+            },
+        ];
+
+        // Mapping: first 23 chars have None (injected), then Some(0..6), then Some(7..13)
+        let mut view_mapping: Vec<Option<usize>> = Vec::new();
+        // Header + newline: 23 chars with None
+        for _ in 0..23 {
+            view_mapping.push(None);
+        }
+        // "Line 1\n": 7 chars mapping to bytes 0-6
+        for i in 0..7 {
+            view_mapping.push(Some(i));
+        }
+        // "Line 2\n": 7 chars mapping to bytes 7-13
+        for i in 7..14 {
+            view_mapping.push(Some(i));
+        }
+
+        // When viewport starts at byte 0, the anchor should start at view position 0
+        // (showing the header), NOT at view position 23 (skipping the header)
+        let anchor = SplitRenderer::calculate_view_anchor(&view_lines, &view_mapping, 0);
+
+        // BUG: Current implementation finds view_top=23 (first position with source_offset >= 0)
+        // This causes start_line_skip=23, skipping the entire header!
+        //
+        // EXPECTED: start_line_idx=0, start_line_skip=0 (show the header from the beginning)
+        assert_eq!(
+            anchor.start_line_idx, 0,
+            "start_line_idx should be 0 (first line)"
+        );
+        // THIS IS THE KEY BUG: start_line_skip should be 0 to show the header
+        // Currently it's 23, which skips the entire header text
+        assert_eq!(
+            anchor.start_line_skip, 0,
+            "BUG: View anchor skips {} chars in first line (the entire header)!\n\
+             When top_byte=0 and injected content exists before byte 0,\n\
+             start_line_skip should be 0 to show the injected header.\n\
+             The bug is in calculate_view_anchor: it finds the first source-mapped\n\
+             position (23) and uses that as view_top, skipping all injected content.",
+            anchor.start_line_skip
+        );
+    }
+
+    /// Test that build_view_lines correctly handles view text with injected content
+    #[test]
+    fn build_view_lines_handles_injected_header() {
+        let view_text = "== HEADER ==\nLine 1\nLine 2\n";
+        let lines = SplitRenderer::build_view_lines(view_text);
+
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].text, "== HEADER ==\n");
+        assert_eq!(lines[0].offset, 0);
+        assert_eq!(lines[1].text, "Line 1\n");
+        assert_eq!(lines[1].offset, 13); // "== HEADER ==\n" = 13 chars
+        assert_eq!(lines[2].text, "Line 2\n");
+        assert_eq!(lines[2].offset, 20); // 13 + 7 = 20
+    }
 }
