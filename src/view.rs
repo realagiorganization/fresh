@@ -126,20 +126,25 @@ pub struct FlattenedView {
     /// Set of view positions that are the START of a tab expansion
     /// Used for rendering tab indicators and correct cursor positioning
     pub tab_starts: std::collections::HashSet<usize>,
+    /// Mapping from view position to token style (for injected content styling)
+    /// Only populated for characters from tokens with explicit styles
+    pub style_mapping: Vec<Option<crate::plugin_api::ViewTokenStyle>>,
 }
 
 /// Build a view string and source mapping from a wire token list
 ///
 /// Tab characters are expanded to spaces based on tab stops (every 8 columns).
 /// All expanded spaces map back to the original tab's source position.
-/// Returns a FlattenedView with text, mapping, and tab start positions.
+/// Returns a FlattenedView with text, mapping, tab start positions, and style mapping.
 pub fn flatten_tokens(tokens: &[crate::plugin_api::ViewTokenWire]) -> FlattenedView {
     let mut view_text = String::new();
     let mut mapping: Vec<Option<usize>> = Vec::new();
+    let mut style_mapping: Vec<Option<crate::plugin_api::ViewTokenStyle>> = Vec::new();
     let mut tab_starts = std::collections::HashSet::new();
     let mut col: usize = 0; // Current column position, reset on newlines
 
     for token in tokens {
+        let token_style = token.style.clone();
         match &token.kind {
             crate::plugin_api::ViewTokenWireKind::Text(t) => {
                 let base = token.source_offset;
@@ -158,11 +163,13 @@ pub fn flatten_tokens(tokens: &[crate::plugin_api::ViewTokenWire]) -> FlattenedV
                         for _ in 0..spaces {
                             view_text.push(' ');
                             mapping.push(source);
+                            style_mapping.push(token_style.clone());
                         }
                         col += spaces;
                     } else {
                         view_text.push(ch);
                         mapping.push(source);
+                        style_mapping.push(token_style.clone());
                         col += 1;
                     }
                     byte_idx += ch_len;
@@ -171,17 +178,20 @@ pub fn flatten_tokens(tokens: &[crate::plugin_api::ViewTokenWire]) -> FlattenedV
             crate::plugin_api::ViewTokenWireKind::Newline => {
                 view_text.push('\n');
                 mapping.push(token.source_offset);
+                style_mapping.push(token_style);
                 col = 0; // Reset column on newline
             }
             crate::plugin_api::ViewTokenWireKind::Space => {
                 view_text.push(' ');
                 mapping.push(token.source_offset);
+                style_mapping.push(token_style);
                 col += 1;
             }
             crate::plugin_api::ViewTokenWireKind::Break => {
                 view_text.push('\n');
                 // Break tokens are synthetic, always have None mapping
                 mapping.push(None);
+                style_mapping.push(None);
                 col = 0; // Reset column on break
             }
         }
@@ -191,6 +201,7 @@ pub fn flatten_tokens(tokens: &[crate::plugin_api::ViewTokenWire]) -> FlattenedV
         text: view_text,
         mapping,
         tab_starts,
+        style_mapping,
     }
 }
 
@@ -222,6 +233,7 @@ mod tests {
         let tokens = vec![ViewTokenWire {
             kind: ViewTokenWireKind::Text("a\tb".to_string()),
             source_offset: Some(0),
+            style: None,
         }];
 
         let result = flatten_tokens(&tokens);
@@ -254,6 +266,7 @@ mod tests {
         let tokens = vec![ViewTokenWire {
             kind: ViewTokenWireKind::Text("\tx".to_string()),
             source_offset: Some(0),
+            style: None,
         }];
 
         let result = flatten_tokens(&tokens);
@@ -279,6 +292,7 @@ mod tests {
         let tokens = vec![ViewTokenWire {
             kind: ViewTokenWireKind::Text("\t\t".to_string()),
             source_offset: Some(0),
+            style: None,
         }];
 
         let result = flatten_tokens(&tokens);
@@ -308,14 +322,17 @@ mod tests {
             ViewTokenWire {
                 kind: ViewTokenWireKind::Text("abc".to_string()),
                 source_offset: Some(0),
+                style: None,
             },
             ViewTokenWire {
                 kind: ViewTokenWireKind::Newline,
                 source_offset: Some(3),
+                style: None,
             },
             ViewTokenWire {
                 kind: ViewTokenWireKind::Text("\tx".to_string()),
                 source_offset: Some(4),
+                style: None,
             },
         ];
 

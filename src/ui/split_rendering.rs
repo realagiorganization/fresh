@@ -47,6 +47,8 @@ struct ViewData {
     lines: Vec<ViewLine>,
     /// View positions that are the START of a tab expansion (first space of expanded tab)
     tab_starts: HashSet<usize>,
+    /// Token styles for each view position (for injected content like annotation headers)
+    style_mapping: Vec<Option<crate::plugin_api::ViewTokenStyle>>,
 }
 
 struct ViewAnchor {
@@ -108,6 +110,8 @@ struct LineRenderInput<'a> {
     view_mapping: &'a [Option<usize>],
     /// View positions that are the START of a tab expansion (for cursor positioning and tab indicator)
     tab_starts: &'a HashSet<usize>,
+    /// Token styles for each view position (for injected content styling)
+    style_mapping: &'a [Option<crate::plugin_api::ViewTokenStyle>],
     view_anchor: ViewAnchor,
     render_area: Rect,
     gutter_width: usize,
@@ -582,6 +586,7 @@ impl SplitRenderer {
             lines: Self::build_view_lines(&flattened.text),
             mapping: flattened.mapping,
             tab_starts: flattened.tab_starts,
+            style_mapping: flattened.style_mapping,
         }
     }
 
@@ -610,12 +615,14 @@ impl SplitRenderer {
                             tokens.push(ViewTokenWire {
                                 source_offset,
                                 kind: ViewTokenWireKind::Newline,
+                                style: None,
                             });
                         }
                         ' ' => {
                             tokens.push(ViewTokenWire {
                                 source_offset,
                                 kind: ViewTokenWireKind::Space,
+                                style: None,
                             });
                         }
                         _ => {
@@ -634,6 +641,7 @@ impl SplitRenderer {
                             tokens.push(ViewTokenWire {
                                 source_offset,
                                 kind: ViewTokenWireKind::Text(ch.to_string()),
+                                style: None,
                             });
                         }
                     }
@@ -650,6 +658,7 @@ impl SplitRenderer {
             tokens.push(ViewTokenWire {
                 source_offset: Some(top_byte),
                 kind: ViewTokenWireKind::Text(String::new()),
+                style: None,
             });
         }
 
@@ -697,6 +706,7 @@ impl SplitRenderer {
                         wrapped.push(ViewTokenWire {
                             source_offset: None,
                             kind: ViewTokenWireKind::Break,
+                            style: None,
                         });
                         current_line_width = 0;
                     }
@@ -718,6 +728,7 @@ impl SplitRenderer {
                                 wrapped.push(ViewTokenWire {
                                     source_offset: None,
                                     kind: ViewTokenWireKind::Break,
+                                    style: None,
                                 });
                                 current_line_width = 0;
                                 continue;
@@ -730,6 +741,7 @@ impl SplitRenderer {
                             wrapped.push(ViewTokenWire {
                                 source_offset: chunk_source,
                                 kind: ViewTokenWireKind::Text(chunk),
+                                style: token.style.clone(),
                             });
 
                             current_line_width += chunk_size;
@@ -740,6 +752,7 @@ impl SplitRenderer {
                                 wrapped.push(ViewTokenWire {
                                     source_offset: None,
                                     kind: ViewTokenWireKind::Break,
+                                    style: None,
                                 });
                                 current_line_width = 0;
                             }
@@ -755,6 +768,7 @@ impl SplitRenderer {
                         wrapped.push(ViewTokenWire {
                             source_offset: None,
                             kind: ViewTokenWireKind::Break,
+                            style: None,
                         });
                         current_line_width = 0;
                     }
@@ -1020,6 +1034,7 @@ impl SplitRenderer {
             view_lines,
             view_mapping,
             tab_starts,
+            style_mapping,
             view_anchor,
             render_area,
             gutter_width,
@@ -1311,9 +1326,31 @@ impl SplitRenderer {
                         Vec::new()
                     };
 
-                    // Build style by layering: base -> ansi -> syntax -> semantic -> overlays -> selection
-                    // Start with ANSI style as base (if present), otherwise use theme default
-                    let mut style = if ansi_style.fg.is_some()
+                    // Build style by layering: token style -> ansi -> syntax -> semantic -> overlays -> selection
+                    // First check for explicit token style (for injected annotations)
+                    let token_style = style_mapping.get(view_idx).and_then(|s| s.as_ref());
+
+                    // Start with token style if present (for injected content like annotation headers)
+                    // Otherwise use ANSI/syntax/theme default
+                    let mut style = if let Some(ts) = token_style {
+                        // Apply explicit token style (typically for injected content with source_offset: None)
+                        let mut s = Style::default();
+                        if let Some((r, g, b)) = ts.fg {
+                            s = s.fg(ratatui::style::Color::Rgb(r, g, b));
+                        } else {
+                            s = s.fg(theme.editor_fg);
+                        }
+                        if let Some((r, g, b)) = ts.bg {
+                            s = s.bg(ratatui::style::Color::Rgb(r, g, b));
+                        }
+                        if ts.bold {
+                            s = s.add_modifier(Modifier::BOLD);
+                        }
+                        if ts.italic {
+                            s = s.add_modifier(Modifier::ITALIC);
+                        }
+                        s
+                    } else if ansi_style.fg.is_some()
                         || ansi_style.bg.is_some()
                         || !ansi_style.add_modifier.is_empty()
                     {
@@ -1845,6 +1882,7 @@ impl SplitRenderer {
             view_lines: &view_data.lines,
             view_mapping: &view_data.mapping,
             tab_starts: &view_data.tab_starts,
+            style_mapping: &view_data.style_mapping,
             view_anchor,
             render_area,
             gutter_width,
@@ -2095,6 +2133,7 @@ mod tests {
             view_lines: &view_data.lines,
             view_mapping: &view_data.mapping,
             tab_starts: &view_data.tab_starts,
+            style_mapping: &view_data.style_mapping,
             view_anchor,
             render_area,
             gutter_width,

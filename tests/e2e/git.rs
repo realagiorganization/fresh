@@ -1453,17 +1453,18 @@ fn test_git_blame_shows_blocks_with_headers() {
     trigger_git_blame(&mut harness);
 
     // Wait until git blame view appears (logical event)
+    // The view transform injects header lines with ── above each blame block
     harness.wait_until(|h| {
         let screen = h.screen_to_string();
-        // Should show "Git Blame:" header and block headers with ──
-        screen.contains("Git Blame:") && screen.contains("──")
+        // Should show block headers with ── (commit info injected via view transform)
+        screen.contains("──") && screen.contains("Initial commit")
     }).unwrap();
 
     let screen = harness.screen_to_string();
     println!("Git blame screen:\n{screen}");
 
-    assert!(screen.contains("Git Blame:"), "Should show Git Blame: header");
     assert!(screen.contains("──"), "Should show block header separator");
+    assert!(screen.contains("Initial commit"), "Should show commit summary in header");
 }
 
 /// Test git blame cursor navigation
@@ -1506,9 +1507,9 @@ fn test_git_blame_cursor_navigation() {
     // Trigger git blame
     trigger_git_blame(&mut harness);
 
-    // Wait until blame view appears
+    // Wait until blame view appears (block headers with ──)
     harness.wait_until(|h| {
-        h.screen_to_string().contains("Git Blame:")
+        h.screen_to_string().contains("──")
     }).unwrap();
 
     // Navigate down using j key
@@ -1526,8 +1527,8 @@ fn test_git_blame_cursor_navigation() {
     let screen = harness.screen_to_string();
     println!("After navigation:\n{screen}");
 
-    // Git blame should still be visible
-    assert!(screen.contains("Git Blame:"));
+    // Git blame should still be visible (showing block headers)
+    assert!(screen.contains("──"));
 }
 
 /// Test git blame close with q
@@ -1561,27 +1562,29 @@ fn test_git_blame_close() {
     // Trigger git blame
     trigger_git_blame(&mut harness);
 
-    // Wait until blame view appears
+    // Wait until blame view appears (block headers with ──)
     harness.wait_until(|h| {
-        h.screen_to_string().contains("Git Blame:")
+        h.screen_to_string().contains("──")
     }).unwrap();
 
     let screen_before = harness.screen_to_string();
-    assert!(screen_before.contains("Git Blame:"));
+    assert!(screen_before.contains("──"));
 
     // Press q to close git blame
     harness.send_key(KeyCode::Char('q'), KeyModifiers::NONE).unwrap();
 
-    // Wait until blame view is closed
+    // Wait until blame view is closed (back to original file without headers)
     harness.wait_until(|h| {
-        !h.screen_to_string().contains("Git Blame:")
+        let screen = h.screen_to_string();
+        // Original file should be visible without blame headers
+        screen.contains("fn main") && !screen.contains("──")
     }).unwrap();
 
     let screen_after = harness.screen_to_string();
     println!("After closing:\n{screen_after}");
 
-    // Should no longer show git blame
-    harness.assert_screen_not_contains("Git Blame:");
+    // Should no longer show git blame headers
+    harness.assert_screen_not_contains("──");
 }
 
 /// Test git blame go back in history with 'b' key
@@ -1625,9 +1628,9 @@ fn test_git_blame_go_back_in_history() {
     // Trigger git blame
     trigger_git_blame(&mut harness);
 
-    // Wait until blame view appears
+    // Wait until blame view appears (block headers with ──)
     harness.wait_until(|h| {
-        h.screen_to_string().contains("Git Blame:")
+        h.screen_to_string().contains("──")
     }).unwrap();
 
     // Navigate to a line from the second commit
@@ -1642,20 +1645,21 @@ fn test_git_blame_go_back_in_history() {
     // Press 'b' to go back in history
     harness.send_key(KeyCode::Char('b'), KeyModifiers::NONE).unwrap();
 
-    // Wait until we see the depth indicator or commit ref with ^
+    // Wait until we see the depth indicator in status or content changes
     harness.wait_until(|h| {
         let screen = h.screen_to_string();
-        // The view should still show Git Blame but with depth indicator
-        screen.contains("Git Blame:") && (screen.contains("depth:") || screen.contains("^"))
+        // After going back, the blame headers should still be visible
+        // and we might see "depth:" in the status or different file content
+        screen.contains("──") && (screen.contains("depth:") || screen.contains("First commit"))
     }).unwrap();
 
     let screen_after = harness.screen_to_string();
     println!("After pressing 'b':\n{screen_after}");
 
-    // We should still be in git blame view
+    // We should still be in git blame view with block headers
     assert!(
-        screen_after.contains("Git Blame:"),
-        "Should still show Git Blame after going back"
+        screen_after.contains("──"),
+        "Should still show blame block headers after going back"
     );
 }
 
@@ -1703,10 +1707,10 @@ fn test_git_blame_shows_different_commits() {
     // Wait until blame view appears with multiple blocks
     harness.wait_until(|h| {
         let screen = h.screen_to_string();
-        // Should show Git Blame header and at least two block headers (different commits)
+        // Should show at least two block headers (different commits)
         // The blocks are separated by ── lines
         let header_count = screen.matches("──").count();
-        screen.contains("Git Blame:") && header_count >= 2
+        header_count >= 2
     }).unwrap();
 
     let screen = harness.screen_to_string();

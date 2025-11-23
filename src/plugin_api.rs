@@ -85,11 +85,37 @@ pub enum ViewTokenWireKind {
     Break,
 }
 
-/// Wire-format view token with optional source mapping
+/// Styling for view tokens (used for injected annotations)
+///
+/// This allows plugins to specify styling for tokens that don't have a source
+/// mapping (source_offset: None), such as annotation headers in git blame.
+/// For tokens with source_offset: Some(_), syntax highlighting is applied instead.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ViewTokenStyle {
+    /// Foreground color as RGB tuple
+    #[serde(default)]
+    pub fg: Option<(u8, u8, u8)>,
+    /// Background color as RGB tuple
+    #[serde(default)]
+    pub bg: Option<(u8, u8, u8)>,
+    /// Whether to render in bold
+    #[serde(default)]
+    pub bold: bool,
+    /// Whether to render in italic
+    #[serde(default)]
+    pub italic: bool,
+}
+
+/// Wire-format view token with optional source mapping and styling
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewTokenWire {
+    /// Source byte offset in the buffer. None for injected content (annotations).
     pub source_offset: Option<usize>,
+    /// The token content
     pub kind: ViewTokenWireKind,
+    /// Optional styling for injected content (only used when source_offset is None)
+    #[serde(default)]
+    pub style: Option<ViewTokenStyle>,
 }
 
 /// Transformed view stream payload (plugin-provided)

@@ -3,10 +3,16 @@
 /**
  * Git Blame Plugin - Magit-style Git Blame Interface
  *
- * Provides an interactive git blame view with:
- * - Header lines above every block of text showing the origin commit
+ * Provides an interactive git blame view using the Annotated Views architecture:
+ * - Virtual buffer contains pure file content (for syntax highlighting)
+ * - View transform injects styled header lines above each blame block
+ * - Headers have dark gray background and no line numbers
+ * - Content lines preserve source line numbers and syntax highlighting
+ *
+ * Features:
  * - 'b' to go back in history (show blame at parent commit)
- * - 'q' to close the virtual buffer
+ * - 'q' to close the blame view
+ * - 'y' to yank (copy) the commit hash at cursor
  *
  * Inspired by magit's git-blame-additions feature.
  */
@@ -34,8 +40,10 @@ interface BlameBlock {
   relativeDate: string;
   summary: string;
   lines: BlameLine[];
-  startLine: number;
-  endLine: number;
+  startLine: number;       // First line number in block (1-indexed)
+  endLine: number;         // Last line number in block (1-indexed)
+  startByte: number;       // Start byte offset in the buffer
+  endByte: number;         // End byte offset in the buffer
 }
 
 interface BlameState {
@@ -46,8 +54,9 @@ interface BlameState {
   sourceFilePath: string | null;  // Path to the file being blamed
   currentCommit: string | null;   // Current commit being viewed (null = HEAD)
   commitStack: string[];          // Stack of commits for navigation
-  blocks: BlameBlock[];
-  cachedContent: string;
+  blocks: BlameBlock[];           // Blame blocks with byte offsets
+  fileContent: string;            // Pure file content (for virtual buffer)
+  lineByteOffsets: number[];      // Byte offset of each line start
 }
 
 // =============================================================================
@@ -63,22 +72,17 @@ const blameState: BlameState = {
   currentCommit: null,
   commitStack: [],
   blocks: [],
-  cachedContent: "",
+  fileContent: "",
+  lineByteOffsets: [],
 };
 
 // =============================================================================
-// Color Definitions
+// Color Definitions for Header Styling
 // =============================================================================
 
 const colors = {
-  hash: [255, 180, 50] as [number, number, number],        // Yellow/Orange
-  author: [100, 200, 255] as [number, number, number],     // Cyan
-  date: [150, 255, 150] as [number, number, number],       // Green
-  summary: [200, 200, 200] as [number, number, number],    // Light gray
-  header: [180, 140, 220] as [number, number, number],     // Purple for headers
-  headerBg: [40, 35, 50] as [number, number, number],      // Dark purple bg
-  content: [220, 220, 220] as [number, number, number],    // White-ish
-  separator: [80, 80, 80] as [number, number, number],     // Dark gray
+  headerFg: [220, 220, 220] as [number, number, number],   // Light gray text
+  headerBg: [50, 50, 55] as [number, number, number],       // Dark gray background
 };
 
 // =============================================================================
@@ -103,20 +107,6 @@ editor.defineMode(
 
 /**
  * Parse git blame --porcelain output
- * Format:
- *   <hash> <orig-line> <final-line> [num-lines]
- *   author <name>
- *   author-mail <email>
- *   author-time <timestamp>
- *   author-tz <tz>
- *   committer <name>
- *   committer-mail <email>
- *   committer-time <timestamp>
- *   committer-tz <tz>
- *   summary <commit message>
- *   [previous <hash> <filename>]
- *   filename <filename>
- *   \t<content>
  */
 async function fetchGitBlame(filePath: string, commit: string | null): Promise<BlameLine[]> {
   const args = ["blame", "--porcelain"];
@@ -243,7 +233,54 @@ function formatRelativeDate(timestamp: number): string {
 }
 
 /**
- * Group blame lines into blocks by commit
+ * Fetch file content at a specific commit (or HEAD)
+ */
+async function fetchFileContent(filePath: string, commit: string | null): Promise<string> {
+  if (commit) {
+    // Get historical file content
+    const result = await editor.spawnProcess("git", ["show", `${commit}:${filePath}`]);
+    if (result.exit_code === 0) {
+      return result.stdout;
+    }
+  }
+
+  // Get current file content
+  const result = await editor.spawnProcess("cat", [filePath]);
+  return result.exit_code === 0 ? result.stdout : "";
+}
+
+/**
+ * Build line byte offset lookup table
+ */
+function buildLineByteOffsets(content: string): number[] {
+  const offsets: number[] = [0]; // Line 1 starts at byte 0
+  let byteOffset = 0;
+
+  for (const char of content) {
+    byteOffset += char.length; // In JS strings, each char is at least 1
+    if (char === '\n') {
+      offsets.push(byteOffset);
+    }
+  }
+
+  return offsets;
+}
+
+/**
+ * Get byte offset for a given line number (1-indexed)
+ */
+function getLineByteOffset(lineNum: number): number {
+  if (lineNum <= 0) return 0;
+  const idx = lineNum - 1;
+  if (idx < blameState.lineByteOffsets.length) {
+    return blameState.lineByteOffsets[idx];
+  }
+  // Return end of file if line number is out of range
+  return blameState.fileContent.length;
+}
+
+/**
+ * Group blame lines into blocks by commit, with byte offset information
  */
 function groupIntoBlocks(lines: BlameLine[]): BlameBlock[] {
   const blocks: BlameBlock[] = [];
@@ -254,6 +291,7 @@ function groupIntoBlocks(lines: BlameLine[]): BlameBlock[] {
     if (!currentBlock || currentBlock.hash !== line.hash) {
       // Save previous block
       if (currentBlock && currentBlock.lines.length > 0) {
+        currentBlock.endByte = getLineByteOffset(currentBlock.endLine + 1);
         blocks.push(currentBlock);
       }
 
@@ -267,6 +305,8 @@ function groupIntoBlocks(lines: BlameLine[]): BlameBlock[] {
         lines: [],
         startLine: line.finalLineNumber,
         endLine: line.finalLineNumber,
+        startByte: getLineByteOffset(line.finalLineNumber),
+        endByte: 0, // Will be set when block is complete
       };
     }
 
@@ -276,6 +316,7 @@ function groupIntoBlocks(lines: BlameLine[]): BlameBlock[] {
 
   // Don't forget the last block
   if (currentBlock && currentBlock.lines.length > 0) {
+    currentBlock.endByte = getLineByteOffset(currentBlock.endLine + 1);
     blocks.push(currentBlock);
   }
 
@@ -283,7 +324,7 @@ function groupIntoBlocks(lines: BlameLine[]): BlameBlock[] {
 }
 
 // =============================================================================
-// View Building
+// View Transform Hook
 // =============================================================================
 
 /**
@@ -291,240 +332,113 @@ function groupIntoBlocks(lines: BlameLine[]): BlameBlock[] {
  */
 function formatBlockHeader(block: BlameBlock): string {
   // Truncate summary if too long
-  const maxSummaryLen = 60;
+  const maxSummaryLen = 50;
   const summary = block.summary.length > maxSummaryLen
     ? block.summary.slice(0, maxSummaryLen - 3) + "..."
     : block.summary;
 
-  return `── ${block.shortHash} (${block.author}, ${block.relativeDate}) "${summary}" ──\n`;
+  return `── ${block.shortHash} (${block.author}, ${block.relativeDate}) "${summary}" ──`;
 }
 
 /**
- * Build text property entries for the blame view
+ * Find which block (if any) starts at or before the given byte offset
  */
-function buildBlameEntries(): TextPropertyEntry[] {
-  const entries: TextPropertyEntry[] = [];
+function findBlockForByteOffset(byteOffset: number): BlameBlock | null {
+  for (const block of blameState.blocks) {
+    if (byteOffset >= block.startByte && byteOffset < block.endByte) {
+      return block;
+    }
+  }
+  return null;
+}
 
-  // Title header
-  const fileName = blameState.sourceFilePath
-    ? editor.pathBasename(blameState.sourceFilePath)
-    : "file";
-  const commitRef = blameState.currentCommit
-    ? blameState.currentCommit.slice(0, 7)
-    : "HEAD";
+/**
+ * View transform hook - injects styled header lines above blame blocks
+ */
+globalThis.onViewTransformRequest = function(args: {
+  buffer_id: number;
+  split_id: number;
+  viewport_start: number;
+  viewport_end: number;
+  tokens: ViewTokenWire[];
+}): void {
+  // Only transform our blame buffer
+  if (args.buffer_id !== blameState.bufferId || !blameState.isOpen) {
+    return;
+  }
 
-  entries.push({
-    text: `Git Blame: ${fileName} @ ${commitRef}\n`,
-    properties: { type: "title" },
-  });
+  const transformed: ViewTokenWire[] = [];
+  const processedBlocks = new Set<string>();
 
-  entries.push({
-    text: `\n`,
-    properties: { type: "blank" },
-  });
-
-  if (blameState.blocks.length === 0) {
-    entries.push({
-      text: "  No blame information available\n",
-      properties: { type: "empty" },
-    });
-  } else {
-    // Add each block with header
-    for (const block of blameState.blocks) {
-      // Add header line for this block
-      entries.push({
-        text: formatBlockHeader(block),
-        properties: {
-          type: "block-header",
-          hash: block.hash,
-          shortHash: block.shortHash,
-          author: block.author,
-          relativeDate: block.relativeDate,
-          summary: block.summary,
-        },
-      });
-
-      // Add each content line
-      for (const line of block.lines) {
-        entries.push({
-          text: `${line.content}\n`,
-          properties: {
-            type: "content",
-            hash: line.hash,
-            lineNumber: line.finalLineNumber,
-          },
-        });
-      }
+  // Track which blocks we need headers for based on viewport
+  const blocksInViewport: BlameBlock[] = [];
+  for (const block of blameState.blocks) {
+    // Check if block overlaps with viewport
+    if (block.endByte > args.viewport_start && block.startByte < args.viewport_end) {
+      blocksInViewport.push(block);
     }
   }
 
-  // Footer with help
-  entries.push({
-    text: `\n`,
-    properties: { type: "blank" },
-  });
+  // Process tokens and inject headers
+  let lastByteOffset: number | null = null;
 
-  const stackDepth = blameState.commitStack.length;
-  const backInfo = stackDepth > 0 ? ` | depth: ${stackDepth}` : "";
-  entries.push({
-    text: `${blameState.blocks.length} blocks | ↑/↓/j/k: navigate | b: blame at parent | y: yank hash | q: close${backInfo}\n`,
-    properties: { type: "footer" },
-  });
+  for (const token of args.tokens) {
+    const byteOffset = token.source_offset;
 
-  return entries;
-}
+    // Check if we're entering a new block
+    if (byteOffset !== null && byteOffset !== lastByteOffset) {
+      for (const block of blocksInViewport) {
+        // Inject header at the start of each block
+        if (byteOffset === block.startByte && !processedBlocks.has(block.hash + block.startByte)) {
+          processedBlocks.add(block.hash + block.startByte);
 
-/**
- * Helper to extract content string from entries
- */
-function entriesToContent(entries: TextPropertyEntry[]): string {
-  return entries.map(e => e.text).join("");
-}
+          const headerText = formatBlockHeader(block);
 
-/**
- * Apply syntax highlighting to the blame view
- */
-function applyBlameHighlighting(): void {
-  if (blameState.bufferId === null) return;
+          // Add header token (source_offset: null = no line number)
+          transformed.push({
+            source_offset: null,
+            kind: { Text: headerText },
+            style: {
+              fg: colors.headerFg,
+              bg: colors.headerBg,
+              bold: true,
+              italic: false,
+            },
+          });
 
-  const bufferId = blameState.bufferId;
-  editor.clearNamespace(bufferId, "gitblame");
-
-  const content = blameState.cachedContent;
-  if (!content) return;
-
-  const lines = content.split("\n");
-  let byteOffset = 0;
-
-  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-    const line = lines[lineIdx];
-    const lineStart = byteOffset;
-    const lineEnd = byteOffset + line.length;
-
-    // Highlight title line
-    if (lineIdx === 0 && line.startsWith("Git Blame:")) {
-      editor.addOverlay(
-        bufferId,
-        "gitblame",
-        lineStart,
-        lineEnd,
-        colors.header[0],
-        colors.header[1],
-        colors.header[2],
-        true,  // underline
-        true,  // bold
-        false  // italic
-      );
-      byteOffset += line.length + 1;
-      continue;
+          // Add newline after header (also with no source mapping)
+          transformed.push({
+            source_offset: null,
+            kind: "Newline",
+            style: {
+              fg: colors.headerFg,
+              bg: colors.headerBg,
+              bold: false,
+              italic: false,
+            },
+          });
+        }
+      }
     }
 
-    // Highlight block headers (lines starting with ──)
-    if (line.startsWith("──")) {
-      // Header background/style
-      editor.addOverlay(
-        bufferId,
-        "gitblame",
-        lineStart,
-        lineEnd,
-        colors.header[0],
-        colors.header[1],
-        colors.header[2],
-        false,  // underline
-        true,   // bold
-        false   // italic
-      );
-
-      // Try to highlight individual parts
-      // Format: ── <hash> (<author>, <date>) "<summary>" ──
-      const hashMatch = line.match(/── ([a-f0-9]{7})/);
-      if (hashMatch) {
-        const hashStart = lineStart + line.indexOf(hashMatch[1]);
-        editor.addOverlay(
-          bufferId,
-          "gitblame",
-          hashStart,
-          hashStart + 7,
-          colors.hash[0],
-          colors.hash[1],
-          colors.hash[2],
-          false,
-          true,
-          false
-        );
-      }
-
-      // Highlight author name (between ( and ,)
-      const authorMatch = line.match(/\(([^,]+),/);
-      if (authorMatch) {
-        const authorStart = lineStart + line.indexOf("(" + authorMatch[1]) + 1;
-        editor.addOverlay(
-          bufferId,
-          "gitblame",
-          authorStart,
-          authorStart + authorMatch[1].length,
-          colors.author[0],
-          colors.author[1],
-          colors.author[2],
-          false,
-          false,
-          false
-        );
-      }
-
-      // Highlight summary (text in quotes)
-      const summaryMatch = line.match(/"([^"]+)"/);
-      if (summaryMatch) {
-        const summaryStart = lineStart + line.indexOf('"' + summaryMatch[1]) + 1;
-        editor.addOverlay(
-          bufferId,
-          "gitblame",
-          summaryStart,
-          summaryStart + summaryMatch[1].length,
-          colors.summary[0],
-          colors.summary[1],
-          colors.summary[2],
-          false,
-          false,
-          true  // italic for summary
-        );
-      }
-
-      byteOffset += line.length + 1;
-      continue;
-    }
-
-    // Footer highlighting
-    if (line.includes("| ↑/↓/j/k:")) {
-      editor.addOverlay(
-        bufferId,
-        "gitblame",
-        lineStart,
-        lineEnd,
-        colors.separator[0],
-        colors.separator[1],
-        colors.separator[2],
-        false,
-        false,
-        true
-      );
-    }
-
-    byteOffset += line.length + 1;
+    // Pass through the original token (preserves source mapping for line numbers + syntax highlighting)
+    transformed.push(token);
+    lastByteOffset = byteOffset;
   }
-}
 
-/**
- * Update the blame view
- */
-function updateBlameView(): void {
-  if (blameState.bufferId !== null) {
-    const entries = buildBlameEntries();
-    blameState.cachedContent = entriesToContent(entries);
-    editor.setVirtualBufferContent(blameState.bufferId, entries);
-    applyBlameHighlighting();
-  }
-}
+  // Submit the transformed view
+  editor.submitViewTransform(
+    args.buffer_id,
+    args.split_id,
+    args.viewport_start,
+    args.viewport_end,
+    transformed,
+    null // no layout hints
+  );
+};
+
+// Register for the view transform hook
+editor.on("view_transform_request", "onViewTransformRequest");
 
 // =============================================================================
 // Public Commands
@@ -551,37 +465,69 @@ globalThis.show_git_blame = async function(): Promise<void> {
 
   // Store state before opening blame
   blameState.splitId = editor.getActiveSplitId();
-  blameState.sourceBufferId = editor.getActiveBufferId();
+  blameState.sourceBufferId = activeBufferId;
   blameState.sourceFilePath = filePath;
   blameState.currentCommit = null;
   blameState.commitStack = [];
 
-  // Fetch blame data
-  const blameLines = await fetchGitBlame(filePath, null);
+  // Fetch file content and blame data in parallel
+  const [fileContent, blameLines] = await Promise.all([
+    fetchFileContent(filePath, null),
+    fetchGitBlame(filePath, null),
+  ]);
 
   if (blameLines.length === 0) {
     editor.setStatus("No blame information available (not a git file or error)");
-    blameState.splitId = null;
-    blameState.sourceBufferId = null;
-    blameState.sourceFilePath = null;
+    resetState();
     return;
   }
 
-  // Group into blocks
+  // Store file content and build line offset table
+  blameState.fileContent = fileContent;
+  blameState.lineByteOffsets = buildLineByteOffsets(fileContent);
+
+  // Group into blocks with byte offsets
   blameState.blocks = groupIntoBlocks(blameLines);
 
-  // Build entries and cache content
-  const entries = buildBlameEntries();
-  blameState.cachedContent = entriesToContent(entries);
+  // Get file extension for language detection
+  const ext = filePath.includes('.') ? filePath.split('.').pop() : '';
+  const bufferName = `*blame:${editor.pathBasename(filePath)}*`;
 
-  // Create virtual buffer in the current split
+  // Create virtual buffer with PURE file content (for syntax highlighting)
+  // The view transform hook will inject headers during rendering
+  const entries: TextPropertyEntry[] = [];
+
+  // We need to track which line belongs to which block for text properties
+  let lineNum = 1;
+  const contentLines = fileContent.split('\n');
+  let byteOffset = 0;
+
+  for (const line of contentLines) {
+    // Find the block for this line
+    const block = findBlockForByteOffset(byteOffset);
+
+    entries.push({
+      text: line + (lineNum < contentLines.length || fileContent.endsWith('\n') ? '\n' : ''),
+      properties: {
+        type: "content",
+        hash: block?.hash ?? null,
+        shortHash: block?.shortHash ?? null,
+        lineNumber: lineNum,
+      },
+    });
+
+    byteOffset += line.length + 1; // +1 for newline
+    lineNum++;
+  }
+
+  // Create virtual buffer with the file content
   const bufferId = await editor.createVirtualBufferInExistingSplit({
-    name: "*Git Blame*",
+    name: bufferName,
     mode: "git-blame",
     read_only: true,
     entries: entries,
     split_id: blameState.splitId!,
-    show_line_numbers: false,
+    show_line_numbers: true,  // We DO want line numbers (headers won't have them due to source_offset: null)
     show_cursors: true,
     editing_disabled: true,
   });
@@ -589,17 +535,28 @@ globalThis.show_git_blame = async function(): Promise<void> {
   if (bufferId !== null) {
     blameState.isOpen = true;
     blameState.bufferId = bufferId;
-    applyBlameHighlighting();
 
     editor.setStatus(`Git blame: ${blameState.blocks.length} blocks | b: blame at parent | q: close`);
-    editor.debug("Git blame panel opened");
+    editor.debug("Git blame panel opened with view transform architecture");
   } else {
-    blameState.splitId = null;
-    blameState.sourceBufferId = null;
-    blameState.sourceFilePath = null;
+    resetState();
     editor.setStatus("Failed to open git blame panel");
   }
 };
+
+/**
+ * Reset blame state
+ */
+function resetState(): void {
+  blameState.splitId = null;
+  blameState.sourceBufferId = null;
+  blameState.sourceFilePath = null;
+  blameState.currentCommit = null;
+  blameState.commitStack = [];
+  blameState.blocks = [];
+  blameState.fileContent = "";
+  blameState.lineByteOffsets = [];
+}
 
 /**
  * Close the git blame view
@@ -621,13 +578,7 @@ globalThis.git_blame_close = function(): void {
 
   blameState.isOpen = false;
   blameState.bufferId = null;
-  blameState.splitId = null;
-  blameState.sourceBufferId = null;
-  blameState.sourceFilePath = null;
-  blameState.currentCommit = null;
-  blameState.commitStack = [];
-  blameState.blocks = [];
-  blameState.cachedContent = "";
+  resetState();
 
   editor.setStatus("Git blame closed");
 };
@@ -652,7 +603,6 @@ function getCommitAtCursor(): string | null {
 
 /**
  * Navigate to blame at the parent commit of the current line's commit
- * This allows drilling down through history
  */
 globalThis.git_blame_go_back = async function(): Promise<void> {
   if (!blameState.isOpen || !blameState.sourceFilePath) {
@@ -683,8 +633,11 @@ globalThis.git_blame_go_back = async function(): Promise<void> {
     blameState.commitStack.push("HEAD");
   }
 
-  // Fetch blame at parent commit
-  const blameLines = await fetchGitBlame(blameState.sourceFilePath, parentCommit);
+  // Fetch file content and blame at parent commit
+  const [fileContent, blameLines] = await Promise.all([
+    fetchFileContent(blameState.sourceFilePath, parentCommit),
+    fetchGitBlame(blameState.sourceFilePath, parentCommit),
+  ]);
 
   if (blameLines.length === 0) {
     // Pop the stack since we couldn't navigate
@@ -695,10 +648,36 @@ globalThis.git_blame_go_back = async function(): Promise<void> {
 
   // Update state
   blameState.currentCommit = parentCommit;
+  blameState.fileContent = fileContent;
+  blameState.lineByteOffsets = buildLineByteOffsets(fileContent);
   blameState.blocks = groupIntoBlocks(blameLines);
 
-  // Update view
-  updateBlameView();
+  // Update virtual buffer content
+  if (blameState.bufferId !== null) {
+    const entries: TextPropertyEntry[] = [];
+    let lineNum = 1;
+    const contentLines = fileContent.split('\n');
+    let byteOffset = 0;
+
+    for (const line of contentLines) {
+      const block = findBlockForByteOffset(byteOffset);
+
+      entries.push({
+        text: line + (lineNum < contentLines.length || fileContent.endsWith('\n') ? '\n' : ''),
+        properties: {
+          type: "content",
+          hash: block?.hash ?? null,
+          shortHash: block?.shortHash ?? null,
+          lineNumber: lineNum,
+        },
+      });
+
+      byteOffset += line.length + 1;
+      lineNum++;
+    }
+
+    editor.setVirtualBufferContent(blameState.bufferId, entries);
+  }
 
   const depth = blameState.commitStack.length;
   editor.setStatus(`Git blame at ${currentHash.slice(0, 7)}^ | depth: ${depth} | b: go deeper | q: close`);
@@ -761,5 +740,5 @@ editor.registerCommand(
 // Plugin Initialization
 // =============================================================================
 
-editor.setStatus("Git Blame plugin loaded (magit-style)");
+editor.setStatus("Git Blame plugin loaded (view transform architecture)");
 editor.debug("Git Blame plugin initialized - Use 'Git Blame' command to open");
