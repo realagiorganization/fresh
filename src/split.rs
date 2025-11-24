@@ -99,6 +99,9 @@ pub struct SplitViewState {
     /// Computed layout for this view (from view_transform or base tokens)
     /// This is View state - each split has its own Layout
     pub layout: Option<Layout>,
+
+    /// Whether the layout needs to be rebuilt (buffer changed, transform changed, etc.)
+    pub layout_dirty: bool,
 }
 
 impl SplitViewState {
@@ -115,6 +118,7 @@ impl SplitViewState {
             compose_prev_line_numbers: None,
             view_transform: None,
             layout: None,
+            layout_dirty: true, // Start dirty so first operation builds layout
         }
     }
 
@@ -131,6 +135,39 @@ impl SplitViewState {
             compose_prev_line_numbers: None,
             view_transform: None,
             layout: None,
+            layout_dirty: true, // Start dirty so first operation builds layout
+        }
+    }
+
+    /// Mark layout as needing rebuild (call after buffer changes)
+    pub fn invalidate_layout(&mut self) {
+        self.layout_dirty = true;
+    }
+
+    /// Ensure layout is valid, rebuilding if needed.
+    /// Returns the Layout - never returns None. Following VSCode's ViewModel pattern.
+    ///
+    /// # Arguments
+    /// * `tokens` - ViewTokenWire array (from view_transform or built from buffer)
+    /// * `source_range` - The byte range this layout covers
+    pub fn ensure_layout(
+        &mut self,
+        tokens: &[crate::plugin_api::ViewTokenWire],
+        source_range: std::ops::Range<usize>,
+    ) -> &Layout {
+        if self.layout.is_none() || self.layout_dirty {
+            self.layout = Some(Layout::from_tokens(tokens, source_range));
+            self.layout_dirty = false;
+        }
+        self.layout.as_ref().unwrap()
+    }
+
+    /// Get the current layout if it exists and is valid
+    pub fn get_layout(&self) -> Option<&Layout> {
+        if self.layout_dirty {
+            None
+        } else {
+            self.layout.as_ref()
         }
     }
 

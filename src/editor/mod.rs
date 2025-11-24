@@ -1833,6 +1833,13 @@ impl Editor {
     ///
     /// All event applications MUST go through this method to ensure consistency.
     pub fn apply_event_to_active_buffer(&mut self, event: &Event) {
+        // Handle View events (Scroll) at Editor level with Layout support
+        // View events go to SplitViewState, not EditorState
+        if let Event::Scroll { line_offset } = event {
+            self.handle_scroll_event(*line_offset);
+            return;
+        }
+
         // IMPORTANT: Calculate LSP changes BEFORE applying to buffer!
         // The byte positions in the events are relative to the ORIGINAL buffer,
         // so we must convert them to LSP positions before modifying the buffer.
@@ -1840,6 +1847,11 @@ impl Editor {
 
         // 1. Apply the event to the buffer
         self.active_state_mut().apply(event);
+
+        // 1b. Invalidate layouts for all views of this buffer after content changes
+        if matches!(event, Event::Insert { .. } | Event::Delete { .. }) {
+            self.invalidate_layouts_for_buffer(self.active_buffer);
+        }
 
         // 2. Adjust cursors in other splits that share the same buffer
         self.adjust_other_split_cursors_for_event(event);
@@ -1979,6 +1991,64 @@ impl Editor {
         if let Some((hook_name, args)) = hook_args {
             if let Some(ref ts_manager) = self.ts_plugin_manager {
                 ts_manager.run_hook(hook_name, args);
+            }
+        }
+    }
+
+    /// Handle scroll events using the SplitViewState's Layout
+    ///
+    /// View events (like Scroll) go to SplitViewState, not EditorState.
+    /// This correctly handles scroll limits when view transforms inject headers.
+    fn handle_scroll_event(&mut self, line_offset: isize) {
+        use crate::ui::view_pipeline::ViewLineIterator;
+
+        let active_split = self.split_manager.active_split();
+
+        // Get view_transform tokens from SplitViewState
+        let view_transform_tokens = self
+            .split_view_states
+            .get(&active_split)
+            .and_then(|vs| vs.view_transform.as_ref())
+            .map(|vt| vt.tokens.clone());
+
+        if let Some(tokens) = view_transform_tokens {
+            // Use view-aware scrolling with the transform's tokens
+            let view_lines: Vec<_> = ViewLineIterator::new(&tokens).collect();
+
+            // Get the viewport from SplitViewState and scroll
+            if let Some(view_state) = self.split_view_states.get_mut(&active_split) {
+                view_state
+                    .viewport
+                    .scroll_view_lines(&view_lines, line_offset);
+            }
+        } else {
+            // No view transform - use traditional buffer-based scrolling on EditorState's viewport
+            // Note: EditorState currently owns the viewport, so we delegate to it
+            let state = self.buffers.get_mut(&self.active_buffer).unwrap();
+            if line_offset > 0 {
+                state
+                    .viewport
+                    .scroll_down(&mut state.buffer, line_offset as usize);
+            } else {
+                state
+                    .viewport
+                    .scroll_up(&mut state.buffer, line_offset.unsigned_abs());
+            }
+        }
+    }
+
+    /// Invalidate layouts for all splits viewing a specific buffer
+    ///
+    /// Called after buffer content changes (Insert/Delete) to mark
+    /// layouts as dirty, forcing rebuild on next access.
+    fn invalidate_layouts_for_buffer(&mut self, buffer_id: BufferId) {
+        // Find all splits that display this buffer
+        let splits_for_buffer = self.split_manager.splits_for_buffer(buffer_id);
+
+        // Invalidate layout for each split
+        for split_id in splits_for_buffer {
+            if let Some(view_state) = self.split_view_states.get_mut(&split_id) {
+                view_state.invalidate_layout();
             }
         }
     }
