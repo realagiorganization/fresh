@@ -277,9 +277,25 @@ impl Viewport {
         self.top_view_line = target.min(max_top);
     }
 
-    /// Scroll to a specific view line (stub)
-    pub fn scroll_to(&mut self, _layout: &Layout, _view_line: usize) {
-        tracing::warn!("Viewport::scroll_to() not yet implemented");
+    /// Scroll to a specific view line in the layout
+    pub fn scroll_to(&mut self, layout: &Layout, view_line: usize) {
+        // Clamp to valid range
+        let max_line = layout.lines.len().saturating_sub(1);
+        let target_line = view_line.min(max_line);
+
+        // Ensure we don't scroll past the point where the last line is at the top
+        let max_top = layout
+            .lines
+            .len()
+            .saturating_sub(self.visible_line_count());
+        self.top_view_line = target_line.min(max_top);
+
+        // Update anchor_byte if we have a valid source mapping for this line
+        if let Some(line) = layout.lines.get(target_line) {
+            if let Some(byte) = line.char_mappings.iter().find_map(|m| *m) {
+                self.anchor_byte = byte;
+            }
+        }
     }
 }
 

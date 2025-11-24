@@ -2456,10 +2456,20 @@ impl Editor {
         self.paste();
     }
 
-    /// Alias for copy_selection()
+    /// Select all content in the active buffer
     pub fn select_all(&mut self) {
-        // TODO: Implement select all - need to create selection from start to end of buffer
-        tracing::warn!("select_all() not yet implemented");
+        let state = self.active_state_mut();
+        let buffer_len = state.buffer.len();
+
+        // Create ViewPosition for start (byte 0) and end (buffer length)
+        let start_pos = ViewPosition::from_source_byte(0);
+        let end_pos = ViewPosition::from_source_byte(buffer_len);
+
+        // Move cursor to end and set anchor at start
+        state.cursors.primary_mut().position = end_pos;
+        state.cursors.primary_mut().anchor = Some(start_pos);
+
+        self.set_status_message(format!("Selected {} bytes", buffer_len));
     }
 
     /// Alias for split_pane_horizontal()
@@ -2477,36 +2487,218 @@ impl Editor {
         self.close_active_split();
     }
 
-    // === LSP Operations (stubs for now) ===
+    // === LSP Operations ===
 
+    /// Request LSP completion at current cursor position
     pub fn trigger_completion(&mut self) {
-        tracing::warn!("trigger_completion() not yet implemented");
+        // Get the current buffer and cursor position
+        let state = self.active_state();
+        let cursor_byte = state.cursors.primary().position.source_byte.unwrap_or(0);
+
+        // Convert byte position to LSP position (line, UTF-16 code units)
+        let (line, character) = state.buffer.position_to_lsp_position(cursor_byte);
+
+        // Get the current file URI and path
+        let metadata = self.buffer_metadata.get(&self.active_buffer);
+        let (uri, file_path) = if let Some(meta) = metadata {
+            (meta.file_uri(), meta.file_path())
+        } else {
+            (None, None)
+        };
+
+        if let (Some(uri), Some(path)) = (uri, file_path) {
+            // Detect language from file extension
+            if let Some(language) = crate::lsp_manager::detect_language(path) {
+                // Get LSP handle
+                if let Some(lsp) = self.lsp.as_mut() {
+                    if let Some(handle) = lsp.get_or_spawn(&language) {
+                        let request_id = self.next_lsp_request_id;
+                        self.next_lsp_request_id += 1;
+                        self.pending_completion_request = Some(request_id);
+                        self.lsp_status = "LSP: completion...".to_string();
+
+                        let _ = handle.completion(
+                            request_id,
+                            uri.clone(),
+                            line as u32,
+                            character as u32,
+                        );
+                        tracing::info!(
+                            "Requested completion at {}:{}:{}",
+                            uri.as_str(),
+                            line,
+                            character
+                        );
+                    }
+                }
+            }
+        } else {
+            tracing::debug!("No file path for completion request");
+        }
     }
 
+    /// Request LSP go-to-definition at current cursor position
     pub fn goto_definition(&mut self) {
-        tracing::warn!("goto_definition() not yet implemented");
+        let state = self.active_state();
+        let cursor_byte = state.cursors.primary().position.source_byte.unwrap_or(0);
+        let (line, character) = state.buffer.position_to_lsp_position(cursor_byte);
+
+        let metadata = self.buffer_metadata.get(&self.active_buffer);
+        let (uri, file_path) = if let Some(meta) = metadata {
+            (meta.file_uri(), meta.file_path())
+        } else {
+            (None, None)
+        };
+
+        if let (Some(uri), Some(path)) = (uri, file_path) {
+            if let Some(language) = crate::lsp_manager::detect_language(path) {
+                if let Some(lsp) = self.lsp.as_mut() {
+                    if let Some(handle) = lsp.get_or_spawn(&language) {
+                        let request_id = self.next_lsp_request_id;
+                        self.next_lsp_request_id += 1;
+                        self.pending_goto_definition_request = Some(request_id);
+                        self.lsp_status = "LSP: go to definition...".to_string();
+
+                        let _ = handle.goto_definition(
+                            request_id,
+                            uri.clone(),
+                            line as u32,
+                            character as u32,
+                        );
+                        tracing::info!(
+                            "Requested go-to-definition at {}:{}:{}",
+                            uri.as_str(),
+                            line,
+                            character
+                        );
+                    }
+                }
+            }
+        }
     }
 
+    /// Request LSP hover documentation at current cursor position
     pub fn lsp_hover(&mut self) {
-        tracing::warn!("lsp_hover() not yet implemented");
+        let state = self.active_state();
+        let cursor_byte = state.cursors.primary().position.source_byte.unwrap_or(0);
+        let (line, character) = state.buffer.position_to_lsp_position(cursor_byte);
+
+        let metadata = self.buffer_metadata.get(&self.active_buffer);
+        let (uri, file_path) = if let Some(meta) = metadata {
+            (meta.file_uri(), meta.file_path())
+        } else {
+            (None, None)
+        };
+
+        if let (Some(uri), Some(path)) = (uri, file_path) {
+            if let Some(language) = crate::lsp_manager::detect_language(path) {
+                if let Some(lsp) = self.lsp.as_mut() {
+                    if let Some(handle) = lsp.get_or_spawn(&language) {
+                        let request_id = self.next_lsp_request_id;
+                        self.next_lsp_request_id += 1;
+                        self.pending_hover_request = Some(request_id);
+                        self.lsp_status = "LSP: hover...".to_string();
+
+                        let _ = handle.hover(
+                            request_id,
+                            uri.clone(),
+                            line as u32,
+                            character as u32,
+                        );
+                        tracing::info!(
+                            "Requested hover at {}:{}:{}",
+                            uri.as_str(),
+                            line,
+                            character
+                        );
+                    }
+                }
+            }
+        }
     }
 
+    /// Request LSP find references at current cursor position
     pub fn lsp_references(&mut self) {
-        tracing::warn!("lsp_references() not yet implemented");
+        let state = self.active_state();
+        let cursor_byte = state.cursors.primary().position.source_byte.unwrap_or(0);
+        let (line, character) = state.buffer.position_to_lsp_position(cursor_byte);
+
+        let metadata = self.buffer_metadata.get(&self.active_buffer);
+        let (uri, file_path) = if let Some(meta) = metadata {
+            (meta.file_uri(), meta.file_path())
+        } else {
+            (None, None)
+        };
+
+        if let (Some(uri), Some(path)) = (uri, file_path) {
+            if let Some(language) = crate::lsp_manager::detect_language(path) {
+                if let Some(lsp) = self.lsp.as_mut() {
+                    if let Some(handle) = lsp.get_or_spawn(&language) {
+                        let request_id = self.next_lsp_request_id;
+                        self.next_lsp_request_id += 1;
+                        self.pending_references_request = Some(request_id);
+                        self.lsp_status = "LSP: find references...".to_string();
+
+                        let _ = handle.references(
+                            request_id,
+                            uri.clone(),
+                            line as u32,
+                            character as u32,
+                        );
+                        tracing::info!(
+                            "Requested references at {}:{}:{}",
+                            uri.as_str(),
+                            line,
+                            character
+                        );
+                    }
+                }
+            }
+        }
     }
 
+    /// Start LSP rename operation
     pub fn lsp_rename(&mut self) {
-        tracing::warn!("lsp_rename() not yet implemented");
+        // Start the rename prompt using the existing start_rename function
+        if let Err(e) = self.start_rename() {
+            self.set_status_message(format!("Failed to start rename: {}", e));
+        }
     }
 
-    // === Undo/Redo (stubs) ===
+    // === Undo/Redo ===
 
     pub fn undo(&mut self) {
-        tracing::warn!("undo() not yet implemented");
+        if self.is_editing_disabled() {
+            self.set_status_message("Editing disabled in this buffer".to_string());
+            return;
+        }
+        let events = self.active_event_log_mut().undo();
+        if events.is_empty() {
+            self.set_status_message("Nothing to undo".to_string());
+            return;
+        }
+        // Apply all inverse events collected during undo
+        for event in events {
+            self.apply_event_to_active_buffer(&event);
+        }
+        self.set_status_message("Undo".to_string());
     }
 
     pub fn redo(&mut self) {
-        tracing::warn!("redo() not yet implemented");
+        if self.is_editing_disabled() {
+            self.set_status_message("Editing disabled in this buffer".to_string());
+            return;
+        }
+        let events = self.active_event_log_mut().redo();
+        if events.is_empty() {
+            self.set_status_message("Nothing to redo".to_string());
+            return;
+        }
+        // Apply all events collected during redo
+        for event in events {
+            self.apply_event_to_active_buffer(&event);
+        }
+        self.set_status_message("Redo".to_string());
     }
 
     // === Search/Replace (stubs) ===

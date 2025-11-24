@@ -220,9 +220,46 @@ impl Cursor {
         self.position = position;
     }
 
-    /// Adjust cursor position after an edit (view-based mapping TODO)
-    pub fn adjust_for_edit(&mut self, _edit_pos: usize, _old_len: usize, _new_len: usize) {
-        // TODO: re-map view positions after edits once layout is rebuilt.
+    /// Adjust cursor position after an edit
+    ///
+    /// This adjusts the source_byte and column based on edits to maintain
+    /// proper cursor tracking. The view_line will be re-computed when the
+    /// layout is rebuilt.
+    ///
+    /// # Arguments
+    /// * `edit_pos` - Byte position where the edit occurred
+    /// * `old_len` - Length of text that was removed (0 for pure insert)
+    /// * `new_len` - Length of text that was inserted (0 for pure delete)
+    pub fn adjust_for_edit(&mut self, edit_pos: usize, old_len: usize, new_len: usize) {
+        // Adjust position
+        if let Some(byte) = self.position.source_byte {
+            self.position.source_byte = Some(Self::adjust_byte(byte, edit_pos, old_len, new_len));
+            // Also update column as a rough approximation (will be recalculated with layout)
+            self.position.column = self.position.source_byte.unwrap_or(0);
+        }
+
+        // Adjust anchor if present
+        if let Some(ref mut anchor) = self.anchor {
+            if let Some(byte) = anchor.source_byte {
+                anchor.source_byte = Some(Self::adjust_byte(byte, edit_pos, old_len, new_len));
+                anchor.column = anchor.source_byte.unwrap_or(0);
+            }
+        }
+    }
+
+    /// Helper to adjust a byte position for an edit
+    fn adjust_byte(byte: usize, edit_pos: usize, old_len: usize, new_len: usize) -> usize {
+        if byte < edit_pos {
+            // Cursor is before the edit - no change
+            byte
+        } else if byte < edit_pos + old_len {
+            // Cursor is inside the deleted region - clamp to edit position
+            edit_pos
+        } else {
+            // Cursor is after the edit - shift by the delta
+            let delta = new_len as isize - old_len as isize;
+            ((byte as isize) + delta).max(0) as usize
+        }
     }
 
     pub fn source_byte(&self) -> Option<usize> {

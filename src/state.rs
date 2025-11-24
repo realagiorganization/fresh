@@ -810,30 +810,32 @@ impl EditorState {
     }
 }
 
-/// Stub: Adjust cursor positions after an insert operation
-/// TODO: Implement proper view-centric cursor adjustment
+/// Adjust cursor view-level positions after an insert operation
+///
+/// The byte-level adjustment is already done via cursors.adjust_for_edit() in the apply() handler.
+/// This function handles any additional view-coordinate adjustments needed after layout rebuild.
 fn adjust_cursors_for_insert(
     _cursors: &mut crate::cursor::Cursors,
     _start: ViewEventPosition,
     _text: &str,
 ) {
-    // The byte-level adjustment is already done via cursors.adjust_for_edit() in the insert handler.
-    // This function is for any additional view-level adjustments needed.
-    // For now, byte-level adjustment is sufficient.
-    tracing::trace!("adjust_cursors_for_insert: view-level adjustment stub");
+    // View-level coordinates (view_line) will be recalculated when the layout is rebuilt.
+    // The source_byte tracking in adjust_for_edit ensures proper byte positioning.
+    // No additional work needed here until we implement incremental layout updates.
 }
 
-/// Stub: Adjust cursor positions after a delete operation
-/// TODO: Implement proper view-centric cursor adjustment
+/// Adjust cursor view-level positions after a delete operation
+///
+/// The byte-level adjustment is already done via cursors.adjust_for_edit() in the apply() handler.
+/// This function handles any additional view-coordinate adjustments needed after layout rebuild.
 fn adjust_cursors_for_delete(
     _cursors: &mut crate::cursor::Cursors,
     _range: &ViewEventRange,
     _deleted_text: &str,
 ) {
-    // The byte-level adjustment is already done via cursors.adjust_for_edit() in the delete handler.
-    // This function is for any additional view-level adjustments needed.
-    // For now, byte-level adjustment is sufficient.
-    tracing::trace!("adjust_cursors_for_delete: view-level adjustment stub");
+    // View-level coordinates (view_line) will be recalculated when the layout is rebuilt.
+    // The source_byte tracking in adjust_for_edit ensures proper byte positioning.
+    // No additional work needed here until we implement incremental layout updates.
 }
 
 /// Implement DocumentModel trait for EditorState
