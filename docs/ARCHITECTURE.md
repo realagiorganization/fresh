@@ -336,3 +336,416 @@ To implement an annotated view feature:
 5. **Handle navigation:** Map cursor positions in the view back to logical positions in your annotation model
 
 6. **Support refresh:** When annotations change (e.g., blame at different commit), update buffer content and block positions; view transform auto-updates on next render
+
+## The Layout Layer
+
+Fresh uses a two-layer architecture inspired by WYSIWYG document editors like Microsoft Word and code editors like VSCode. This cleanly separates the **document** (source of truth for content) from the **layout** (source of truth for display).
+
+### The Two Layers
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DOCUMENT LAYER                           │
+│  • Buffer: source bytes (PieceTree)                         │
+│  • Cursor positions: source byte offsets                    │
+│  • Edits: insert/delete at byte positions                   │
+│  • Stable across display changes                            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                    View Transform (plugin)
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     LAYOUT LAYER                            │
+│  • ViewLines: display lines with source mappings            │
+│  • Viewport position: view line index                       │
+│  • Scrolling, visibility, cursor movement operate here      │
+│  • Rebuilt when buffer or view transform changes            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     RENDERING                               │
+│  • Iterates ViewLines[top..top+height]                      │
+│  • Applies syntax highlighting via source mappings          │
+│  • Positions cursor by finding its byte in ViewLines        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Why Two Layers?
+
+When view transforms inject content (like git blame headers), the display has **more lines** than the source buffer:
+
+```
+Source Buffer (5 lines):     Display Layout (7 lines):
+─────────────────────        ─────────────────────────
+Line 1                       ── Header (injected) ──
+Line 2                       Line 1
+Line 3                       Line 2
+Line 4                       ── Header (injected) ──
+Line 5                       Line 3
+                             Line 4
+                             Line 5
+```
+
+If the viewport operates on source lines, scroll limits are wrong (can't scroll to show all 7 display lines). If cursor movement uses source lines, pressing ↓ skips over injected headers.
+
+The solution: **viewport and visual navigation operate on the Layout Layer**.
+
+### Core Data Structures
+
+```rust
+/// A single display line with source mapping
+pub struct ViewLine {
+    pub text: String,
+    /// Maps each character to source byte (None = injected)
+    pub char_mappings: Vec<Option<usize>>,
+    pub char_styles: Vec<Option<ViewTokenStyle>>,
+    pub line_start: LineStart,
+    pub ends_with_newline: bool,
+}
+
+/// The complete layout for a buffer
+pub struct Layout {
+    /// All display lines
+    pub lines: Vec<ViewLine>,
+    /// Fast lookup: source byte → view line index
+    byte_to_view_line: BTreeMap<usize, usize>,
+}
+
+/// Viewport tracks position in layout coordinates
+pub struct Viewport {
+    /// Stable anchor in source bytes (survives layout rebuilds)
+    pub anchor_byte: usize,
+    /// Current top of viewport in view line index
+    pub top_view_line: usize,
+    /// Dimensions
+    pub width: u16,
+    pub height: u16,
+}
+
+/// Cursor stays in document coordinates (for editing)
+pub struct Cursor {
+    /// Position in source bytes
+    pub position: usize,
+    /// Preferred visual column (for ↑/↓ movement)
+    pub preferred_visual_column: Option<usize>,
+}
+```
+
+### The Frame Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 1. BUILD LAYOUT (on buffer/transform change)                │
+│    • Get view transform tokens (from plugin cache)          │
+│    • Convert to ViewLines via ViewLineIterator              │
+│    • Build byte→view_line index                             │
+│    • Store in EditorState.layout                            │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. PROCESS INPUT                                            │
+│                                                             │
+│    Scroll Event:                                            │
+│    • viewport.top_view_line += offset                       │
+│    • Clamp to [0, layout.lines.len() - viewport.height]     │
+│    • Update anchor_byte from layout for stability           │
+│                                                             │
+│    Cursor Move (↑/↓):                                       │
+│    • Find cursor's (view_line, visual_col) in layout        │
+│    • Move to adjacent view line, same visual column         │
+│    • Translate back to source byte via char_mappings        │
+│    • Update cursor.position                                 │
+│                                                             │
+│    Cursor Move (←/→/word/etc):                              │
+│    • Operate directly on source bytes (document layer)      │
+│    • Call ensure_visible() to adjust viewport if needed     │
+│                                                             │
+│    Edit (insert/delete):                                    │
+│    • Modify buffer at cursor.position (document layer)      │
+│    • Mark layout as dirty → rebuild next frame              │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. ENSURE CURSOR VISIBLE                                    │
+│    • Find cursor byte in layout → view_line_index           │
+│    • If view_line_index outside [top, top+height]:          │
+│      • Adjust top_view_line to center cursor                │
+│    • Update anchor_byte for stability                       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. RENDER                                                   │
+│    • for line in layout.lines[top..top+height]:             │
+│        • Render line.text with line.char_styles             │
+│        • Show line number if line has source content        │
+│        • Highlight cursor position if on this line          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Viewport Stability
+
+When the layout changes (edit, view transform update), view line indices shift. To maintain stable scroll position:
+
+1. **Store anchor_byte**: The source byte at the top of the viewport
+2. **On layout rebuild**: Find anchor_byte in new layout → new top_view_line
+3. **Clamp if needed**: If anchor_byte no longer exists, clamp to valid range
+
+```rust
+impl Viewport {
+    fn stabilize_after_layout_change(&mut self, layout: &Layout) {
+        // Find where our anchor landed in the new layout
+        if let Some(&view_line) = layout.byte_to_view_line.get(&self.anchor_byte) {
+            self.top_view_line = view_line;
+        } else {
+            // Anchor byte gone (deleted), find nearest
+            self.top_view_line = layout.find_nearest_view_line(self.anchor_byte);
+        }
+        // Clamp to valid range
+        let max_top = layout.lines.len().saturating_sub(self.height as usize);
+        self.top_view_line = self.top_view_line.min(max_top);
+        // Update anchor to current top line's source byte
+        self.anchor_byte = layout.get_source_byte_for_line(self.top_view_line);
+    }
+}
+```
+
+### WYSIWYG Cursor Movement
+
+For ↑/↓ to work correctly with injected lines:
+
+```rust
+impl Cursor {
+    fn move_vertical(&mut self, direction: i32, layout: &Layout) {
+        // 1. Find current position in layout
+        let (current_view_line, current_visual_col) =
+            layout.source_byte_to_view_position(self.position);
+
+        // 2. Use preferred column if set (for consistent vertical movement)
+        let target_col = self.preferred_visual_column
+            .unwrap_or(current_visual_col);
+
+        // 3. Move to target view line
+        let target_view_line = (current_view_line as i32 + direction)
+            .max(0) as usize;
+        let target_view_line = target_view_line.min(layout.lines.len() - 1);
+
+        // 4. Translate back to source byte
+        if let Some(new_byte) = layout.view_position_to_source_byte(
+            target_view_line,
+            target_col
+        ) {
+            self.position = new_byte;
+        }
+        // If target is injected line, skip to next source line
+
+        // 5. Remember preferred column for subsequent moves
+        self.preferred_visual_column = Some(target_col);
+    }
+}
+```
+
+### Scroll Limits
+
+With the Layout Layer, scroll limits are trivially correct:
+
+```rust
+impl Viewport {
+    fn scroll(&mut self, offset: isize, layout: &Layout) {
+        let new_top = (self.top_view_line as isize + offset)
+            .max(0) as usize;
+        let max_top = layout.lines.len().saturating_sub(self.height as usize);
+        self.top_view_line = new_top.min(max_top);
+
+        // Update anchor for stability
+        self.anchor_byte = layout.get_source_byte_for_line(self.top_view_line);
+    }
+}
+```
+
+No special handling for injected lines - they're just more ViewLines.
+
+### Scrolling Beyond the Current Layout
+
+The Layout is built from viewport-scoped tokens (for performance). But what happens when the user scrolls past the current layout?
+
+**The Problem:**
+```
+Layout covers view lines 0-50 (from viewport tokens)
+User presses PageDown → wants to see lines 50-100
+But we don't have ViewLines for 50-100 yet!
+```
+
+**The Solution: Layout Expansion**
+
+When scrolling would move past the current layout, we:
+
+1. **Request new tokens** from the view transform for the target range
+2. **Rebuild layout** to cover the new viewport
+3. **Complete the scroll** using the new layout
+
+```rust
+impl EditorState {
+    fn scroll(&mut self, offset: isize) {
+        let target_top = (self.viewport.top_view_line as isize + offset)
+            .max(0) as usize;
+
+        // Check if target is beyond current layout
+        if target_top + self.viewport.height as usize > self.layout.lines.len() {
+            // Need to rebuild layout for new viewport position
+            // First, estimate source byte for target view line
+            let target_byte = self.estimate_byte_for_view_line(target_top);
+
+            // Request new tokens from target_byte
+            self.rebuild_layout_from_byte(target_byte);
+        }
+
+        // Now scroll within the (possibly rebuilt) layout
+        self.viewport.scroll(offset, &self.layout);
+    }
+}
+```
+
+**Estimating Target Byte:**
+
+When scrolling to view lines we haven't built yet, we estimate the source byte:
+
+```rust
+fn estimate_byte_for_view_line(&self, target_view_line: usize) -> usize {
+    // Use the last known mapping from current layout
+    if let Some(last_line) = self.layout.lines.last() {
+        if let Some(last_byte) = last_line.char_mappings.iter().filter_map(|m| *m).last() {
+            // Estimate: target is N lines past our last known byte
+            let lines_past = target_view_line.saturating_sub(self.layout.lines.len());
+            // Rough estimate: 80 bytes per line average
+            return last_byte + (lines_past * 80);
+        }
+    }
+    0
+}
+```
+
+This estimate doesn't need to be perfect - the view transform will give us correct tokens for whatever range we request.
+
+### Cursor Movement Beyond Layout
+
+Similar handling for cursor movement:
+
+**PageDown/PageUp:**
+```rust
+fn page_down(&mut self) {
+    let page_size = self.viewport.height as usize;
+
+    // Move cursor down by page_size view lines
+    let (current_view_line, visual_col) =
+        self.layout.source_byte_to_view_position(self.cursor.position);
+    let target_view_line = current_view_line + page_size;
+
+    // If target is beyond layout, expand it first
+    if target_view_line >= self.layout.lines.len() {
+        let target_byte = self.estimate_byte_for_view_line(target_view_line);
+        self.rebuild_layout_from_byte(target_byte);
+    }
+
+    // Now move cursor within the expanded layout
+    self.cursor.move_to_view_line(target_view_line, visual_col, &self.layout);
+
+    // Ensure cursor is visible (may scroll viewport)
+    self.ensure_cursor_visible();
+}
+```
+
+**Cursor at End of Layout (↓ key):**
+```rust
+fn cursor_down(&mut self) {
+    let (current_view_line, visual_col) =
+        self.layout.source_byte_to_view_position(self.cursor.position);
+    let target_view_line = current_view_line + 1;
+
+    // At bottom of layout?
+    if target_view_line >= self.layout.lines.len() {
+        // Check if there's more content in the buffer
+        if self.has_content_below_layout() {
+            // Expand layout downward
+            self.expand_layout_down();
+        } else {
+            // At end of file - stay put or beep
+            return;
+        }
+    }
+
+    // Move cursor in layout
+    self.cursor.move_to_view_line(target_view_line, visual_col, &self.layout);
+    self.ensure_cursor_visible();
+}
+```
+
+### Tracking Total View Lines
+
+To know scroll limits without building the entire layout, we track:
+
+```rust
+pub struct Layout {
+    /// ViewLines for current viewport region
+    pub lines: Vec<ViewLine>,
+
+    /// Byte range this layout covers
+    pub source_range: Range<usize>,
+
+    /// Total view lines in entire document (estimated or exact)
+    pub total_view_lines: usize,
+
+    /// How many injected lines exist in entire document
+    /// (reported by view transform or computed)
+    pub total_injected_lines: usize,
+}
+```
+
+**Computing total_view_lines:**
+
+Without view transform:
+```rust
+total_view_lines = buffer.line_count()
+```
+
+With view transform (plugin reports it):
+```rust
+total_view_lines = buffer.line_count() + total_injected_lines
+```
+
+The plugin knows how many headers it injects (e.g., git blame knows number of commit blocks). It reports this in the view transform response:
+
+```typescript
+editor.submitViewTransform(
+    buffer_id,
+    split_id,
+    viewport_start,
+    viewport_end,
+    tokens,
+    {
+        compose_width: null,
+        total_injected_lines: blameBlocks.length  // NEW
+    }
+);
+```
+
+This gives correct scroll limits without building full-document layout.
+
+### Integration with View Transforms
+
+View transforms remain viewport-scoped for performance (only tokenize visible range). The Layout is built from:
+
+1. **With view transform**: Use cached `ViewTransformPayload.tokens`
+2. **Without view transform**: Build tokens directly from buffer
+
+The key insight: we don't need full-file tokens for correct scroll limits. We need to know **how many view lines exist total**. This can be:
+
+- Computed incrementally as user scrolls through file
+- Estimated from buffer line count + known injected line count
+- Reported by plugin as metadata
+
+For most cases, building layout from current viewport tokens + tracking total injected lines is sufficient.
