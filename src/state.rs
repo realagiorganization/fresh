@@ -15,6 +15,7 @@ use crate::popup::{Popup, PopupContent, PopupListItem, PopupManager, PopupPositi
 use crate::semantic_highlight::SemanticHighlighter;
 use crate::text_buffer::{Buffer, LineNumber};
 use crate::text_property::TextPropertyManager;
+use crate::ui::view_pipeline::{ViewLine, ViewLineIterator};
 use crate::viewport::Viewport;
 use crate::virtual_text::VirtualTextManager;
 use anyhow::Result;
@@ -374,12 +375,20 @@ impl EditorState {
             }
 
             Event::Scroll { line_offset } => {
-                if *line_offset > 0 {
-                    self.viewport
-                        .scroll_down(&mut self.buffer, *line_offset as usize);
+                // Use view-aware scrolling if we have a view transform
+                // This correctly handles scroll limits when view transforms inject headers
+                if let Some(ref vt) = self.view_transform {
+                    let view_lines: Vec<ViewLine> = ViewLineIterator::new(&vt.tokens).collect();
+                    self.viewport.scroll_view_lines(&view_lines, *line_offset as isize);
                 } else {
-                    self.viewport
-                        .scroll_up(&mut self.buffer, line_offset.unsigned_abs());
+                    // No view transform - use traditional buffer-based scrolling
+                    if *line_offset > 0 {
+                        self.viewport
+                            .scroll_down(&mut self.buffer, *line_offset as usize);
+                    } else {
+                        self.viewport
+                            .scroll_up(&mut self.buffer, line_offset.unsigned_abs());
+                    }
                 }
             }
 
