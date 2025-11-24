@@ -1181,16 +1181,7 @@ impl Editor {
             }
         }
 
-        let tab_size = self.config.editor.tab_size;
-        let auto_indent = self.config.editor.auto_indent;
-        let estimated_line_length = self.config.editor.estimated_line_length;
-        convert_action_to_events(
-            self.active_state_mut(),
-            action,
-            tab_size,
-            auto_indent,
-            estimated_line_length,
-        )
+        panic!("action_to_events must be rebuilt for view-centric cursor/layout pipeline");
     }
 
     // === Search and Replace Methods ===

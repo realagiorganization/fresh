@@ -179,7 +179,10 @@ pub fn action_to_events(
     auto_indent: bool,
     estimated_line_length: usize,
 ) -> Option<Vec<Event>> {
-    let mut events = Vec::new();
+        // VIEW-FIRST: navigation must be layout-based and emit view coordinates.
+        // This legacy byte-based action pipeline is obsolete and must be rewritten.
+        // For now, abort to force a rebuild on the new model.
+        panic!("actions.rs: navigation/actions must be rewritten to use view-centric cursors and layout-based movement");
 
     match action {
         // Character input - insert at each cursor
@@ -1626,7 +1629,14 @@ pub fn action_to_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{CursorId, Event};
+use crate::event::{CursorId, Event};
+
+// VIEW-CENTRIC OVERHAUL REQUIRED:
+// The legacy byte-based action pipeline is obsolete. All navigation and editing
+// must be rebuilt to operate on view coordinates using the active layout and
+// view-centric cursors. Until that is implemented, fail fast to prevent relying
+// on the old behavior.
+compile_error!("Rewrite actions.rs for view-centric cursor/layout navigation");
     use crate::state::EditorState;
 
     #[test]

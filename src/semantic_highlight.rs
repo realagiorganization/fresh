@@ -304,49 +304,18 @@ impl SemanticHighlighter {
         self.parser.is_some() && self.identifier_query.is_some()
     }
 
-    /// Get highlights for word occurrences in the viewport
+    /// Get highlights for word occurrences in the viewport.
     ///
-    /// # Arguments
-    /// * `buffer` - The text buffer
-    /// * `cursor_position` - Current cursor byte position
-    /// * `viewport_start` - Start byte offset of visible viewport
-    /// * `viewport_end` - End byte offset of visible viewport
-    ///
-    /// # Returns
-    /// Vector of highlight spans for all occurrences of the word under cursor
+    /// View-centric TODO: this API must be rewritten to accept view positions/lines
+    /// and map to source ranges via layout. The byte-based signature is obsolete.
     pub fn highlight_occurrences(
         &mut self,
-        buffer: &Buffer,
-        cursor_position: usize,
-        viewport_start: usize,
-        viewport_end: usize,
+        _buffer: &Buffer,
+        _cursor_position: usize,
+        _viewport_start: usize,
+        _viewport_end: usize,
     ) -> Vec<HighlightSpan> {
-        if !self.enabled {
-            return Vec::new();
-        }
-
-        // Try locals-based highlighting first (scope-aware)
-        if self.has_locals() {
-            return self.highlight_with_locals(
-                buffer,
-                cursor_position,
-                viewport_start,
-                viewport_end,
-            );
-        }
-
-        // Try tree-sitter identifier matching
-        if self.has_tree_sitter() {
-            return self.highlight_with_tree_sitter(
-                buffer,
-                cursor_position,
-                viewport_start,
-                viewport_end,
-            );
-        }
-
-        // Fallback to text-matching mode
-        self.highlight_with_text_matching(buffer, cursor_position, viewport_start, viewport_end)
+        panic!("semantic highlighting must be rewritten for view-centric cursor/viewports");
     }
 
     /// Locals-based highlighting that respects variable scoping
