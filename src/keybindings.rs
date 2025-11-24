@@ -183,7 +183,9 @@ pub enum Action {
     // File operations
     Save,
     SaveAs,
+    SaveAll,
     Open,
+    OpenFile, // Alias for Open
     New,
     Close,
     Quit,
@@ -240,6 +242,11 @@ pub enum Action {
     ToggleLineWrap,
     ToggleComposeMode,
     SetComposeWidth,
+    OpenRecent, // Open recent file picker
+    OpenConfig, // Open config file
+    OpenHelp, // Open help documentation
+    OpenThemeSwitcher, // Open theme switcher
+    OpenLogs, // Open logs view
 
     // Buffer navigation
     NextBuffer,
@@ -252,6 +259,9 @@ pub enum Action {
     // Position history navigation
     NavigateBack,
     NavigateForward,
+    Back,    // Alias for NavigateBack
+    Forward, // Alias for NavigateForward
+
 
     // Split view operations
     SplitHorizontal,
@@ -263,8 +273,15 @@ pub enum Action {
     DecreaseSplitSize,
 
     // Prompt mode actions
+    Prompt, // Generic prompt action
     PromptConfirm,
     PromptCancel,
+    PromptClose, // Alias for PromptCancel
+    PromptCommand, // Open command palette
+    PromptSearch, // Start search prompt
+    PromptReplace, // Start replace prompt
+    PromptSaveAs, // Start save-as prompt
+    PromptOpen, // Start open-file prompt
     PromptBackspace,
     PromptDelete,
     PromptMoveLeft,
@@ -295,12 +312,16 @@ pub enum Action {
     PromptSelectAll,
 
     // Popup mode actions
+    Popup, // Generic popup action
     PopupSelectNext,
     PopupSelectPrev,
     PopupPageUp,
     PopupPageDown,
     PopupConfirm,
     PopupCancel,
+    PopupShowDocumentation,
+    PopupScrollDown,
+    PopupScrollUp,
 
     // File explorer operations
     ToggleFileExplorer,
@@ -344,10 +365,13 @@ pub enum Action {
 
     // Search and replace
     Search,
+    Find, // Alias for starting search
     FindInSelection,
     FindNext,
     FindPrevious,
+    FindPrev, // Alias for FindPrevious
     Replace,
+    ReplaceNext, // Replace current match and find next
     QueryReplace, // Interactive replace (y/n/!/q for each match)
 
     // Menu navigation
