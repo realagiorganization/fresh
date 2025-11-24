@@ -18,3 +18,21 @@
 
 *Python code with syntax highlighting*
 
+## Step 3: javascript_highlighting
+
+![javascript_highlighting](../screenshots/Multi-Language_Highlighting_03_javascript_highlighting.svg)
+
+*JavaScript code with syntax highlighting*
+
+## Step 4: typescript_highlighting
+
+![typescript_highlighting](../screenshots/Multi-Language_Highlighting_04_typescript_highlighting.svg)
+
+*TypeScript code with syntax highlighting*
+
+## Step 5: html_highlighting
+
+![html_highlighting](../screenshots/Multi-Language_Highlighting_05_html_highlighting.svg)
+
+*HTML code with syntax highlighting*
+

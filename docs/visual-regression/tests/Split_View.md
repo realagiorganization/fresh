@@ -18,3 +18,9 @@
 
 *Editor split horizontally*
 
+## Step 3: two_files
+
+![two_files](../screenshots/Split_View_03_two_files.svg)
+
+*Two files visible in split panes*
+

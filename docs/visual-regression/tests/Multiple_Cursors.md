@@ -18,3 +18,15 @@
 
 *First word selected*
 
+## Step 3: two_cursors
+
+![two_cursors](../screenshots/Multiple_Cursors_03_two_cursors.svg)
+
+*Second occurrence selected (two cursors)*
+
+## Step 4: three_cursors
+
+![three_cursors](../screenshots/Multiple_Cursors_04_three_cursors.svg)
+
+*All occurrences selected (three cursors)*
+

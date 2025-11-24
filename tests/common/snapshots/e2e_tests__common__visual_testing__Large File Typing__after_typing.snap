@@ -4,9 +4,7 @@ expression: "&screen_text"
 ---
  File   Edit   View   Selection   Go   Help                                     
  fresh-test-BIG.txt*                                                            
-      5 │ @00000320:                                                           █
-        │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
-      6 │ @00000400:                                                           │
+      6 │ @00000400:                                                           █
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
       7 │ @00000480:                                                           │
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
@@ -14,9 +12,9 @@ expression: "&screen_text"
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
       9 │ @00000640:                                                           │
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
-     10 │ HELLO@00000720:                                                      │
+     10 │ @00000720:                                                           │
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
-     11 │ @00000800:                                                           │
+     11 │ HELLO@00000800:                                                      │
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
      12 │ @00000880:                                                           │
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
@@ -24,4 +22,6 @@ expression: "&screen_text"
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
      14 │ @00001040:                                                           │
         │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
-/tmp/fresh-test-BIG.txt [+] | Ln 9, Col 5 | Auto-revert dis...  Palette: Ctrl+P
+     15 │ @00001120:                                                           │
+        │ xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx │
+/tmp/fresh-test-BIG.txt [+] | Ln 10, Col 5 | Opened /tmp/fr...  Palette: Ctrl+P
