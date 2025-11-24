@@ -337,39 +337,115 @@ To implement an annotated view feature:
 
 6. **Support refresh:** When annotations change (e.g., blame at different commit), update buffer content and block positions; view transform auto-updates on next render
 
+## Buffer vs View: State Separation
+
+Fresh cleanly separates **Buffer state** (the document) from **View state** (how it's displayed). This enables multiple independent views of the same buffer, each with its own scroll position, cursor, and view transform.
+
+### Why Separate?
+
+Consider two splits showing the same file:
+- Split A: Normal view, scrolled to line 100, cursor at line 105
+- Split B: Git blame view, scrolled to line 1, cursor at line 10
+
+Both views share the same underlying text, but have completely independent:
+- Scroll positions (viewport)
+- Cursor positions
+- View transforms (blame vs normal)
+- Computed layouts
+
+### The State Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    BUFFER STATE (shared)                    │
+│  EditorState per buffer_id                                  │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ • buffer: PieceTree (actual text content)              │ │
+│  │ • undo/redo history                                    │ │
+│  │ • syntax highlighter (tokens derived from content)     │ │
+│  │ • overlays (content-anchored decorations)              │ │
+│  │ • markers (bookmarks, breakpoints)                     │ │
+│  └────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+                              │
+            ┌─────────────────┼─────────────────┐
+            ▼                                   ▼
+┌───────────────────────────┐     ┌───────────────────────────┐
+│   VIEW STATE (Split A)    │     │   VIEW STATE (Split B)    │
+│   SplitViewState          │     │   SplitViewState          │
+│ ┌───────────────────────┐ │     │ ┌───────────────────────┐ │
+│ │ • viewport (scroll)   │ │     │ │ • viewport (scroll)   │ │
+│ │ • cursors             │ │     │ │ • cursors             │ │
+│ │ • view_transform      │ │     │ │ • view_transform      │ │
+│ │ • view_mode           │ │     │ │ • view_mode           │ │
+│ │ • layout (computed)   │ │     │ │ • layout (computed)   │ │
+│ └───────────────────────┘ │     │ └───────────────────────┘ │
+└───────────────────────────┘     └───────────────────────────┘
+```
+
+### Event Routing
+
+Events are routed based on whether they affect the buffer or the view:
+
+**Buffer Events** → Applied to shared `EditorState`:
+- `Insert`, `Delete` (text modifications)
+- `AddOverlay`, `RemoveOverlay` (content decorations)
+- Undo/Redo
+
+**View Events** → Applied to `SplitViewState` for active split:
+- `Scroll` (viewport movement)
+- `MoveCursor` (cursor navigation)
+- `SetViewMode` (normal/blame/etc)
+
+When a buffer event modifies content, ALL views of that buffer must:
+1. Adjust their cursor positions (if affected by the edit)
+2. Mark their layout as dirty (needs rebuild)
+
+### Syntax Highlighting: Buffer or View?
+
+Base syntax highlighting is **buffer state** because:
+- Tokens are derived from content (same content = same tokens)
+- Expensive to compute, wasteful to duplicate per-view
+- Most editors share highlighting across views
+
+However, **style application** can be view-specific via view transforms. A git blame view transform can restyle tokens (dim old code, highlight recent changes) without affecting other views.
+
 ## The Layout Layer
 
-Fresh uses a two-layer architecture inspired by WYSIWYG document editors like Microsoft Word and code editors like VSCode. This cleanly separates the **document** (source of truth for content) from the **layout** (source of truth for display).
+The Layout is **View state**, not Buffer state. Each view (split) has its own Layout computed from its view_transform. This enables different views of the same buffer to have different layouts (e.g., blame view vs normal view).
 
 ### The Two Layers
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    DOCUMENT LAYER                           │
+│              BUFFER LAYER (EditorState - shared)            │
 │  • Buffer: source bytes (PieceTree)                         │
-│  • Cursor positions: source byte offsets                    │
-│  • Edits: insert/delete at byte positions                   │
-│  • Stable across display changes                            │
+│  • Syntax tokens (shared across views)                      │
+│  • Overlays, markers (content-anchored)                     │
 └─────────────────────────────────────────────────────────────┘
                               │
-                    View Transform (plugin)
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     LAYOUT LAYER                            │
-│  • ViewLines: display lines with source mappings            │
-│  • Viewport position: view line index                       │
-│  • Scrolling, visibility, cursor movement operate here      │
-│  • Rebuilt when buffer or view transform changes            │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     RENDERING                               │
-│  • Iterates ViewLines[top..top+height]                      │
-│  • Applies syntax highlighting via source mappings          │
-│  • Positions cursor by finding its byte in ViewLines        │
-└─────────────────────────────────────────────────────────────┘
+          ┌───────────────────┼───────────────────┐
+          ▼                                       ▼
+┌─────────────────────────────┐     ┌─────────────────────────────┐
+│  VIEW LAYER (Split A)       │     │  VIEW LAYER (Split B)       │
+│  SplitViewState             │     │  SplitViewState             │
+│ ┌─────────────────────────┐ │     │ ┌─────────────────────────┐ │
+│ │ view_transform (plugin) │ │     │ │ view_transform (plugin) │ │
+│ │         │               │ │     │ │         │               │ │
+│ │         ▼               │ │     │ │         ▼               │ │
+│ │ layout (ViewLines)      │ │     │ │ layout (ViewLines)      │ │
+│ │         │               │ │     │ │         │               │ │
+│ │         ▼               │ │     │ │         ▼               │ │
+│ │ viewport (view line idx)│ │     │ │ viewport (view line idx)│ │
+│ │ cursors (source bytes)  │ │     │ │ cursors (source bytes)  │ │
+│ └─────────────────────────┘ │     │ └─────────────────────────┘ │
+└─────────────────────────────┘     └─────────────────────────────┘
+                │                                 │
+                ▼                                 ▼
+┌─────────────────────────────┐     ┌─────────────────────────────┐
+│         RENDERING           │     │         RENDERING           │
+│  ViewLines[top..top+height] │     │  ViewLines[top..top+height] │
+└─────────────────────────────┘     └─────────────────────────────┘
 ```
 
 ### Why Two Layers?
@@ -405,12 +481,26 @@ pub struct ViewLine {
     pub ends_with_newline: bool,
 }
 
-/// The complete layout for a buffer
+/// The complete layout for a view (computed from view_transform)
 pub struct Layout {
     /// All display lines
     pub lines: Vec<ViewLine>,
     /// Fast lookup: source byte → view line index
     byte_to_view_line: BTreeMap<usize, usize>,
+}
+
+/// View state for a single split (independent of buffer)
+pub struct SplitViewState {
+    /// Cursor positions (source bytes, but per-view)
+    pub cursors: Cursors,
+    /// Scroll position in layout coordinates
+    pub viewport: Viewport,
+    /// Plugin-provided view transform (git blame, etc)
+    pub view_transform: Option<ViewTransformPayload>,
+    /// Computed layout (from view_transform or base tokens)
+    pub layout: Option<Layout>,
+    /// Display mode
+    pub view_mode: ViewMode,
 }
 
 /// Viewport tracks position in layout coordinates
@@ -438,34 +528,34 @@ pub struct Cursor {
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. BUILD LAYOUT (on buffer/transform change)                │
-│    • Get view transform tokens (from plugin cache)          │
+│    • Get view transform tokens (from plugin or base)        │
 │    • Convert to ViewLines via ViewLineIterator              │
 │    • Build byte→view_line index                             │
-│    • Store in EditorState.layout                            │
+│    • Store in SplitViewState.layout (per-view!)             │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ 2. PROCESS INPUT                                            │
+│ 2. PROCESS INPUT (routed by event type)                     │
 │                                                             │
-│    Scroll Event:                                            │
+│    Scroll Event → SplitViewState:                           │
 │    • viewport.top_view_line += offset                       │
 │    • Clamp to [0, layout.lines.len() - viewport.height]     │
 │    • Update anchor_byte from layout for stability           │
 │                                                             │
-│    Cursor Move (↑/↓):                                       │
+│    Cursor Move (↑/↓) → SplitViewState:                      │
 │    • Find cursor's (view_line, visual_col) in layout        │
 │    • Move to adjacent view line, same visual column         │
 │    • Translate back to source byte via char_mappings        │
-│    • Update cursor.position                                 │
+│    • Update cursor.position in SplitViewState.cursors       │
 │                                                             │
-│    Cursor Move (←/→/word/etc):                              │
+│    Cursor Move (←/→/word/etc) → SplitViewState:             │
 │    • Operate directly on source bytes (document layer)      │
 │    • Call ensure_visible() to adjust viewport if needed     │
 │                                                             │
-│    Edit (insert/delete):                                    │
-│    • Modify buffer at cursor.position (document layer)      │
-│    • Mark layout as dirty → rebuild next frame              │
+│    Edit (insert/delete) → EditorState (shared buffer):      │
+│    • Modify buffer at cursor.position                       │
+│    • Mark ALL views' layouts as dirty → rebuild next frame  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -589,23 +679,25 @@ When scrolling would move past the current layout, we:
 3. **Complete the scroll** using the new layout
 
 ```rust
-impl EditorState {
-    fn scroll(&mut self, offset: isize) {
+impl SplitViewState {
+    fn scroll(&mut self, offset: isize, buffer: &Buffer) {
+        let layout = self.layout.as_ref().expect("layout must exist");
         let target_top = (self.viewport.top_view_line as isize + offset)
             .max(0) as usize;
 
         // Check if target is beyond current layout
-        if target_top + self.viewport.height as usize > self.layout.lines.len() {
+        if target_top + self.viewport.height as usize > layout.lines.len() {
             // Need to rebuild layout for new viewport position
             // First, estimate source byte for target view line
             let target_byte = self.estimate_byte_for_view_line(target_top);
 
-            // Request new tokens from target_byte
-            self.rebuild_layout_from_byte(target_byte);
+            // Request new tokens from target_byte and rebuild layout
+            self.rebuild_layout_from_byte(target_byte, buffer);
         }
 
         // Now scroll within the (possibly rebuilt) layout
-        self.viewport.scroll(offset, &self.layout);
+        let layout = self.layout.as_ref().unwrap();
+        self.viewport.scroll(offset, layout);
     }
 }
 ```
@@ -615,17 +707,21 @@ impl EditorState {
 When scrolling to view lines we haven't built yet, we estimate the source byte:
 
 ```rust
-fn estimate_byte_for_view_line(&self, target_view_line: usize) -> usize {
-    // Use the last known mapping from current layout
-    if let Some(last_line) = self.layout.lines.last() {
-        if let Some(last_byte) = last_line.char_mappings.iter().filter_map(|m| *m).last() {
-            // Estimate: target is N lines past our last known byte
-            let lines_past = target_view_line.saturating_sub(self.layout.lines.len());
-            // Rough estimate: 80 bytes per line average
-            return last_byte + (lines_past * 80);
+impl SplitViewState {
+    fn estimate_byte_for_view_line(&self, target_view_line: usize) -> usize {
+        // Use the last known mapping from current layout
+        if let Some(ref layout) = self.layout {
+            if let Some(last_line) = layout.lines.last() {
+                if let Some(last_byte) = last_line.char_mappings.iter().filter_map(|m| *m).last() {
+                    // Estimate: target is N lines past our last known byte
+                    let lines_past = target_view_line.saturating_sub(layout.lines.len());
+                    // Rough estimate: 80 bytes per line average
+                    return last_byte + (lines_past * 80);
+                }
+            }
         }
+        0
     }
-    0
 }
 ```
 
@@ -633,54 +729,65 @@ This estimate doesn't need to be perfect - the view transform will give us corre
 
 ### Cursor Movement Beyond Layout
 
-Similar handling for cursor movement:
+Similar handling for cursor movement (all operations happen on SplitViewState):
 
 **PageDown/PageUp:**
 ```rust
-fn page_down(&mut self) {
-    let page_size = self.viewport.height as usize;
+impl SplitViewState {
+    fn page_down(&mut self, buffer: &Buffer) {
+        let layout = self.layout.as_ref().expect("layout must exist");
+        let page_size = self.viewport.height as usize;
+        let cursor = self.cursors.primary();
 
-    // Move cursor down by page_size view lines
-    let (current_view_line, visual_col) =
-        self.layout.source_byte_to_view_position(self.cursor.position);
-    let target_view_line = current_view_line + page_size;
+        // Move cursor down by page_size view lines
+        let (current_view_line, visual_col) =
+            layout.source_byte_to_view_position(cursor.position);
+        let target_view_line = current_view_line + page_size;
 
-    // If target is beyond layout, expand it first
-    if target_view_line >= self.layout.lines.len() {
-        let target_byte = self.estimate_byte_for_view_line(target_view_line);
-        self.rebuild_layout_from_byte(target_byte);
+        // If target is beyond layout, expand it first
+        if target_view_line >= layout.lines.len() {
+            let target_byte = self.estimate_byte_for_view_line(target_view_line);
+            self.rebuild_layout_from_byte(target_byte, buffer);
+        }
+
+        // Now move cursor within the expanded layout
+        let layout = self.layout.as_ref().unwrap();
+        self.cursors.primary_mut().move_to_view_line(target_view_line, visual_col, layout);
+
+        // Ensure cursor is visible (may scroll viewport)
+        self.ensure_cursor_visible();
     }
-
-    // Now move cursor within the expanded layout
-    self.cursor.move_to_view_line(target_view_line, visual_col, &self.layout);
-
-    // Ensure cursor is visible (may scroll viewport)
-    self.ensure_cursor_visible();
 }
 ```
 
 **Cursor at End of Layout (↓ key):**
 ```rust
-fn cursor_down(&mut self) {
-    let (current_view_line, visual_col) =
-        self.layout.source_byte_to_view_position(self.cursor.position);
-    let target_view_line = current_view_line + 1;
+impl SplitViewState {
+    fn cursor_down(&mut self, buffer: &Buffer) {
+        let layout = self.layout.as_ref().expect("layout must exist");
+        let cursor = self.cursors.primary();
 
-    // At bottom of layout?
-    if target_view_line >= self.layout.lines.len() {
-        // Check if there's more content in the buffer
-        if self.has_content_below_layout() {
-            // Expand layout downward
-            self.expand_layout_down();
-        } else {
-            // At end of file - stay put or beep
-            return;
+        let (current_view_line, visual_col) =
+            layout.source_byte_to_view_position(cursor.position);
+        let target_view_line = current_view_line + 1;
+
+        // At bottom of layout?
+        if target_view_line >= layout.lines.len() {
+            // Check if there's more content in the buffer
+            if layout.has_content_below(buffer.len()) {
+                // Expand layout downward
+                self.expand_layout_down(buffer);
+            } else {
+                // At end of file - stay put or beep
+                return;
+            }
         }
-    }
 
-    // Move cursor in layout
-    self.cursor.move_to_view_line(target_view_line, visual_col, &self.layout);
-    self.ensure_cursor_visible();
+        // Move cursor in layout
+        let layout = self.layout.as_ref().unwrap();
+        self.cursors.primary_mut().move_to_view_line(target_view_line, visual_col, layout);
+        self.ensure_cursor_visible();
+    }
 }
 ```
 
