@@ -2554,18 +2554,40 @@ impl Editor {
         }
 
         // Otherwise, scroll the editor in the active split
-        if let Some(state) = self.buffers.get_mut(&self.active_buffer) {
-            // Scroll the viewport by the delta amount
-            if delta < 0 {
-                // Scroll up
-                let lines_to_scroll = delta.abs() as usize;
-                state.viewport.scroll_up(&mut state.buffer, lines_to_scroll);
+        // Use SplitViewState's viewport (View events go to SplitViewState, not EditorState)
+        let active_split = self.split_manager.active_split();
+
+        // Get view_transform tokens from SplitViewState (if any)
+        let view_transform_tokens = self
+            .split_view_states
+            .get(&active_split)
+            .and_then(|vs| vs.view_transform.as_ref())
+            .map(|vt| vt.tokens.clone());
+
+        // Get mutable references to both buffer and view state
+        let buffer = self
+            .buffers
+            .get_mut(&self.active_buffer)
+            .map(|s| &mut s.buffer);
+        let view_state = self.split_view_states.get_mut(&active_split);
+
+        if let (Some(buffer), Some(view_state)) = (buffer, view_state) {
+            if let Some(tokens) = view_transform_tokens {
+                // Use view-aware scrolling with the transform's tokens
+                use crate::ui::view_pipeline::ViewLineIterator;
+                let view_lines: Vec<_> = ViewLineIterator::new(&tokens).collect();
+                view_state.viewport.scroll_view_lines(&view_lines, delta as isize);
             } else {
-                // Scroll down
-                let lines_to_scroll = delta as usize;
-                state
-                    .viewport
-                    .scroll_down(&mut state.buffer, lines_to_scroll);
+                // No view transform - use traditional buffer-based scrolling
+                if delta < 0 {
+                    // Scroll up
+                    let lines_to_scroll = delta.abs() as usize;
+                    view_state.viewport.scroll_up(buffer, lines_to_scroll);
+                } else {
+                    // Scroll down
+                    let lines_to_scroll = delta as usize;
+                    view_state.viewport.scroll_down(buffer, lines_to_scroll);
+                }
             }
         }
 

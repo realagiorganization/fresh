@@ -1833,11 +1833,22 @@ impl Editor {
     ///
     /// All event applications MUST go through this method to ensure consistency.
     pub fn apply_event_to_active_buffer(&mut self, event: &Event) {
-        // Handle View events (Scroll) at Editor level with Layout support
-        // View events go to SplitViewState, not EditorState
-        if let Event::Scroll { line_offset } = event {
-            self.handle_scroll_event(*line_offset);
-            return;
+        // Handle View events at Editor level - View events go to SplitViewState, not EditorState
+        // This properly separates Buffer state from View state
+        match event {
+            Event::Scroll { line_offset } => {
+                self.handle_scroll_event(*line_offset);
+                return;
+            }
+            Event::SetViewport { top_line } => {
+                self.handle_set_viewport_event(*top_line);
+                return;
+            }
+            Event::Recenter => {
+                self.handle_recenter_event();
+                return;
+            }
+            _ => {}
         }
 
         // IMPORTANT: Calculate LSP changes BEFORE applying to buffer!
@@ -1995,7 +2006,7 @@ impl Editor {
         }
     }
 
-    /// Handle scroll events using the SplitViewState's Layout
+    /// Handle scroll events using the SplitViewState's viewport
     ///
     /// View events (like Scroll) go to SplitViewState, not EditorState.
     /// This correctly handles scroll limits when view transforms inject headers.
@@ -2003,36 +2014,81 @@ impl Editor {
         use crate::ui::view_pipeline::ViewLineIterator;
 
         let active_split = self.split_manager.active_split();
+        let buffer_id = self.active_buffer;
 
-        // Get view_transform tokens from SplitViewState
+        // Get view_transform tokens from SplitViewState (if any)
         let view_transform_tokens = self
             .split_view_states
             .get(&active_split)
             .and_then(|vs| vs.view_transform.as_ref())
             .map(|vt| vt.tokens.clone());
 
-        if let Some(tokens) = view_transform_tokens {
-            // Use view-aware scrolling with the transform's tokens
-            let view_lines: Vec<_> = ViewLineIterator::new(&tokens).collect();
+        // Get mutable references to both buffer and view state
+        let buffer = &mut self.buffers.get_mut(&buffer_id).unwrap().buffer;
+        let view_state = self.split_view_states.get_mut(&active_split);
 
-            // Get the viewport from SplitViewState and scroll
-            if let Some(view_state) = self.split_view_states.get_mut(&active_split) {
-                view_state
-                    .viewport
-                    .scroll_view_lines(&view_lines, line_offset);
-            }
-        } else {
-            // No view transform - use traditional buffer-based scrolling on EditorState's viewport
-            // Note: EditorState currently owns the viewport, so we delegate to it
-            let state = self.buffers.get_mut(&self.active_buffer).unwrap();
-            if line_offset > 0 {
-                state
-                    .viewport
-                    .scroll_down(&mut state.buffer, line_offset as usize);
+        if let Some(view_state) = view_state {
+            if let Some(tokens) = view_transform_tokens {
+                // Use view-aware scrolling with the transform's tokens
+                let view_lines: Vec<_> = ViewLineIterator::new(&tokens).collect();
+                view_state.viewport.scroll_view_lines(&view_lines, line_offset);
             } else {
-                state
-                    .viewport
-                    .scroll_up(&mut state.buffer, line_offset.unsigned_abs());
+                // No view transform - use traditional buffer-based scrolling
+                // Still use SplitViewState's viewport (not EditorState's)
+                if line_offset > 0 {
+                    view_state.viewport.scroll_down(buffer, line_offset as usize);
+                } else {
+                    view_state.viewport.scroll_up(buffer, line_offset.unsigned_abs());
+                }
+            }
+        }
+    }
+
+    /// Handle SetViewport event using SplitViewState's viewport
+    fn handle_set_viewport_event(&mut self, top_line: usize) {
+        let active_split = self.split_manager.active_split();
+        let buffer_id = self.active_buffer;
+
+        // Get mutable references to both buffer and view state
+        let buffer = self
+            .buffers
+            .get_mut(&buffer_id)
+            .map(|s| &mut s.buffer);
+        let view_state = self.split_view_states.get_mut(&active_split);
+
+        if let (Some(buffer), Some(view_state)) = (buffer, view_state) {
+            view_state.viewport.scroll_to(buffer, top_line);
+        }
+    }
+
+    /// Handle Recenter event using SplitViewState's viewport and cursors
+    fn handle_recenter_event(&mut self) {
+        let active_split = self.split_manager.active_split();
+        let buffer_id = self.active_buffer;
+
+        // Get cursor position from SplitViewState's cursors
+        let cursor_position = self
+            .split_view_states
+            .get(&active_split)
+            .and_then(|vs| vs.cursors.iter().next())
+            .map(|(_, c)| c.position);
+
+        if let Some(cursor_pos) = cursor_position {
+            // Get buffer to calculate line
+            if let Some(state) = self.buffers.get(&buffer_id) {
+                let cursor_line = state.buffer.position_to_line_col(cursor_pos).0;
+                let half_height = self
+                    .split_view_states
+                    .get(&active_split)
+                    .map(|vs| (vs.viewport.height / 2) as usize)
+                    .unwrap_or(12);
+                let new_top = cursor_line.saturating_sub(half_height);
+
+                // Now scroll the viewport
+                let buffer = &mut self.buffers.get_mut(&buffer_id).unwrap().buffer;
+                if let Some(view_state) = self.split_view_states.get_mut(&active_split) {
+                    view_state.viewport.scroll_to(buffer, new_top);
+                }
             }
         }
     }
