@@ -1548,14 +1548,21 @@ impl Editor {
             self.active_buffer = buffer_id;
         }
         // Restore cursor and viewport from split view state
+        self.sync_split_view_state_to_editor_state();
+        // Ensure the active tab is visible in the newly active split
+        self.ensure_active_tab_visible(split_id, self.active_buffer, self.terminal_width);
+    }
+
+    /// Sync SplitViewState's cursors and viewport to EditorState
+    /// Called before action_to_events to ensure EditorState has current view state
+    fn sync_split_view_state_to_editor_state(&mut self) {
+        let split_id = self.split_manager.active_split();
         if let Some(view_state) = self.split_view_states.get(&split_id) {
             if let Some(buffer_state) = self.buffers.get_mut(&self.active_buffer) {
                 buffer_state.cursors = view_state.cursors.clone();
                 buffer_state.viewport = view_state.viewport.clone();
             }
         }
-        // Ensure the active tab is visible in the newly active split
-        self.ensure_active_tab_visible(split_id, self.active_buffer, self.terminal_width);
     }
 
     /// Adjust cursors in other splits that share the same buffer after an edit
@@ -1859,7 +1866,11 @@ impl Editor {
         // 1. Apply the event to the buffer
         self.active_state_mut().apply(event);
 
-        // 1b. Invalidate layouts for all views of this buffer after content changes
+        // 1b. Sync cursors and viewport from EditorState to SplitViewState
+        // This keeps the authoritative View state in SplitViewState up to date
+        self.sync_editor_state_to_split_view_state();
+
+        // 1c. Invalidate layouts for all views of this buffer after content changes
         if matches!(event, Event::Insert { .. } | Event::Delete { .. }) {
             self.invalidate_layouts_for_buffer(self.active_buffer);
         }
@@ -2105,6 +2116,23 @@ impl Editor {
         for split_id in splits_for_buffer {
             if let Some(view_state) = self.split_view_states.get_mut(&split_id) {
                 view_state.invalidate_layout();
+            }
+        }
+    }
+
+    /// Sync cursors and viewport from EditorState to SplitViewState
+    ///
+    /// This keeps SplitViewState's View state (cursors, viewport) in sync with
+    /// EditorState after events are applied. This is necessary because some
+    /// events (cursor movements, edits) still update EditorState directly.
+    fn sync_editor_state_to_split_view_state(&mut self) {
+        let split_id = self.split_manager.active_split();
+        if let Some(buffer_state) = self.buffers.get(&self.active_buffer) {
+            if let Some(view_state) = self.split_view_states.get_mut(&split_id) {
+                view_state.cursors = buffer_state.cursors.clone();
+                // Also sync viewport because cursor movements may trigger ensure_visible
+                // which updates EditorState's viewport
+                view_state.viewport = buffer_state.viewport.clone();
             }
         }
     }
@@ -2684,9 +2712,14 @@ impl Editor {
         self.terminal_width = width;
         self.terminal_height = height;
 
-        // Resize all existing buffers
+        // Resize all existing buffer EditorStates
         for state in self.buffers.values_mut() {
             state.resize(width, height);
+        }
+
+        // Resize all SplitViewState viewports
+        for view_state in self.split_view_states.values_mut() {
+            view_state.viewport.resize(width, height);
         }
     }
 
