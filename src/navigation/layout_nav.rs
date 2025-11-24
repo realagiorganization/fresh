@@ -82,3 +82,15 @@ pub fn scroll_view(layout: &Layout, viewport: &mut Viewport, line_offset: isize)
         viewport.anchor_byte = byte;
     }
 }
+
+/// Move to the start of the previous word in view coordinates.
+/// Note: Requires access to buffer context; will be called from action_convert with buffer access.
+pub fn move_word_left(layout: &Layout, cursor: &ViewPosition, buffer: &crate::text_buffer::Buffer) -> ViewPosition {
+    crate::word_navigation::find_word_start_left_view(layout, cursor, buffer)
+}
+
+/// Move to the start of the next word in view coordinates.
+/// Note: Requires access to buffer context; will be called from action_convert with buffer access.
+pub fn move_word_right(layout: &Layout, cursor: &ViewPosition, buffer: &crate::text_buffer::Buffer) -> ViewPosition {
+    crate::word_navigation::find_word_start_right_view(layout, cursor, buffer)
+}

@@ -32,6 +32,7 @@ impl Editor {
                 &mut view_state.cursors,
                 &layout,
                 &mut view_state.viewport,
+                &buffer_state.buffer,
                 action,
             );
 

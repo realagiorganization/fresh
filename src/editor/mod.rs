@@ -37,6 +37,34 @@ pub(crate) fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
     }
 }
 
+use self::types::{
+    Bookmark, CachedLayout, InteractiveReplaceState, LspMessageEntry, LspProgressInfo,
+    MacroRecordingState, MouseState, SearchState,
+};
+use crate::async_bridge::{AsyncBridge, AsyncMessage};
+use crate::buffer_mode::ModeRegistry;
+use crate::command_registry::CommandRegistry;
+use crate::commands::Suggestion;
+use crate::config::Config;
+use crate::event::{CursorId, Event, EventLog, SplitDirection, SplitId, ViewEventPosition};
+use crate::file_tree::{FileTree, FileTreeView};
+use crate::fs::{FsBackend, FsManager, LocalFsBackend};
+use crate::keybindings::{Action, KeyContext, KeybindingResolver};
+use crate::lsp::LspServerConfig;
+use crate::lsp_diagnostics;
+use crate::lsp_manager::{detect_language, LspManager, LspSpawnResult};
+use crate::multi_cursor::{
+    add_cursor_above, add_cursor_at_next_match, add_cursor_below, AddCursorResult,
+};
+use crate::plugin_api::PluginCommand;
+use crate::plugin_thread::PluginThreadHandle;
+use crate::position_history::PositionHistory;
+use crate::prompt::{Prompt, PromptType};
+use crate::split::{SplitManager, SplitViewState};
+use crate::state::EditorState;
+use crate::text_buffer::Buffer;
+use crate::ui::{FileExplorerRenderer, SplitRenderer, StatusBarRenderer, SuggestionsRenderer};
+
 fn view_pos_to_event(pos: crate::cursor::ViewPosition) -> ViewEventPosition {
     ViewEventPosition {
         view_line: pos.view_line,
@@ -67,42 +95,6 @@ fn view_event_range_to_lsp(
         end_char.saturating_sub(start_char),
     )
 }
-
-fn view_pos_to_event(pos: crate::cursor::ViewPosition) -> ViewEventPosition {
-    ViewEventPosition {
-        view_line: pos.view_line,
-        column: pos.column,
-        source_byte: pos.source_byte,
-    }
-}
-
-use self::types::{
-    Bookmark, CachedLayout, InteractiveReplaceState, LspMessageEntry, LspProgressInfo,
-    MacroRecordingState, MouseState, SearchState, DEFAULT_BACKGROUND_FILE,
-};
-use crate::async_bridge::{AsyncBridge, AsyncMessage};
-use crate::buffer_mode::ModeRegistry;
-use crate::command_registry::CommandRegistry;
-use crate::commands::Suggestion;
-use crate::config::Config;
-use crate::event::{CursorId, Event, EventLog, SplitDirection, SplitId, ViewEventPosition};
-use crate::file_tree::{FileTree, FileTreeView};
-use crate::fs::{FsBackend, FsManager, LocalFsBackend};
-use crate::keybindings::{Action, KeyContext, KeybindingResolver};
-use crate::lsp::LspServerConfig;
-use crate::lsp_diagnostics;
-use crate::lsp_manager::{detect_language, LspManager, LspSpawnResult};
-use crate::multi_cursor::{
-    add_cursor_above, add_cursor_at_next_match, add_cursor_below, AddCursorResult,
-};
-use crate::plugin_api::PluginCommand;
-use crate::plugin_thread::PluginThreadHandle;
-use crate::position_history::PositionHistory;
-use crate::prompt::{Prompt, PromptType};
-use crate::split::{SplitManager, SplitViewState};
-use crate::state::EditorState;
-use crate::ui::{FileExplorerRenderer, SplitRenderer, StatusBarRenderer, SuggestionsRenderer};
-use crate::event::ViewEventPosition;
 use crossterm::event::{KeyCode, KeyModifiers};
 use lsp_types::{Position, Range as LspRange, TextDocumentContentChangeEvent};
 use ratatui::{
@@ -1999,7 +1991,7 @@ impl Editor {
         // Convert event to hook args and fire the appropriate hook
         let hook_args = match event {
             Event::Insert { position, text, .. } => {
-                let insert_position = *position;
+                let insert_position = position.source_byte.unwrap_or(0);
                 let insert_len = text.len();
 
                 // Adjust byte ranges for the insertion
@@ -2032,22 +2024,27 @@ impl Editor {
                         buffer_id,
                         position: *position,
                         text: text.clone(),
-                        // Byte range of the affected area
-                        affected_start: insert_position,
-                        affected_end: insert_position + insert_len,
+                        affected_range: crate::event::ViewEventRange::new(
+                            *position,
+                            position.advanced(text),
+                        ),
+                        source_range: position
+                            .source_byte
+                            .map(|start| start..start.saturating_add(text.len())),
                     },
                 ))
             }
             Event::Delete {
                 range,
                 deleted_text,
+                source_range,
                 ..
             } => {
-                let delete_start = range.start;
+                let delete_start = source_range.as_ref().map(|r| r.start).unwrap_or(0);
 
                 // Adjust byte ranges for the deletion
-                let delete_end = range.end;
-                let delete_len = delete_end - delete_start;
+                let delete_end = source_range.as_ref().map(|r| r.end).unwrap_or(delete_start);
+                let delete_len = delete_end.saturating_sub(delete_start);
                 if let Some(seen) = self.seen_byte_ranges.get_mut(&buffer_id) {
                     // Collect adjusted ranges:
                     // - Ranges ending before delete start: keep unchanged
@@ -2077,9 +2074,7 @@ impl Editor {
                         buffer_id,
                         range: range.clone(),
                         deleted_text: deleted_text.clone(),
-                        // Byte position and length of deleted content
-                        affected_start: delete_start,
-                        deleted_len: deleted_text.len(),
+                        source_range: source_range.clone(),
                     },
                 ))
             }
@@ -2374,7 +2369,7 @@ impl Editor {
                 let event = Event::AddCursor {
                     cursor_id: next_id,
                     position: view_pos_to_event(cursor.position),
-                    anchor: cursor.anchor,
+                    anchor: cursor.anchor.map(view_pos_to_event),
                 };
 
                 // Log and apply the event
@@ -2497,7 +2492,7 @@ impl Editor {
         }
 
         // Save scroll position before reloading
-        let old_top_byte = self.active_state().viewport.top_byte;
+        let old_top_line = self.active_state().viewport.top_view_line;
         let old_left_column = self.active_state().viewport.left_column;
 
         // Load the file content fresh from disk
@@ -2508,9 +2503,9 @@ impl Editor {
             self.config.editor.large_file_threshold_bytes as usize,
         )?;
 
-        // Restore scroll position (clamped to valid range for new file size)
-        let new_file_size = new_state.buffer.len();
-        new_state.viewport.top_byte = old_top_byte.min(new_file_size);
+        // Restore scroll position (clamped to valid range for new view size)
+        new_state.viewport.top_view_line = old_top_line;
+        new_state.viewport.anchor_byte = 0;
         new_state.viewport.left_column = old_left_column;
 
         // Replace the current buffer with the new state

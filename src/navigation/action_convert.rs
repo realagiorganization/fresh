@@ -3,6 +3,7 @@ use crate::event::{Event, ViewEventPosition, ViewEventRange};
 use crate::keybindings::Action;
 use crate::navigation::edit_map::{view_pos_to_buffer_byte, view_range_to_buffer_range};
 use crate::navigation::layout_nav;
+use crate::text_buffer::Buffer;
 use crate::ui::view_pipeline::Layout;
 use crate::viewport::Viewport;
 
@@ -12,6 +13,7 @@ pub fn action_to_events(
     cursors: &mut crate::cursor::Cursors,
     layout: &Layout,
     viewport: &mut Viewport,
+    buffer: &Buffer,
     action: Action,
 ) -> Option<Vec<Event>> {
     let mut events = Vec::new();
@@ -149,6 +151,128 @@ pub fn action_to_events(
                 events.push(move_cursor_event_with_anchor(id, cursor, new_pos));
             }
         }
+        Action::SelectPageUp => {
+            for (id, cursor) in cursors.iter() {
+                let pref = cursor.preferred_visual_column.or(Some(cursor.column));
+                let new_pos = layout_nav::move_page(layout, &cursor.position, viewport, -1);
+                events.push(move_cursor_event_with_anchor(id, cursor, new_pos));
+            }
+        }
+        Action::SelectPageDown => {
+            for (id, cursor) in cursors.iter() {
+                let pref = cursor.preferred_visual_column.or(Some(cursor.column));
+                let new_pos = layout_nav::move_page(layout, &cursor.position, viewport, 1);
+                events.push(move_cursor_event_with_anchor(id, cursor, new_pos));
+            }
+        }
+        Action::SelectAll => {
+            // Select from start to end of document
+            let first_pos = ViewPosition {
+                view_line: 0,
+                column: 0,
+                source_byte: layout.get_source_byte_for_line(0),
+            };
+            let last_line = layout.lines.len().saturating_sub(1);
+            let last_pos = ViewPosition {
+                view_line: last_line,
+                column: layout.lines.get(last_line).map(|l| l.char_mappings.len()).unwrap_or(0),
+                source_byte: layout.get_source_byte_for_line(last_line),
+            };
+            // Move all cursors to start, with anchor at end
+            for (id, _cursor) in cursors.iter() {
+                events.push(Event::MoveCursor {
+                    cursor_id: id,
+                    old_position: view_pos_to_event(&first_pos),
+                    new_position: view_pos_to_event(&first_pos),
+                    old_anchor: None,
+                    new_anchor: Some(view_pos_to_event(&last_pos)),
+                    old_sticky_column: None,
+                    new_sticky_column: Some(0),
+                });
+            }
+        }
+        Action::SelectLine => {
+            for (id, cursor) in cursors.iter() {
+                let line_idx = cursor.position.view_line;
+                let line_start = ViewPosition {
+                    view_line: line_idx,
+                    column: 0,
+                    source_byte: layout.view_position_to_source_byte(line_idx, 0),
+                };
+                let line_len = layout.lines.get(line_idx).map(|l| l.char_mappings.len()).unwrap_or(0);
+                let line_end = ViewPosition {
+                    view_line: line_idx,
+                    column: line_len,
+                    source_byte: layout.view_position_to_source_byte(line_idx, line_len),
+                };
+                events.push(Event::MoveCursor {
+                    cursor_id: id,
+                    old_position: view_pos_to_event(&cursor.position),
+                    new_position: view_pos_to_event(&line_start),
+                    old_anchor: cursor.anchor.map(view_pos_to_event),
+                    new_anchor: Some(view_pos_to_event(&line_end)),
+                    old_sticky_column: cursor.preferred_visual_column,
+                    new_sticky_column: Some(0),
+                });
+            }
+        }
+        Action::DeleteLine => {
+            for (id, cursor) in cursors.iter() {
+                let line_idx = cursor.position.view_line;
+                let line_start = ViewPosition {
+                    view_line: line_idx,
+                    column: 0,
+                    source_byte: layout.view_position_to_source_byte(line_idx, 0),
+                };
+                // Include newline if present
+                let next_line_start = if line_idx + 1 < layout.lines.len() {
+                    ViewPosition {
+                        view_line: line_idx + 1,
+                        column: 0,
+                        source_byte: layout.view_position_to_source_byte(line_idx + 1, 0),
+                    }
+                } else {
+                    // Last line - delete to end
+                    let line_len = layout.lines.get(line_idx).map(|l| l.char_mappings.len()).unwrap_or(0);
+                    ViewPosition {
+                        view_line: line_idx,
+                        column: line_len,
+                        source_byte: layout.view_position_to_source_byte(line_idx, line_len),
+                    }
+                };
+                let view_range = ViewEventRange::new(view_pos_to_event(&line_start), view_pos_to_event(&next_line_start));
+                let source_range = view_range_to_buffer_range(layout, &line_start, &next_line_start);
+                if source_range.is_some() {
+                    events.push(Event::Delete {
+                        range: view_range,
+                        source_range,
+                        deleted_text: String::new(),
+                        cursor_id: id,
+                    });
+                }
+            }
+        }
+        Action::DeleteToLineEnd => {
+            for (id, cursor) in cursors.iter() {
+                let line_idx = cursor.position.view_line;
+                let line_len = layout.lines.get(line_idx).map(|l| l.char_mappings.len()).unwrap_or(0);
+                let line_end = ViewPosition {
+                    view_line: line_idx,
+                    column: line_len,
+                    source_byte: layout.view_position_to_source_byte(line_idx, line_len),
+                };
+                let view_range = ViewEventRange::normalized(cursor.position, line_end);
+                let source_range = view_range_to_buffer_range(layout, &cursor.position, &line_end);
+                if source_range.is_some() {
+                    events.push(Event::Delete {
+                        range: view_range,
+                        source_range,
+                        deleted_text: String::new(),
+                        cursor_id: id,
+                    });
+                }
+            }
+        }
         Action::ScrollUp => {
             layout_nav::scroll_view(layout, viewport, -1);
         }
@@ -232,6 +356,60 @@ pub fn action_to_events(
                     events.push(Event::Insert {
                         position: event_pos,
                         text: "\n".to_string(),
+                        cursor_id: id,
+                    });
+                }
+            }
+        }
+        Action::MoveWordLeft => {
+            for (id, cursor) in cursors.iter() {
+                let new_pos = layout_nav::move_word_left(layout, &cursor.position, buffer);
+                events.push(move_cursor_event(id, cursor, new_pos, Some(new_pos.column)));
+            }
+        }
+        Action::MoveWordRight => {
+            for (id, cursor) in cursors.iter() {
+                let new_pos = layout_nav::move_word_right(layout, &cursor.position, buffer);
+                events.push(move_cursor_event(id, cursor, new_pos, Some(new_pos.column)));
+            }
+        }
+        Action::SelectWordLeft => {
+            for (id, cursor) in cursors.iter() {
+                let new_pos = layout_nav::move_word_left(layout, &cursor.position, buffer);
+                events.push(move_cursor_event_with_anchor(id, cursor, new_pos));
+            }
+        }
+        Action::SelectWordRight => {
+            for (id, cursor) in cursors.iter() {
+                let new_pos = layout_nav::move_word_right(layout, &cursor.position, buffer);
+                events.push(move_cursor_event_with_anchor(id, cursor, new_pos));
+            }
+        }
+        Action::DeleteWordBackward => {
+            for (id, cursor) in cursors.iter() {
+                let word_start = layout_nav::move_word_left(layout, &cursor.position, buffer);
+                let view_range = ViewEventRange::normalized(word_start, cursor.position);
+                let source_range = view_range_to_buffer_range(layout, &word_start, &cursor.position);
+                if source_range.is_some() {
+                    events.push(Event::Delete {
+                        range: view_range,
+                        source_range,
+                        deleted_text: String::new(),
+                        cursor_id: id,
+                    });
+                }
+            }
+        }
+        Action::DeleteWordForward => {
+            for (id, cursor) in cursors.iter() {
+                let word_end = layout_nav::move_word_right(layout, &cursor.position, buffer);
+                let view_range = ViewEventRange::normalized(cursor.position, word_end);
+                let source_range = view_range_to_buffer_range(layout, &cursor.position, &word_end);
+                if source_range.is_some() {
+                    events.push(Event::Delete {
+                        range: view_range,
+                        source_range,
+                        deleted_text: String::new(),
                         cursor_id: id,
                     });
                 }

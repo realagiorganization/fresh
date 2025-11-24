@@ -2,6 +2,27 @@
 
 This document captures the final architecture for rewriting the remaining byte-centric modules into the new view-centric model. All public APIs must use `ViewPosition`/`ViewEventPosition`/`ViewEventRange` and only consult source bytes via `Layout` when needed. No buffer-first fallbacks.
 
+## Progress Summary (Last Updated: 2025-11-24)
+
+**Completed Modules:**
+- ✅ position_history.rs - Fully view-centric
+- ✅ word_navigation.rs - View helpers implemented
+- ✅ viewport.rs - Uses top_view_line
+- ✅ status_bar.rs - Displays view positions
+- ✅ split_rendering.rs - Renders from Layout
+- ✅ navigation/action_convert.rs - Core actions + word nav + line ops
+- ✅ navigation/layout_nav.rs - Pure layout navigation + word nav wrappers
+- ✅ navigation/edit_map.rs - View→source mapping
+- ✅ navigation/mapping.rs - Mapping helpers
+
+**In Progress:**
+- ⚠️ editor/input.rs - Partially stubbed, needs completion
+- ⚠️ editor/render.rs - action_to_events done, needs LSP/search
+- ⚠️ editor/mod.rs - Position history done, needs full integration
+- ⚠️ lsp_diagnostics.rs - Partially updated for view events
+
+**Key Change:** `navigation::action_convert::action_to_events()` now takes `&Buffer` parameter for word navigation.
+
 ---
 
 ## position_history.rs
