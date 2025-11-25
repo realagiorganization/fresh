@@ -26,6 +26,33 @@ impl Editor {
                 )
                 .clone();
 
+            // Sync cursor view positions from source_byte using the layout.
+            // This is necessary because after edits, source_byte is updated but view_line/column
+            // may be stale. Navigation actions depend on correct view_line.
+            let cursor_ids: Vec<_> = view_state.cursors.iter().map(|(id, _)| id).collect();
+            for cursor_id in cursor_ids {
+                if let Some(cursor) = view_state.cursors.get_mut(cursor_id) {
+                    if let Some(byte) = cursor.position.source_byte {
+                        if let Some((view_line, column)) = layout.source_byte_to_view_position(byte)
+                        {
+                            cursor.position.view_line = view_line;
+                            cursor.position.column = column;
+                        }
+                    }
+                    // Also sync anchor if present
+                    if let Some(ref mut anchor) = cursor.anchor {
+                        if let Some(byte) = anchor.source_byte {
+                            if let Some((view_line, column)) =
+                                layout.source_byte_to_view_position(byte)
+                            {
+                                anchor.view_line = view_line;
+                                anchor.column = column;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Convert action.
             let events = crate::navigation::action_convert::action_to_events(
                 &mut view_state.cursors,
