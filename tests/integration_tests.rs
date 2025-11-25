@@ -191,9 +191,9 @@ fn test_undo_redo_cursor_positions() {
 
     // Type "hello" - each character at the end of the buffer
     for ch in "hello".chars() {
-        let pos = state.buffer.len();
+        let byte_pos = state.buffer.len();
         let event = Event::Insert {
-            position: pos(pos),
+            position: pos(byte_pos),
             text: ch.to_string(),
             cursor_id,
         };
@@ -574,11 +574,11 @@ fn test_lsp_diagnostic_to_overlay() {
     let result = diagnostic_to_overlay(&diagnostic, &buffer, &theme);
     assert!(result.is_some());
 
-    let (range, face, priority) = result.unwrap();
+    let (view_range, _source_range, face, priority) = result.unwrap();
 
     // Check range: "let x = 5;\n" - position 4 is 'x'
-    assert_eq!(range.start, 4);
-    assert_eq!(range.end, 5);
+    assert_eq!(view_range.start.source_byte, Some(4));
+    assert_eq!(view_range.end.source_byte, Some(5));
 
     // Check priority (error should be highest)
     assert_eq!(priority, 100);
@@ -738,12 +738,12 @@ mod event_inverse_tests {
 
         match inverse {
             Event::Delete {
-                range,
+                range: del_range,
                 deleted_text,
                 cursor_id,
                 source_range,
             } => {
-                assert_eq!(range, range(10, 15));
+                assert_eq!(del_range, range(10, 15));
                 assert_eq!(source_range, Some(10..15));
                 assert_eq!(deleted_text, "hello");
                 assert_eq!(cursor_id, CursorId::UNDO_SENTINEL);
@@ -961,11 +961,11 @@ mod event_inverse_tests {
                 // Check first event (was last insert)
                 match &events[0] {
                     Event::Delete {
-                        range,
+                        range: del_range,
                         deleted_text,
                         ..
                     } => {
-                        assert_eq!(*range, range(2, 3));
+                        assert_eq!(*del_range, range(2, 3));
                         assert_eq!(deleted_text, "c");
                     }
                     _ => panic!("Expected Delete"),
@@ -974,11 +974,11 @@ mod event_inverse_tests {
                 // Check last event (was first insert)
                 match &events[2] {
                     Event::Delete {
-                        range,
+                        range: del_range,
                         deleted_text,
                         ..
                     } => {
-                        assert_eq!(*range, range(0, 1));
+                        assert_eq!(*del_range, range(0, 1));
                         assert_eq!(deleted_text, "a");
                     }
                     _ => panic!("Expected Delete"),

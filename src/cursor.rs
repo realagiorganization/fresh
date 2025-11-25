@@ -26,6 +26,15 @@ pub struct ViewPosition {
     pub source_byte: Option<usize>,
 }
 
+impl std::fmt::Display for ViewPosition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.source_byte {
+            Some(byte) => write!(f, "{}:{} (@{})", self.view_line, self.column, byte),
+            None => write!(f, "{}:{}", self.view_line, self.column),
+        }
+    }
+}
+
 impl PartialOrd for ViewPosition {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))

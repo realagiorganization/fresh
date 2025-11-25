@@ -13,7 +13,7 @@ fn test_overlay_background_color_direct() {
     // Insert text using proper event so marker list is updated
     let text = "// TODO: test".to_string();
     state.apply(&Event::Insert {
-        position: 0,
+        position: fresh::event::ViewEventPosition::from_source_byte(0),
         text: text.clone(),
         cursor_id: CursorId(0),
     });

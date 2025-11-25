@@ -61,7 +61,7 @@ pub fn apply_diagnostics_to_state_cached(
     }
 }
 
-fn diagnostic_to_overlay(
+pub fn diagnostic_to_overlay(
     diagnostic: &Diagnostic,
     buffer: &Buffer,
     theme: &crate::theme::Theme,

@@ -318,7 +318,7 @@ impl EditorTestHarness {
 
         // Initialize shadow string with the file content
         self.shadow_string = self.get_buffer_content();
-        self.shadow_cursor = self.cursor_position();
+        self.shadow_cursor = self.cursor_byte().unwrap_or(0);
 
         Ok(())
     }
@@ -891,9 +891,31 @@ impl EditorTestHarness {
         }
     }
 
-    /// Get the primary cursor position
+    /// Get the primary cursor's source byte offset.
+    /// Returns 0 if no source byte is mapped (for compatibility with existing tests).
     pub fn cursor_position(&self) -> usize {
+        self.editor
+            .active_state()
+            .cursors
+            .primary()
+            .position
+            .source_byte
+            .unwrap_or(0)
+    }
+
+    /// Get the primary cursor's full view position
+    pub fn cursor_view_position(&self) -> fresh::cursor::ViewPosition {
         self.editor.active_state().cursors.primary().position
+    }
+
+    /// Get the primary cursor's source byte offset (convenience method)
+    pub fn cursor_byte(&self) -> Option<usize> {
+        self.editor
+            .active_state()
+            .cursors
+            .primary()
+            .position
+            .source_byte
     }
 
     /// Get the buffer length in bytes
@@ -988,18 +1010,28 @@ impl EditorTestHarness {
         cursors
     }
 
-    /// Get the top line number currently visible in the viewport
+    /// Get the top view line index currently visible in the viewport
+    pub fn top_view_line(&self) -> usize {
+        self.editor.active_state().viewport.top_view_line
+    }
+
+    /// Get the top line number (1-indexed) based on buffer content.
     pub fn top_line_number(&mut self) -> usize {
-        let top_byte = self.editor.active_state().viewport.top_byte;
+        let anchor_byte = self.editor.active_state().viewport.anchor_byte;
         self.editor
             .active_state_mut()
             .buffer
-            .get_line_number(top_byte)
+            .get_line_number(anchor_byte)
     }
 
-    /// Get the top byte position of the viewport
+    /// Get the anchor byte position of the viewport (used for scroll stability)
+    pub fn anchor_byte(&self) -> usize {
+        self.editor.active_state().viewport.anchor_byte
+    }
+
+    /// Get the top byte position (compatibility method, returns anchor_byte)
     pub fn top_byte(&self) -> usize {
-        self.editor.active_state().viewport.top_byte
+        self.editor.active_state().viewport.anchor_byte
     }
 
     /// Get the viewport height (number of content lines that can be displayed)
@@ -1051,13 +1083,23 @@ impl EditorTestHarness {
         self.get_screen_row(layout::prompt_line_row(self.terminal_height()))
     }
 
-    /// Get the primary cursor's selection range, if any
-    pub fn get_selection_range(&self) -> Option<std::ops::Range<usize>> {
+    /// Get the primary cursor's selection, if any
+    pub fn get_selection(&self) -> Option<fresh::selection::Selection> {
         self.editor
             .active_state()
             .cursors
             .primary()
             .selection_range()
+    }
+
+    /// Get the primary cursor's selection as source byte range, if any
+    pub fn get_selection_byte_range(&self) -> Option<std::ops::Range<usize>> {
+        self.get_selection().and_then(|sel| {
+            match (sel.start.source_byte, sel.end.source_byte) {
+                (Some(start), Some(end)) => Some(start..end),
+                _ => None,
+            }
+        })
     }
 
     /// Check if there's an active selection
@@ -1067,7 +1109,7 @@ impl EditorTestHarness {
 
     /// Get the selected text (if any)
     pub fn get_selected_text(&mut self) -> String {
-        if let Some(range) = self.get_selection_range() {
+        if let Some(range) = self.get_selection_byte_range() {
             self.editor
                 .active_state_mut()
                 .get_text_range(range.start, range.end)
