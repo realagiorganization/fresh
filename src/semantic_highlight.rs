@@ -304,18 +304,70 @@ impl SemanticHighlighter {
         self.parser.is_some() && self.identifier_query.is_some()
     }
 
-    /// Get highlights for word occurrences in the viewport.
+    /// Get highlights for word occurrences in the viewport (view-centric API).
     ///
-    /// View-centric TODO: this API must be rewritten to accept view positions/lines
-    /// and map to source ranges via layout. The byte-based signature is obsolete.
+    /// This method is called from the view-centric rendering pipeline.
+    /// While the pipeline uses view coordinates for layout, semantic highlighting
+    /// operates on source bytes because:
+    /// - cursor_position is the source byte from ViewPosition.source_byte
+    /// - viewport_start/end come from Layout.source_range
+    ///
+    /// The returned HighlightSpans have byte ranges that are mapped back to
+    /// view positions during rendering via the Layout's char_mappings.
+    ///
+    /// # Arguments
+    /// * `buffer` - The text buffer
+    /// * `cursor_position` - Current cursor source byte position
+    /// * `viewport_start` - Start byte offset of visible viewport (from Layout.source_range)
+    /// * `viewport_end` - End byte offset of visible viewport (from Layout.source_range)
+    ///
+    /// # Returns
+    /// Vector of highlight spans for all occurrences of the word under cursor
+    pub fn highlight_occurrences_view(
+        &mut self,
+        buffer: &Buffer,
+        cursor_position: usize,
+        viewport_start: usize,
+        viewport_end: usize,
+    ) -> Vec<HighlightSpan> {
+        if !self.enabled {
+            return Vec::new();
+        }
+
+        // Try locals-based highlighting first (scope-aware)
+        if self.has_locals() {
+            return self.highlight_with_locals(
+                buffer,
+                cursor_position,
+                viewport_start,
+                viewport_end,
+            );
+        }
+
+        // Try tree-sitter identifier matching
+        if self.has_tree_sitter() {
+            return self.highlight_with_tree_sitter(
+                buffer,
+                cursor_position,
+                viewport_start,
+                viewport_end,
+            );
+        }
+
+        // Fallback to text-matching mode
+        self.highlight_with_text_matching(buffer, cursor_position, viewport_start, viewport_end)
+    }
+
+    /// Legacy API - kept for backward compatibility with tests
+    /// Delegates to highlight_occurrences_view
     pub fn highlight_occurrences(
         &mut self,
-        _buffer: &Buffer,
-        _cursor_position: usize,
-        _viewport_start: usize,
-        _viewport_end: usize,
+        buffer: &Buffer,
+        cursor_position: usize,
+        viewport_start: usize,
+        viewport_end: usize,
     ) -> Vec<HighlightSpan> {
-        panic!("semantic highlighting must be rewritten for view-centric cursor/viewports");
+        self.highlight_occurrences_view(buffer, cursor_position, viewport_start, viewport_end)
     }
 
     /// Locals-based highlighting that respects variable scoping

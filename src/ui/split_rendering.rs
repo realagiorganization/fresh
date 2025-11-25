@@ -660,7 +660,7 @@ impl SplitRenderer {
     }
 
     fn build_contexts(
-        state: &EditorState,
+        state: &mut EditorState,
         layout: &Layout,
         gutter_width: usize,
     ) -> (SelectionContext, DecorationContext) {
@@ -691,12 +691,60 @@ impl SplitRenderer {
             primary_cursor_position,
         };
 
+        // Get viewport byte range from layout
+        let viewport_start = layout.source_range.start;
+        let viewport_end = layout.source_range.end;
+
+        // Get syntax highlighting spans
+        let highlight_spans = if let Some(highlighter) = &mut state.highlighter {
+            highlighter.highlight_viewport(&state.buffer, viewport_start, viewport_end)
+        } else {
+            Vec::new()
+        };
+
+        // Get semantic highlighting spans (word occurrences under cursor)
+        let primary_cursor_byte = state.cursors.primary().position.source_byte.unwrap_or(0);
+        let semantic_spans = state.semantic_highlighter.highlight_occurrences_view(
+            &state.buffer,
+            primary_cursor_byte,
+            viewport_start,
+            viewport_end,
+        );
+
+        // Get viewport overlays
+        let viewport_overlays = state
+            .overlays
+            .query_viewport(viewport_start, viewport_end, &state.marker_list)
+            .into_iter()
+            .map(|(overlay, range)| (overlay.clone(), range))
+            .collect::<Vec<_>>();
+
+        // Identify diagnostic lines for gutter indicators
+        let diagnostic_ns = crate::lsp_diagnostics::lsp_diagnostic_namespace();
+        let diagnostic_lines: HashSet<usize> = viewport_overlays
+            .iter()
+            .filter_map(|(overlay, range)| {
+                if overlay.namespace.as_ref() == Some(&diagnostic_ns) {
+                    return Some(state.buffer.get_line_number(range.start));
+                }
+                None
+            })
+            .collect();
+
+        // Build virtual text lookup
+        let virtual_text_lookup: HashMap<usize, Vec<crate::virtual_text::VirtualText>> = state
+            .virtual_texts
+            .build_lookup(&state.marker_list, viewport_start, viewport_end)
+            .into_iter()
+            .map(|(position, texts)| (position, texts.into_iter().cloned().collect()))
+            .collect();
+
         let decorations = DecorationContext {
-            highlight_spans: Vec::new(),
-            semantic_spans: Vec::new(),
-            viewport_overlays: Vec::new(),
-            virtual_text_lookup: HashMap::new(),
-            diagnostic_lines: HashSet::new(),
+            highlight_spans,
+            semantic_spans,
+            viewport_overlays,
+            virtual_text_lookup,
+            diagnostic_lines,
         };
 
         (selection, decorations)
@@ -734,56 +782,81 @@ impl SplitRenderer {
                     .bg(input.theme.line_number_bg),
             )];
 
-            // Build content spans with selection highlighting
+            // Build content spans with syntax highlighting, semantic highlighting, and selection
             let text_chars: Vec<char> = view_line.text.chars().collect();
-            let mut char_idx = 0;
-            let mut current_span_start = 0;
-            let mut current_is_selected = false;
 
-            // Determine initial selection state
-            if !text_chars.is_empty() && char_idx < view_line.char_mappings.len() {
-                if let Some(byte) = view_line.char_mappings[char_idx] {
-                    current_is_selected = is_selected(byte);
-                }
-            }
-
-            for (i, _ch) in text_chars.iter().enumerate() {
-                let this_selected = if i < view_line.char_mappings.len() {
-                    view_line.char_mappings[i]
-                        .map(|b| is_selected(b))
-                        .unwrap_or(false)
+            // Helper to get the style for a character at given index
+            let get_char_style = |char_index: usize| -> Style {
+                let byte_pos = if char_index < view_line.char_mappings.len() {
+                    view_line.char_mappings[char_index]
                 } else {
-                    false
+                    None
                 };
 
-                // If selection state changed, emit a span for the previous segment
-                if this_selected != current_is_selected && i > current_span_start {
-                    let segment: String = text_chars[current_span_start..i].iter().collect();
-                    let style = if current_is_selected {
-                        Style::default()
-                            .fg(input.theme.editor_fg)
-                            .bg(input.theme.selection_bg)
-                    } else {
-                        Style::default().fg(input.theme.editor_fg)
-                    };
-                    spans.push(Span::styled(segment, style));
-                    current_span_start = i;
-                    current_is_selected = this_selected;
-                }
-                char_idx = i + 1;
-            }
+                // Check selection state
+                let is_char_selected = byte_pos
+                    .map(|b| is_selected(b))
+                    .unwrap_or(false);
 
-            // Emit final segment
-            if current_span_start < text_chars.len() {
-                let segment: String = text_chars[current_span_start..].iter().collect();
-                let style = if current_is_selected {
-                    Style::default()
+                if is_char_selected {
+                    // Selection overrides everything
+                    return Style::default()
                         .fg(input.theme.editor_fg)
-                        .bg(input.theme.selection_bg)
+                        .bg(input.theme.selection_bg);
+                }
+
+                // Look up syntax highlighting color
+                let highlight_color = byte_pos.and_then(|bp| {
+                    input.decorations.highlight_spans
+                        .iter()
+                        .find(|span| span.range.contains(&bp))
+                        .map(|span| span.color)
+                });
+
+                // Look up semantic highlighting color (word occurrences)
+                let semantic_color = byte_pos.and_then(|bp| {
+                    input.decorations.semantic_spans
+                        .iter()
+                        .find(|span| span.range.contains(&bp))
+                        .map(|span| span.color)
+                });
+
+                // Build style: syntax highlighting for fg, semantic for bg
+                let mut style = Style::default();
+
+                if let Some(color) = highlight_color {
+                    style = style.fg(color);
                 } else {
-                    Style::default().fg(input.theme.editor_fg)
-                };
-                spans.push(Span::styled(segment, style));
+                    style = style.fg(input.theme.editor_fg);
+                }
+
+                if let Some(color) = semantic_color {
+                    style = style.bg(color);
+                }
+
+                style
+            };
+
+            // Group characters with the same style into spans for efficiency
+            if !text_chars.is_empty() {
+                let mut current_span_start = 0;
+                let mut current_style = get_char_style(0);
+
+                for i in 1..text_chars.len() {
+                    let this_style = get_char_style(i);
+
+                    // If style changed, emit a span for the previous segment
+                    if this_style != current_style {
+                        let segment: String = text_chars[current_span_start..i].iter().collect();
+                        spans.push(Span::styled(segment, current_style));
+                        current_span_start = i;
+                        current_style = this_style;
+                    }
+                }
+
+                // Emit final segment
+                let segment: String = text_chars[current_span_start..].iter().collect();
+                spans.push(Span::styled(segment, current_style));
             }
 
             let line = Line::from(spans);
