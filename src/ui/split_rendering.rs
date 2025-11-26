@@ -573,9 +573,116 @@ impl SplitRenderer {
 
         // Convert tokens to display lines using the view pipeline
         // Each ViewLine preserves LineStart info for correct line number rendering
-        let lines: Vec<ViewLine> = ViewLineIterator::new(&tokens).collect();
+        let source_lines: Vec<ViewLine> = ViewLineIterator::new(&tokens).collect();
+
+        // Inject virtual lines (LineAbove/LineBelow) from VirtualTextManager
+        let lines = Self::inject_virtual_lines(source_lines, state);
 
         ViewData { lines }
+    }
+
+    /// Create a ViewLine from virtual text content (for LineAbove/LineBelow)
+    fn create_virtual_line(text: &str, style: ratatui::style::Style) -> ViewLine {
+        use crate::plugin_api::ViewTokenStyle;
+
+        let text = text.to_string();
+        let len = text.chars().count();
+
+        // Convert ratatui Style to ViewTokenStyle
+        let token_style = ViewTokenStyle {
+            fg: style.fg.and_then(|c| match c {
+                ratatui::style::Color::Rgb(r, g, b) => Some((r, g, b)),
+                _ => None,
+            }),
+            bg: style.bg.and_then(|c| match c {
+                ratatui::style::Color::Rgb(r, g, b) => Some((r, g, b)),
+                _ => None,
+            }),
+            bold: style.add_modifier.contains(ratatui::style::Modifier::BOLD),
+            italic: style.add_modifier.contains(ratatui::style::Modifier::ITALIC),
+        };
+
+        ViewLine {
+            text,
+            // All None - no source mapping (this is injected content)
+            char_mappings: vec![None; len],
+            // All have the virtual text's style
+            char_styles: vec![Some(token_style); len],
+            tab_starts: HashSet::new(),
+            // AfterInjectedNewline means no line number will be shown
+            line_start: LineStart::AfterInjectedNewline,
+            ends_with_newline: true,
+        }
+    }
+
+    /// Inject virtual lines (LineAbove/LineBelow) into the ViewLine stream
+    fn inject_virtual_lines(source_lines: Vec<ViewLine>, state: &EditorState) -> Vec<ViewLine> {
+        use crate::virtual_text::VirtualTextPosition;
+
+        // Get viewport byte range from source lines
+        let viewport_start = source_lines
+            .first()
+            .and_then(|l| l.char_mappings.iter().find_map(|m| *m))
+            .unwrap_or(0);
+        let viewport_end = source_lines
+            .last()
+            .and_then(|l| l.char_mappings.iter().rev().find_map(|m| *m))
+            .map(|b| b + 1)
+            .unwrap_or(viewport_start);
+
+        // Query virtual lines in viewport range
+        let virtual_lines = state
+            .virtual_texts
+            .query_lines_in_range(&state.marker_list, viewport_start, viewport_end);
+
+        // If no virtual lines, return source lines unchanged
+        if virtual_lines.is_empty() {
+            return source_lines;
+        }
+
+        // Build result with virtual lines injected
+        let mut result = Vec::with_capacity(source_lines.len() + virtual_lines.len());
+
+        for source_line in source_lines {
+            // Get this line's byte range
+            let line_start_byte = source_line
+                .char_mappings
+                .iter()
+                .find_map(|m| *m);
+            let line_end_byte = source_line
+                .char_mappings
+                .iter()
+                .rev()
+                .find_map(|m| *m)
+                .map(|b| b + 1);
+
+            // Find LineAbove virtual texts anchored to this line
+            if let (Some(start), Some(end)) = (line_start_byte, line_end_byte) {
+                for (anchor_pos, vtext) in &virtual_lines {
+                    if *anchor_pos >= start && *anchor_pos < end {
+                        if vtext.position == VirtualTextPosition::LineAbove {
+                            result.push(Self::create_virtual_line(&vtext.text, vtext.style));
+                        }
+                    }
+                }
+            }
+
+            // Add the source line
+            result.push(source_line.clone());
+
+            // Find LineBelow virtual texts anchored to this line
+            if let (Some(start), Some(end)) = (line_start_byte, line_end_byte) {
+                for (anchor_pos, vtext) in &virtual_lines {
+                    if *anchor_pos >= start && *anchor_pos < end {
+                        if vtext.position == VirtualTextPosition::LineBelow {
+                            result.push(Self::create_virtual_line(&vtext.text, vtext.style));
+                        }
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     fn build_base_tokens(

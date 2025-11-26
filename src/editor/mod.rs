@@ -4286,6 +4286,49 @@ impl Editor {
                     state.virtual_texts.clear(&mut state.marker_list);
                 }
             }
+            PluginCommand::AddVirtualLine {
+                buffer_id,
+                position,
+                text,
+                color,
+                above,
+                namespace,
+                priority,
+            } => {
+                if let Some(state) = self.buffers.get_mut(&buffer_id) {
+                    use crate::virtual_text::{VirtualTextNamespace, VirtualTextPosition};
+                    use ratatui::style::{Color, Style};
+
+                    let placement = if above {
+                        VirtualTextPosition::LineAbove
+                    } else {
+                        VirtualTextPosition::LineBelow
+                    };
+
+                    let style = Style::default().fg(Color::Rgb(color.0, color.1, color.2));
+                    let ns = VirtualTextNamespace::from_string(namespace);
+
+                    state.virtual_texts.add_line(
+                        &mut state.marker_list,
+                        position,
+                        text,
+                        style,
+                        placement,
+                        ns,
+                        priority,
+                    );
+                }
+            }
+            PluginCommand::ClearVirtualTextNamespace {
+                buffer_id,
+                namespace,
+            } => {
+                if let Some(state) = self.buffers.get_mut(&buffer_id) {
+                    use crate::virtual_text::VirtualTextNamespace;
+                    let ns = VirtualTextNamespace::from_string(namespace);
+                    state.virtual_texts.clear_namespace(&mut state.marker_list, &ns);
+                }
+            }
             PluginCommand::RefreshLines { buffer_id } => {
                 // Clear seen_byte_ranges for this buffer so all visible lines will be re-processed
                 // on the next render. This is useful when a plugin is enabled and needs to

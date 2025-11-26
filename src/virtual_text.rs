@@ -1,10 +1,23 @@
 //! Virtual text rendering infrastructure
 //!
-//! Provides a system for rendering inline virtual text that doesn't exist in the buffer.
-//! Used for inlay hints (type annotations, parameter names), git blame, etc.
+//! Provides a system for rendering virtual text that doesn't exist in the buffer.
+//! Used for inlay hints (type annotations, parameter names), git blame headers, etc.
 //!
-//! Virtual text is rendered as additional Spans in the output at specific buffer positions.
+//! Two types of virtual text are supported:
+//! - **Inline**: Text inserted before/after a character (e.g., `: i32` type hints)
+//! - **Line**: Full lines inserted above/below a position (e.g., git blame headers)
+//!
+//! Virtual text is rendered during the render phase by reading from VirtualTextManager.
 //! The buffer content remains unchanged - we just inject extra styled text during rendering.
+//!
+//! ## Architecture
+//!
+//! This follows an Emacs-like model where:
+//! 1. Plugins add virtual text in response to buffer changes (async, fire-and-forget)
+//! 2. Virtual text is stored persistently with marker-based position tracking
+//! 3. Render loop reads virtual text synchronously from memory (no async waiting)
+//!
+//! This ensures frame coherence: render always sees a consistent snapshot of virtual text.
 
 use ratatui::style::Style;
 use std::collections::HashMap;
@@ -14,10 +27,50 @@ use crate::marker::{MarkerId, MarkerList};
 /// Position relative to the character at the marker position
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VirtualTextPosition {
+    // ─── Inline positions (within a line) ───
     /// Render before the character (e.g., parameter hints: `/*count=*/5`)
     BeforeChar,
-    /// Render after the character (e.g., type hints: `x`: i32`)
+    /// Render after the character (e.g., type hints: `x: i32`)
     AfterChar,
+
+    // ─── Line positions (full lines) ───
+    /// Render as a full line ABOVE the line containing this position
+    /// Used for git blame headers, section separators, etc.
+    /// These lines do NOT get line numbers in the gutter.
+    LineAbove,
+    /// Render as a full line BELOW the line containing this position
+    /// Used for inline documentation, fold previews, etc.
+    /// These lines do NOT get line numbers in the gutter.
+    LineBelow,
+}
+
+impl VirtualTextPosition {
+    /// Returns true if this is a line-level position (LineAbove/LineBelow)
+    pub fn is_line(&self) -> bool {
+        matches!(self, Self::LineAbove | Self::LineBelow)
+    }
+
+    /// Returns true if this is an inline position (BeforeChar/AfterChar)
+    pub fn is_inline(&self) -> bool {
+        matches!(self, Self::BeforeChar | Self::AfterChar)
+    }
+}
+
+/// Namespace for grouping virtual texts (for efficient bulk removal).
+/// Similar to OverlayNamespace - plugins create a namespace once and use it for all their virtual texts.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VirtualTextNamespace(pub String);
+
+impl VirtualTextNamespace {
+    /// Create a namespace from a string (for plugin registration)
+    pub fn from_string(s: String) -> Self {
+        Self(s)
+    }
+
+    /// Get the internal string representation
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// A piece of virtual text to render at a specific position
@@ -25,16 +78,18 @@ pub enum VirtualTextPosition {
 pub struct VirtualText {
     /// Marker tracking the position (auto-adjusts on edits)
     pub marker_id: MarkerId,
-    /// Text to display
+    /// Text to display (for LineAbove/LineBelow, this is the full line content)
     pub text: String,
     /// Styling (typically dimmed/gray for hints)
     pub style: Style,
-    /// Insert before or after the character at this position
+    /// Where to render relative to the marker position
     pub position: VirtualTextPosition,
-    /// Priority for ordering multiple hints at same position (higher = later)
+    /// Priority for ordering multiple items at same position (higher = later)
     pub priority: i32,
     /// Optional string identifier for this virtual text (for plugin use)
     pub string_id: Option<String>,
+    /// Optional namespace for bulk removal (like Overlay's namespace)
+    pub namespace: Option<VirtualTextNamespace>,
 }
 
 /// Unique identifier for a virtual text entry
@@ -98,6 +153,7 @@ impl VirtualTextManager {
                 position: vtext_position,
                 priority,
                 string_id: None,
+                namespace: None,
             },
         );
 
@@ -131,6 +187,55 @@ impl VirtualTextManager {
                 position: vtext_position,
                 priority,
                 string_id: Some(string_id),
+                namespace: None,
+            },
+        );
+
+        id
+    }
+
+    /// Add a virtual line (LineAbove or LineBelow) with namespace for bulk removal
+    ///
+    /// This is the primary API for features like git blame headers.
+    ///
+    /// # Arguments
+    /// * `marker_list` - The marker list to create a position marker in
+    /// * `position` - Byte offset in the buffer (anchors the line to this position)
+    /// * `text` - Full line content to display
+    /// * `style` - Styling for the line
+    /// * `placement` - LineAbove or LineBelow
+    /// * `namespace` - Namespace for bulk removal (e.g., "git-blame")
+    /// * `priority` - Ordering when multiple lines at same position
+    pub fn add_line(
+        &mut self,
+        marker_list: &mut MarkerList,
+        position: usize,
+        text: String,
+        style: Style,
+        placement: VirtualTextPosition,
+        namespace: VirtualTextNamespace,
+        priority: i32,
+    ) -> VirtualTextId {
+        debug_assert!(
+            placement.is_line(),
+            "add_line requires LineAbove or LineBelow"
+        );
+
+        let marker_id = marker_list.create(position, false);
+
+        let id = VirtualTextId(self.next_id);
+        self.next_id += 1;
+
+        self.texts.insert(
+            id,
+            VirtualText {
+                marker_id,
+                text,
+                style,
+                position: placement,
+                priority,
+                string_id: None,
+                namespace: Some(namespace),
             },
         );
 
@@ -261,6 +366,119 @@ impl VirtualTextManager {
         let mut lookup: HashMap<usize, Vec<&VirtualText>> = HashMap::new();
 
         for vtext in self.texts.values() {
+            if let Some(pos) = marker_list.get_position(vtext.marker_id) {
+                if pos >= start && pos < end {
+                    lookup.entry(pos).or_default().push(vtext);
+                }
+            }
+        }
+
+        // Sort each position's texts by priority
+        for texts in lookup.values_mut() {
+            texts.sort_by_key(|vt| vt.priority);
+        }
+
+        lookup
+    }
+
+    /// Clear all virtual texts in a namespace
+    ///
+    /// This is the primary way plugins remove their virtual texts (e.g., before updating blame data).
+    pub fn clear_namespace(&mut self, marker_list: &mut MarkerList, namespace: &VirtualTextNamespace) {
+        let to_remove: Vec<VirtualTextId> = self
+            .texts
+            .iter()
+            .filter_map(|(id, vtext)| {
+                if vtext.namespace.as_ref() == Some(namespace) {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for id in to_remove {
+            if let Some(vtext) = self.texts.remove(&id) {
+                marker_list.delete(vtext.marker_id);
+            }
+        }
+    }
+
+    /// Query only virtual LINES (LineAbove/LineBelow) in a byte range
+    ///
+    /// Used by the render pipeline to inject header/footer lines.
+    /// Returns (byte_position, &VirtualText) pairs sorted by position then priority.
+    pub fn query_lines_in_range(
+        &self,
+        marker_list: &MarkerList,
+        start: usize,
+        end: usize,
+    ) -> Vec<(usize, &VirtualText)> {
+        let mut results: Vec<(usize, &VirtualText)> = self
+            .texts
+            .values()
+            .filter(|vtext| vtext.position.is_line())
+            .filter_map(|vtext| {
+                let pos = marker_list.get_position(vtext.marker_id)?;
+                if pos >= start && pos < end {
+                    Some((pos, vtext))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by position, then by priority
+        results.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.priority.cmp(&b.1.priority)));
+
+        results
+    }
+
+    /// Query only INLINE virtual texts (BeforeChar/AfterChar) in a byte range
+    ///
+    /// Used by the render pipeline to inject inline hints.
+    pub fn query_inline_in_range(
+        &self,
+        marker_list: &MarkerList,
+        start: usize,
+        end: usize,
+    ) -> Vec<(usize, &VirtualText)> {
+        let mut results: Vec<(usize, &VirtualText)> = self
+            .texts
+            .values()
+            .filter(|vtext| vtext.position.is_inline())
+            .filter_map(|vtext| {
+                let pos = marker_list.get_position(vtext.marker_id)?;
+                if pos >= start && pos < end {
+                    Some((pos, vtext))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by position, then by priority
+        results.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.priority.cmp(&b.1.priority)));
+
+        results
+    }
+
+    /// Build a lookup map for virtual LINES, keyed by the line's anchor byte position
+    ///
+    /// For each source line, the renderer can quickly check if there are
+    /// LineAbove or LineBelow virtual texts anchored to positions within that line.
+    pub fn build_lines_lookup(
+        &self,
+        marker_list: &MarkerList,
+        start: usize,
+        end: usize,
+    ) -> HashMap<usize, Vec<&VirtualText>> {
+        let mut lookup: HashMap<usize, Vec<&VirtualText>> = HashMap::new();
+
+        for vtext in self.texts.values() {
+            if !vtext.position.is_line() {
+                continue;
+            }
             if let Some(pos) = marker_list.get_position(vtext.marker_id) {
                 if pos >= start && pos < end {
                     lookup.entry(pos).or_default().push(vtext);

@@ -309,6 +309,32 @@ pub enum PluginCommand {
     /// Clear all virtual texts from a buffer
     ClearVirtualTexts { buffer_id: BufferId },
 
+    /// Add a virtual LINE (full line above/below a position)
+    /// Used for git blame headers, code coverage, inline documentation, etc.
+    /// These lines do NOT show line numbers in the gutter.
+    AddVirtualLine {
+        buffer_id: BufferId,
+        /// Byte position to anchor the line to
+        position: usize,
+        /// Full line content to display
+        text: String,
+        /// Line color (RGB)
+        color: (u8, u8, u8),
+        /// true = above the line containing position, false = below
+        above: bool,
+        /// Namespace for bulk removal (e.g., "git-blame")
+        namespace: String,
+        /// Priority for ordering multiple lines at same position (higher = later)
+        priority: i32,
+    },
+
+    /// Clear all virtual texts in a namespace
+    /// This is the primary way to remove a plugin's virtual lines before updating them.
+    ClearVirtualTextNamespace {
+        buffer_id: BufferId,
+        namespace: String,
+    },
+
     /// Refresh lines for a buffer (clear seen_lines cache to re-trigger lines_changed hook)
     RefreshLines { buffer_id: BufferId },
 

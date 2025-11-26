@@ -336,34 +336,68 @@ frame.set_cursor_position((cursor_x, cursor_y));
 
 ### Plugin Integration Points
 
-Fresh provides three independent mechanisms for plugins to affect rendering:
+Fresh provides four independent mechanisms for plugins to affect rendering:
 
 ```mermaid
 flowchart TB
     subgraph Mechanisms["Plugin Rendering Mechanisms"]
         VT[View Transform<br/>Token stream modification]
+        VL[Virtual Lines<br/>Header/footer lines]
         VTX[Virtual Text<br/>Inline insertions]
         OV[Overlays<br/>Range decorations]
     end
 
     subgraph UseCases["Use Cases"]
-        VT --> UC1[Git blame headers]
-        VT --> UC2[Interleaved views]
-        VT --> UC3[Semantic reordering]
+        VT --> UC1[Interleaved views]
+        VT --> UC2[Semantic reordering]
 
-        VTX --> UC4[Type hints]
-        VTX --> UC5[Parameter hints]
-        VTX --> UC6[Color swatches]
+        VL --> UC3[Git blame headers]
+        VL --> UC4[Code coverage]
+        VL --> UC5[Section separators]
 
-        OV --> UC7[Diagnostics]
-        OV --> UC8[Search highlights]
-        OV --> UC9[Lint underlines]
+        VTX --> UC6[Type hints]
+        VTX --> UC7[Parameter hints]
+        VTX --> UC8[Color swatches]
+
+        OV --> UC9[Diagnostics]
+        OV --> UC10[Search highlights]
+        OV --> UC11[Lint underlines]
     end
+```
+
+#### Emacs-like Persistent State Model
+
+Fresh follows an **Emacs-inspired architecture** for plugin rendering where:
+
+1. **Plugins update state in response to events** (buffer changes, file open) - async, fire-and-forget
+2. **State is stored persistently** with marker-based position tracking
+3. **Render loop reads state synchronously** from memory - no async waiting
+
+This ensures **frame coherence**: each frame renders with a consistent snapshot of all plugin state.
+
+```mermaid
+sequenceDiagram
+    participant B as Buffer
+    participant P as Plugin
+    participant S as VirtualTextManager
+    participant R as Renderer
+
+    Note over B,R: Plugin updates state (async)
+    B->>P: buffer_changed event
+    P->>P: Compute data (can take time)
+    P->>S: AddVirtualLine commands
+    S->>S: Store with markers
+
+    Note over B,R: Render reads state (sync)
+    R->>S: query_lines_in_range()
+    S-->>R: Virtual lines (from memory)
+    R->>R: Inject into ViewLines
+    R->>R: Render frame
 ```
 
 #### View Transform (`PluginCommand::SubmitViewTransform`)
 
-Modifies the entire token stream. Can inject lines, reorder content, or transform existing tokens.
+Modifies the entire token stream. For advanced use cases requiring complete restructuring.
 
 ```rust
 PluginCommand::SubmitViewTransform {
@@ -377,11 +411,66 @@ PluginCommand::SubmitViewTransform {
 }
 ```
 
+**Note:** View transforms use a per-frame hook which has sync/async timing considerations. For simpler annotation use cases, prefer Virtual Lines.
+
 **Key file:** `src/plugin_api.rs:122-130`
 
-#### Virtual Text (`PluginCommand::AddVirtualText`)
+#### Virtual Lines (`PluginCommand::AddVirtualLine`)
 
-Inserts styled text at specific positions. Uses markers for auto-adjustment on edits.
+Injects full display lines above or below source lines. **Recommended for git blame, code coverage, section headers.**
+
+```rust
+PluginCommand::AddVirtualLine {
+    buffer_id,
+    position: usize,           // Anchor byte position
+    text: String,              // Full line content
+    color: (u8, u8, u8),       // RGB color
+    above: bool,               // true = above, false = below
+    namespace: String,         // For bulk removal
+    priority: i32,             // Ordering at same position
+}
+
+// Clear all virtual lines in a namespace (before updating)
+PluginCommand::ClearVirtualTextNamespace {
+    buffer_id,
+    namespace: String,
+}
+```
+
+**Characteristics:**
+- Lines do NOT show line numbers in the gutter
+- Positions auto-adjust on buffer edits (marker-based)
+- Namespaced for efficient bulk removal
+- Read synchronously during render (no frame lag)
+
+**Example: Git blame plugin**
+```typescript
+fresh.hooks.on('buffer_changed', async (bufferId) => {
+  const blame = await computeGitBlame(bufferId);
+
+  // Clear old headers
+  fresh.clearVirtualTextNamespace(bufferId, 'git-blame');
+
+  // Add new headers (persistent until next change)
+  for (const chunk of blame.chunks) {
+    fresh.addVirtualLine({
+      bufferId,
+      position: chunk.startByte,
+      text: `── ${chunk.commit} (${chunk.author}) ──`,
+      color: [128, 128, 128],
+      above: true,
+      namespace: 'git-blame',
+      priority: 0,
+    });
+  }
+});
+```
+
+**Key file:** `src/virtual_text.rs`
+
+#### Virtual Text - Inline (`PluginCommand::AddVirtualText`)
+
+Inserts styled text inline (before/after a character). For type hints, parameter hints.
 
 ```rust
 PluginCommand::AddVirtualText {
@@ -390,7 +479,7 @@ PluginCommand::AddVirtualText {
     position: usize,
     text: String,
     color: (u8, u8, u8),
-    before: bool,
+    before: bool,  // true = before char, false = after
 }
 ```
 
