@@ -11,9 +11,9 @@
 - ~~src/app/mod.rs:826 — `open_file` ~300 lines~~ → Extracted `notify_lsp_file_opened` helper (307→157 lines)
 - ~~src/state.rs:223 — `apply` ~330 lines~~ → Extracted `apply_insert` and `apply_delete` helpers
 - ~~src/services/lsp/async_handler.rs:1543 — `run` ~490 lines~~ → Extracted `spawn_stdout_reader` and `replay_pending_commands` helpers (490→396 lines)
+- ~~src/view/ui/split_rendering.rs:1135 — `render_view_lines` ~750 lines~~ → Extracted `compute_char_style` and `render_left_margin` helpers (~750→~570 lines)
 
 ## Large Functions
-- src/view/ui/split_rendering.rs:1135 — `render_view_lines` is ~750 lines; consider breaking into smaller helpers for different rendering concerns.
 - src/app/render.rs:5 — top-level `render` runs ~450 lines covering layout calculation, plugin hook firing, file explorer rendering, and status/prompt UI. The amount of responsibility in one function hurts readability and testing; factoring into helpers (layout, plugin hook prep, explorer rendering, status/prompt rendering) would make regressions easier to spot.
 - src/input/keybindings.rs:376 — `Action::from_str` is a ~260-line string-to-enum match. A data-driven table would reduce boilerplate and avoid missing new actions when added to the enum.
 - src/input/commands.rs:89 — `get_all_commands` is a ~540-line literal list in one function. This is brittle to maintain (hard to diff/review additions) and couples command metadata to code; consider a data table or config-driven source with tests for completeness.
