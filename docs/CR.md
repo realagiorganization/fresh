@@ -4,6 +4,7 @@
 - ~~src/app/mod.rs:4121 — `handle_plugin_command` ~1.1k lines~~ → Refactored into `src/app/plugin_commands.rs` with 43 domain-grouped handlers
 - ~~src/services/plugins/runtime.rs:3299 and thread.rs:738 — duplicate `hook_args_to_json`~~ → Consolidated into `src/services/plugins/hooks.rs`
 - ~~src/app/mod.rs:3284 — `process_async_messages` ~680 lines~~ → Refactored into `src/app/async_messages.rs` with domain-grouped handlers (LSP, file system, file explorer, plugins)
+- ~~src/input/multi_cursor.rs — duplicate add-cursor helpers~~ → Extracted shared helpers (get_cursor_line_info, cursor_position_on_line, success_result, adjust_position_for_newline)
 
 ## Large Functions
 - src/view/ui/split_rendering.rs:1135 — `render_view_lines` is ~750 lines; consider breaking into smaller helpers for different rendering concerns.
@@ -44,7 +45,6 @@
 - src/services/plugins/process.rs — blocking `recv()` loops have no timeout/backoff; a misbehaving plugin can hang the thread. Consider async or timeout-aware handling to avoid host hangs.
 - src/services/async_bridge.rs — uses unbounded std::sync::mpsc channels with no backpressure or eviction; a burst of async messages (e.g., LSP floods) can grow memory unbounded. Consider bounded channels or dropping strategies plus explicit error propagation on lock/channel failure.
 - src/services/plugins/event_hooks.rs — `apply_event_with_hooks` runs plugin hooks inline and ignores hook panics/poisoned locks. A plugin hook panic will crash core edits; consider isolating hook execution (catch_unwind/log) to keep the editor stable.
-- src/input/multi_cursor.rs — add-cursor helpers duplicate similar line/column/iterator logic three times; extracting shared helpers would reduce subtle drift between above/below/next-match behaviors.
 - src/view/ui/tabs.rs — `render_for_split` packs tab width calculation, scroll computation, and rendering into one long function; consider splitting into layout calculation and render steps to improve readability and reduce bugs in scroll math.
 - src/services/process_limits.rs — applies limits via cgroups/setrlimit with many unwraps noted; also lacks clear fallback/reporting when limits can't be applied (e.g., non-Linux or missing cgroup perms). Return actionable errors so callers can decide to continue without limits.
 

@@ -14,6 +14,51 @@ pub enum AddCursorResult {
     Failed { message: String },
 }
 
+/// Information about a cursor's position within its line
+struct CursorLineInfo {
+    /// Byte offset of the line start
+    line_start: usize,
+    /// Column offset from line start
+    col_offset: usize,
+}
+
+/// Get line info for a cursor position
+fn get_cursor_line_info(state: &mut EditorState, position: usize) -> Option<CursorLineInfo> {
+    let mut iter = state.buffer.line_iterator(position, 80);
+    let (line_start, _) = iter.next()?;
+    Some(CursorLineInfo {
+        line_start,
+        col_offset: position.saturating_sub(line_start),
+    })
+}
+
+/// Calculate cursor position on a line, clamping to line length (excluding newline)
+fn cursor_position_on_line(line_start: usize, line_content: &str, target_col: usize) -> usize {
+    let line_len = line_content.trim_end_matches('\n').len();
+    line_start + target_col.min(line_len)
+}
+
+/// Create a successful AddCursorResult
+fn success_result(cursor: Cursor, state: &EditorState) -> AddCursorResult {
+    AddCursorResult::Success {
+        cursor,
+        total_cursors: state.cursors.iter().count() + 1,
+    }
+}
+
+/// Adjust cursor position if it's on a newline character
+/// Returns position + 1 if cursor is at a newline, otherwise returns position unchanged
+fn adjust_position_for_newline(state: &mut EditorState, position: usize) -> usize {
+    if position < state.buffer.len() {
+        if let Ok(byte_at_cursor) = state.buffer.get_text_range_mut(position, 1) {
+            if byte_at_cursor.first() == Some(&b'\n') {
+                return position + 1;
+            }
+        }
+    }
+    position
+}
+
 /// Add a cursor at the next occurrence of the selected text
 /// If no selection, returns Failed
 pub fn add_cursor_at_next_match(state: &mut EditorState) -> AddCursorResult {
@@ -44,73 +89,40 @@ pub fn add_cursor_at_next_match(state: &mut EditorState) -> AddCursorResult {
 
     // Create a new cursor at the match position with selection
     let new_cursor = Cursor::with_selection(match_pos, match_pos + pattern.len());
-
-    AddCursorResult::Success {
-        cursor: new_cursor,
-        total_cursors: state.cursors.iter().count() + 1,
-    }
+    success_result(new_cursor, state)
 }
 
 /// Add a cursor above the primary cursor at the same column
 pub fn add_cursor_above(state: &mut EditorState) -> AddCursorResult {
-    let primary = state.cursors.primary();
+    let position = state.cursors.primary().position;
 
-    // Check if cursor is at a newline character - if so, treat it as being on the next line
-    // This handles the case where add_cursor_above/below places a cursor at the same column,
-    // which might land on a newline if the previous line is longer
-    let adjusted_position = if primary.position < state.buffer.len() {
-        if let Ok(byte_at_cursor) = state.buffer.get_text_range_mut(primary.position, 1) {
-            if byte_at_cursor.first() == Some(&b'\n') {
-                // Cursor is at newline - treat as being at start of next line
-                primary.position + 1
-            } else {
-                primary.position
-            }
-        } else {
-            primary.position
-        }
-    } else {
-        primary.position
-    };
+    // Adjust position if cursor is at a newline character
+    // This handles cases where add_cursor_above/below places cursor at same column
+    let adjusted_position = adjust_position_for_newline(state, position);
 
-    // Find the start of the current line using iterator
-    let mut iter = state.buffer.line_iterator(adjusted_position, 80);
-    let Some((line_start, _line_content)) = iter.next() else {
+    // Get current line info
+    let Some(info) = get_cursor_line_info(state, adjusted_position) else {
         return AddCursorResult::Failed {
             message: "Unable to find current line".to_string(),
         };
     };
 
     // Check if we're on the first line
-    if line_start == 0 {
+    if info.line_start == 0 {
         return AddCursorResult::Failed {
             message: "Already at first line".to_string(),
         };
     }
 
-    // Calculate column offset from line start
-    // Use adjusted_position since that's what we used to find the line
-    let col_offset = adjusted_position - line_start;
-
-    // After next(), iterator is positioned after current line
-    // Call prev() twice: once to get back to current line, once more to get previous line
+    // Navigate to previous line using iterator
+    let mut iter = state.buffer.line_iterator(adjusted_position, 80);
+    iter.next(); // Consume current line
     iter.prev(); // Move back to current line
 
     // Get the previous line
     if let Some((prev_line_start, prev_line_content)) = iter.prev() {
-        // Calculate new position on previous line
-        // Don't place cursor on newline - if col_offset would put us on/past the newline,
-        // place cursor at end of line content instead
-        let line_without_newline = prev_line_content.trim_end_matches('\n');
-        let prev_line_len = line_without_newline.len();
-        let new_pos = prev_line_start + col_offset.min(prev_line_len);
-
-        let new_cursor = Cursor::new(new_pos);
-
-        AddCursorResult::Success {
-            cursor: new_cursor,
-            total_cursors: state.cursors.iter().count() + 1,
-        }
+        let new_pos = cursor_position_on_line(prev_line_start, &prev_line_content, info.col_offset);
+        success_result(Cursor::new(new_pos), state)
     } else {
         AddCursorResult::Failed {
             message: "Already at first line".to_string(),
@@ -120,31 +132,23 @@ pub fn add_cursor_above(state: &mut EditorState) -> AddCursorResult {
 
 /// Add a cursor below the primary cursor at the same column
 pub fn add_cursor_below(state: &mut EditorState) -> AddCursorResult {
-    let primary = state.cursors.primary();
+    let position = state.cursors.primary().position;
 
-    // Find the start of the current line using iterator
-    let mut iter = state.buffer.line_iterator(primary.position, 80);
-    let Some((line_start, _)) = iter.next() else {
+    // Get current line info
+    let Some(info) = get_cursor_line_info(state, position) else {
         return AddCursorResult::Failed {
             message: "Unable to find current line".to_string(),
         };
     };
 
-    // Calculate column offset from line start
-    let col_offset = primary.position - line_start;
+    // Navigate to next line using iterator
+    let mut iter = state.buffer.line_iterator(position, 80);
+    iter.next(); // Consume current line
 
-    // Get next line (we already consumed current line with first iter.next())
+    // Get next line
     if let Some((next_line_start, next_line_content)) = iter.next() {
-        // Calculate new position on next line, capping at line length
-        // Exclude newline from line length calculation
-        let next_line_len = next_line_content.trim_end_matches('\n').len();
-        let new_pos = next_line_start + col_offset.min(next_line_len);
-        let new_cursor = Cursor::new(new_pos);
-
-        AddCursorResult::Success {
-            cursor: new_cursor,
-            total_cursors: state.cursors.iter().count() + 1,
-        }
+        let new_pos = cursor_position_on_line(next_line_start, &next_line_content, info.col_offset);
+        success_result(Cursor::new(new_pos), state)
     } else {
         AddCursorResult::Failed {
             message: "Already at last line".to_string(),
