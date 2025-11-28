@@ -444,20 +444,14 @@ fn test_open_file_prompt_shows_completions_immediately() {
     use std::fs;
     use std::time::Duration;
 
-    // Create a temp directory with test files
+    // Create a temp directory with test files directly in root
     let temp_dir = tempfile::TempDir::new().unwrap();
     let project_root = temp_dir.path().to_path_buf();
 
-    // Create test files in root
-    fs::write(project_root.join("README.md"), "# Test").unwrap();
-    fs::write(project_root.join("Cargo.toml"), "[package]").unwrap();
-
-    // Create src/ subdirectory with files
-    let src_dir = project_root.join("src");
-    fs::create_dir(&src_dir).unwrap();
-    fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
-    fs::write(src_dir.join("alpha.rs"), "// alpha").unwrap();
-    fs::write(src_dir.join("beta.rs"), "// beta").unwrap();
+    // Create test files in root (these names won't appear elsewhere on screen)
+    fs::write(project_root.join("alpha.txt"), "alpha content").unwrap();
+    fs::write(project_root.join("beta.txt"), "beta content").unwrap();
+    fs::write(project_root.join("gamma.txt"), "gamma content").unwrap();
 
     // Copy the real path_complete.ts plugin to the temp directory
     let real_plugins_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("plugins");
@@ -498,12 +492,7 @@ fn test_open_file_prompt_shows_completions_immediately() {
     }
     harness.render().unwrap();
 
-    // Open a file in src/ subdirectory - this sets up the prefill scenario
-    harness.open_file(&src_dir.join("main.rs")).unwrap();
-    harness.render().unwrap();
-    harness.assert_screen_contains("main.rs");
-
-    // Trigger Open File with Ctrl+O
+    // Trigger Open File with Ctrl+O (no file opened first, so prompt starts empty)
     harness
         .send_key(KeyCode::Char('o'), KeyModifiers::CONTROL)
         .unwrap();
@@ -511,13 +500,12 @@ fn test_open_file_prompt_shows_completions_immediately() {
     harness.assert_screen_contains("Open file:");
 
     // ISSUE #193: File completions should appear IMMEDIATELY when the prompt opens
-    // (not just after typing characters). The prompt is prefilled with "src/" so
-    // we should see completions from the src/ directory right away.
+    // The prompt starts empty, so we should see files from cwd right away.
     harness
         .wait_until(|h| {
             let screen = h.screen_to_string();
-            // Should see the files from src/ directory in completions
-            screen.contains("alpha.rs") || screen.contains("beta.rs") || screen.contains("main.rs")
+            // Should see test files in completions (these only appear in suggestions)
+            screen.contains("alpha.txt") || screen.contains("beta.txt") || screen.contains("gamma.txt")
         })
         .expect("Completions should appear immediately when Open File prompt opens");
 
