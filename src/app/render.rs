@@ -944,7 +944,13 @@ impl Editor {
 
         // Get the buffer text
         let text = if let Some(state) = self.buffers.get(&self.active_buffer) {
-            state.buffer.to_string()
+            match state.buffer.to_string() {
+                Some(t) => t,
+                None => {
+                    tracing::debug!("notify_lsp_current_file_opened: buffer not fully loaded");
+                    return;
+                }
+            }
         } else {
             tracing::debug!("notify_lsp_current_file_opened: no buffer state");
             return;
@@ -1269,7 +1275,13 @@ impl Editor {
         };
 
         // Get the full text to send with didSave
-        let full_text = self.active_state().buffer.to_string();
+        let full_text = match self.active_state().buffer.to_string() {
+            Some(t) => t,
+            None => {
+                tracing::debug!("notify_lsp_save: buffer not fully loaded");
+                return;
+            }
+        };
         tracing::debug!(
             "notify_lsp_save: sending didSave to {} (text length: {} bytes)",
             uri.as_str(),
@@ -1445,7 +1457,13 @@ impl Editor {
 
         let buffer_content = {
             let state = self.active_state();
-            state.buffer.to_string()
+            match state.buffer.to_string() {
+                Some(t) => t,
+                None => {
+                    self.set_status_message("Buffer not fully loaded".to_string());
+                    return;
+                }
+            }
         };
 
         // Get search settings

@@ -1050,7 +1050,7 @@ mod tests {
             cursor_id,
         });
 
-        assert_eq!(state.buffer.to_string(), "hello");
+        assert_eq!(state.buffer.to_string().unwrap(), "hello");
         assert_eq!(state.cursors.primary().position, 5);
         assert!(state.buffer.is_modified());
     }
@@ -1074,7 +1074,7 @@ mod tests {
             cursor_id,
         });
 
-        assert_eq!(state.buffer.to_string(), "hello");
+        assert_eq!(state.buffer.to_string().unwrap(), "hello");
         assert_eq!(state.cursors.primary().position, 5);
     }
 
@@ -1139,7 +1139,7 @@ mod tests {
 
         state.apply_many(&events);
 
-        assert_eq!(state.buffer.to_string(), "hello world");
+        assert_eq!(state.buffer.to_string().unwrap(), "hello world");
     }
 
     #[test]
@@ -1279,7 +1279,7 @@ mod tests {
                 .insert(DocumentPosition::ByteOffset(6), "beautiful ")
                 .unwrap();
             assert_eq!(bytes_inserted, 10);
-            assert_eq!(state.buffer.to_string(), "hello beautiful world");
+            assert_eq!(state.buffer.to_string().unwrap(), "hello beautiful world");
 
             // Delete text
             state
@@ -1288,7 +1288,7 @@ mod tests {
                     DocumentPosition::ByteOffset(16),
                 )
                 .unwrap();
-            assert_eq!(state.buffer.to_string(), "hello world");
+            assert_eq!(state.buffer.to_string().unwrap(), "hello world");
         }
 
         #[test]
@@ -1304,7 +1304,7 @@ mod tests {
                     "hi",
                 )
                 .unwrap();
-            assert_eq!(state.buffer.to_string(), "hi world");
+            assert_eq!(state.buffer.to_string().unwrap(), "hi world");
         }
 
         #[test]
