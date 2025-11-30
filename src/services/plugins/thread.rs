@@ -641,12 +641,15 @@ async fn load_plugin_internal(
 
     tracing::info!("Loading TypeScript plugin: {} from {:?}", plugin_name, path);
 
-    // Load and execute the module
+    // Load and execute the module, passing plugin name for command registration
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow!("Invalid path encoding"))?;
 
-    runtime.borrow_mut().load_module(path_str).await?;
+    runtime
+        .borrow_mut()
+        .load_module_with_source(path_str, &plugin_name)
+        .await?;
 
     // Store plugin info
     plugins.insert(

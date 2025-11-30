@@ -1894,3 +1894,117 @@ fn test_clangd_plugin_switch_source_header() -> std::io::Result<()> {
 
     Ok(())
 }
+
+/// Test that plugin commands show the plugin name as source in command palette
+#[test]
+fn test_plugin_command_source_in_palette() {
+    // Create a temporary project directory
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let project_root = temp_dir.path().join("project_root");
+    fs::create_dir(&project_root).unwrap();
+
+    // Create plugins directory
+    let plugins_dir = project_root.join("plugins");
+    fs::create_dir(&plugins_dir).unwrap();
+
+    // Create a simple plugin that registers a command
+    // IMPORTANT: description must NOT contain "test_source_plugin" so we can verify
+    // that the source column shows it (not the description)
+    let test_plugin = r#"
+// Simple test plugin to verify command source is shown correctly
+editor.registerCommand(
+    "Test Source Plugin Command",
+    "A special command for testing",
+    "test_source_action",
+    "normal"
+);
+
+editor.setStatus("Test source plugin loaded!");
+"#;
+
+    let test_plugin_path = plugins_dir.join("test_source_plugin.ts");
+    fs::write(&test_plugin_path, test_plugin).unwrap();
+
+    // Create a test file
+    let fixture = TestFixture::new("test.txt", "Test content\n").unwrap();
+
+    // Create harness with the project directory
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 30, Default::default(), project_root)
+            .unwrap();
+
+    // Open the test file
+    harness.open_file(&fixture.path).unwrap();
+    harness.render().unwrap();
+
+    // Wait for plugins to load
+    for _ in 0..5 {
+        harness.process_async_and_render().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // Open command palette
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Search for our plugin command
+    harness.type_text("Test Source Plugin").unwrap();
+
+    // Process to update suggestions
+    for _ in 0..3 {
+        harness.process_async_and_render().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let screen = harness.screen_to_string();
+    println!("Screen showing command palette:\n{}", screen);
+
+    // Verify the command appears
+    assert!(
+        screen.contains("Test Source Plugin Command"),
+        "Plugin command should appear in palette. Got:\n{}",
+        screen
+    );
+
+    // Verify the source shows the plugin name, NOT "builtin"
+    // The source column should show "test_source_p..." (truncated filename without .ts)
+    assert!(
+        screen.contains("test_source_p"),
+        "Command source should show plugin name 'test_source_p...', not 'builtin'. Got:\n{}",
+        screen
+    );
+    // Also verify it does NOT show "builtin" for this command
+    // (Since the command is on screen, if it showed "builtin" we'd see it)
+    // Note: We can't easily check the specific line, but the fact that test_source_p
+    // appears AND builtin commands show "builtin" confirms the feature works
+
+    // Also verify that builtin commands still show "builtin"
+    harness
+        .send_key(KeyCode::Esc, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Open palette again and search for a builtin command
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+    harness.type_text("Save File").unwrap();
+
+    for _ in 0..3 {
+        harness.process_async_and_render().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let screen2 = harness.screen_to_string();
+    println!("Screen showing Save File command:\n{}", screen2);
+
+    // Save File should show "builtin" as source
+    assert!(
+        screen2.contains("builtin"),
+        "Builtin command should show 'builtin' as source. Got:\n{}",
+        screen2
+    );
+}

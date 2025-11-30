@@ -687,7 +687,7 @@ insertAtCursor(text: string): boolean
 Register a custom command that can be triggered by keybindings or the command palette
 
 ```typescript
-registerCommand(name: string, description: string, action: string, contexts: string): boolean
+registerCommand(name: string, description: string, action: string, contexts: string, source: string): boolean
 ```
 
 **Parameters:**
@@ -698,6 +698,7 @@ registerCommand(name: string, description: string, action: string, contexts: str
 | `description` | `string` | Human-readable description |
 | `action` | `string` | JavaScript function name to call when command is triggered |
 | `contexts` | `string` | Comma-separated list of contexts (e.g., "normal,prompt") |
+| `source` | `string` | Plugin source name (empty string for builtin) |
 
 #### `unregisterCommand`
 

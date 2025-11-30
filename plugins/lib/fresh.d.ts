@@ -468,9 +468,10 @@ interface EditorAPI {
    * @param description - Human-readable description
    * @param action - JavaScript function name to call when command is triggered
    * @param contexts - Comma-separated list of contexts (e.g., "normal,prompt")
+   * @param source - Plugin source name (empty string for builtin)
    * @returns true if command was registered
    */
-  registerCommand(name: string, description: string, action: string, contexts: string): boolean;
+  registerCommand(name: string, description: string, action: string, contexts: string, source: string): boolean;
   /**
    * Unregister a custom command by name
    * @param name - The name of the command to unregister

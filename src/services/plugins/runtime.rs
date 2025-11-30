@@ -160,8 +160,6 @@ struct TsRuntimeState {
     background_processes: Rc<RefCell<HashMap<u64, tokio::process::Child>>>,
     /// Next process ID for background processes
     next_process_id: Rc<RefCell<u64>>,
-    /// Current plugin name (set during plugin loading for command registration)
-    current_plugin_name: Rc<RefCell<Option<String>>>,
 }
 
 /// Display a transient message in the editor's status bar
@@ -786,6 +784,7 @@ fn op_fresh_insert_at_cursor(state: &mut OpState, #[string] text: String) -> boo
 /// @param description - Human-readable description
 /// @param action - JavaScript function name to call when command is triggered
 /// @param contexts - Comma-separated list of contexts (e.g., "normal,prompt")
+/// @param source - Plugin source name (empty string for builtin)
 /// @returns true if command was registered
 #[op2(fast)]
 fn op_fresh_register_command(
@@ -794,6 +793,7 @@ fn op_fresh_register_command(
     #[string] description: String,
     #[string] action: String,
     #[string] contexts: String,
+    #[string] source: String,
 ) -> bool {
     if let Some(runtime_state) = state.try_borrow::<Rc<RefCell<TsRuntimeState>>>() {
         let runtime_state = runtime_state.borrow();
@@ -819,12 +819,11 @@ fn op_fresh_register_command(
                 .collect()
         };
 
-        // Get the current plugin name for the command source
-        let source = if let Some(plugin_name) = runtime_state.current_plugin_name.borrow().clone() {
-            crate::input::commands::CommandSource::Plugin(plugin_name)
-        } else {
-            // Fallback to builtin if no plugin context (shouldn't normally happen)
+        // Use the explicit source parameter
+        let command_source = if source.is_empty() {
             crate::input::commands::CommandSource::Builtin
+        } else {
+            crate::input::commands::CommandSource::Plugin(source)
         };
 
         let command = crate::input::commands::Command {
@@ -832,7 +831,7 @@ fn op_fresh_register_command(
             description,
             action: crate::input::keybindings::Action::PluginAction(action),
             contexts: context_list,
-            source,
+            source: command_source,
         };
 
         let result = runtime_state
@@ -2576,8 +2575,6 @@ pub struct TypeScriptRuntime {
     event_handlers: Rc<RefCell<HashMap<String, Vec<String>>>>,
     /// Pending response senders (shared with runtime state for delivering responses)
     pending_responses: PendingResponses,
-    /// Current plugin name (shared with runtime state for command registration)
-    current_plugin_name: Rc<RefCell<Option<String>>>,
 }
 
 impl TypeScriptRuntime {
@@ -2608,7 +2605,6 @@ impl TypeScriptRuntime {
         crate::v8_init::init();
 
         let event_handlers = Rc::new(RefCell::new(HashMap::new()));
-        let current_plugin_name = Rc::new(RefCell::new(None));
         let runtime_state = Rc::new(RefCell::new(TsRuntimeState {
             state_snapshot,
             command_sender,
@@ -2617,7 +2613,6 @@ impl TypeScriptRuntime {
             next_request_id: Rc::new(RefCell::new(1)),
             background_processes: Rc::new(RefCell::new(HashMap::new())),
             next_process_id: Rc::new(RefCell::new(1)),
-            current_plugin_name: current_plugin_name.clone(),
         }));
 
         let mut js_runtime = JsRuntime::new(RuntimeOptions {
@@ -2736,7 +2731,9 @@ impl TypeScriptRuntime {
 
                     // Command registration
                     registerCommand(name, description, action, contexts = "") {
-                        return core.ops.op_fresh_register_command(name, description, action, contexts);
+                        // Pass the current plugin source (set by load_module_with_source)
+                        const source = globalThis.__PLUGIN_SOURCE__ || "";
+                        return core.ops.op_fresh_register_command(name, description, action, contexts, source);
                     },
 
                     unregisterCommand(name) {
@@ -2930,7 +2927,6 @@ impl TypeScriptRuntime {
             js_runtime,
             event_handlers,
             pending_responses,
-            current_plugin_name,
         })
     }
 
@@ -2984,6 +2980,25 @@ impl TypeScriptRuntime {
 
     /// Load and execute a TypeScript/JavaScript module file
     pub async fn load_module(&mut self, path: &str) -> Result<()> {
+        self.load_module_with_source(path, "").await
+    }
+
+    /// Load and execute a TypeScript/JavaScript module file with explicit plugin source
+    pub async fn load_module_with_source(&mut self, path: &str, plugin_source: &str) -> Result<()> {
+        // Set the plugin source as a global so registerCommand can use it
+        let set_source: FastString = format!(
+            "globalThis.__PLUGIN_SOURCE__ = {};",
+            if plugin_source.is_empty() {
+                "null".to_string()
+            } else {
+                format!("\"{}\"", plugin_source)
+            }
+        )
+        .into();
+        self.js_runtime
+            .execute_script("<set_plugin_source>", set_source)
+            .map_err(|e| anyhow!("Failed to set plugin source: {}", e))?;
+
         let module_specifier = deno_core::resolve_path(
             path,
             &std::env::current_dir().map_err(|e| anyhow!("Failed to get cwd: {}", e))?,
@@ -3007,6 +3022,12 @@ impl TypeScriptRuntime {
         result
             .await
             .map_err(|e| anyhow!("Module evaluation error: {}", e))?;
+
+        // Clear the plugin source after loading
+        let clear_source: FastString = "globalThis.__PLUGIN_SOURCE__ = null;".to_string().into();
+        self.js_runtime
+            .execute_script("<clear_plugin_source>", clear_source)
+            .map_err(|e| anyhow!("Failed to clear plugin source: {}", e))?;
 
         Ok(())
     }
@@ -3243,21 +3264,14 @@ impl TypeScriptPluginManager {
 
         tracing::info!("Loading TypeScript plugin: {} from {:?}", plugin_name, path);
 
-        // Set current plugin name for command registration
-        *self.runtime.current_plugin_name.borrow_mut() = Some(plugin_name.clone());
-
-        // Load and execute the module
+        // Load and execute the module, passing plugin name for command registration
         let path_str = path
             .to_str()
             .ok_or_else(|| anyhow!("Invalid path encoding"))?;
 
-        let result = self.runtime.load_module(path_str).await;
-
-        // Clear current plugin name after loading
-        *self.runtime.current_plugin_name.borrow_mut() = None;
-
-        // Propagate any error
-        result?;
+        self.runtime
+            .load_module_with_source(path_str, &plugin_name)
+            .await?;
 
         // Store plugin info
         self.plugins.insert(
