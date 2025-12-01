@@ -821,12 +821,14 @@ impl Editor {
         priority: i32,
     ) {
         if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            // Convert line number to byte offset for marker-based tracking
+            let byte_offset = state.buffer.line_start_offset(line).unwrap_or(0);
             let indicator = crate::view::margin::LineIndicator::new(
                 symbol,
                 ratatui::style::Color::Rgb(color.0, color.1, color.2),
                 priority,
             );
-            state.margins.set_line_indicator(line, namespace, indicator);
+            state.margins.set_line_indicator(byte_offset, namespace, indicator);
         }
     }
 

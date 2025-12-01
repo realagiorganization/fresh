@@ -32,8 +32,6 @@ const SYMBOL = "│";
 // =============================================================================
 
 interface BufferState {
-  /** Set of line numbers (0-indexed) that have been modified since last save */
-  modifiedLines: Set<number>;
   /** Whether we're tracking this buffer */
   tracking: boolean;
 }
@@ -55,7 +53,6 @@ const bufferStates: Map<number, BufferState> = new Map();
  */
 function initBufferState(bufferId: number): void {
   bufferStates.set(bufferId, {
-    modifiedLines: new Set(),
     tracking: true,
   });
   // Clear any leftover indicators
@@ -67,36 +64,33 @@ function initBufferState(bufferId: number): void {
  * Removes all modified markers since buffer now matches disk
  */
 function clearModifiedState(bufferId: number): void {
-  const state = bufferStates.get(bufferId);
-  if (state) {
-    state.modifiedLines.clear();
-  }
   editor.clearLineIndicators(bufferId, NAMESPACE);
 }
 
 /**
- * Mark a range of lines as modified and update indicators
+ * Mark a range of lines as modified and set indicators
+ *
+ * Note: The indicator markers automatically track their byte positions,
+ * so we don't need to manually track which lines are modified - we just
+ * set indicators and they'll stay on the correct lines as edits happen.
  */
 function markLinesModified(bufferId: number, startLine: number, endLine: number): void {
   const state = bufferStates.get(bufferId);
   if (!state || !state.tracking) return;
 
-  // Mark all lines in range as modified
+  // Add indicator for each affected line
+  // Note: If an indicator already exists at this position, it will be updated
   for (let line = startLine; line <= endLine; line++) {
-    if (!state.modifiedLines.has(line)) {
-      state.modifiedLines.add(line);
-      // Add indicator for this line
-      editor.setLineIndicator(
-        bufferId,
-        line,
-        NAMESPACE,
-        SYMBOL,
-        COLOR[0],
-        COLOR[1],
-        COLOR[2],
-        PRIORITY
-      );
-    }
+    editor.setLineIndicator(
+      bufferId,
+      line,
+      NAMESPACE,
+      SYMBOL,
+      COLOR[0],
+      COLOR[1],
+      COLOR[2],
+      PRIORITY
+    );
   }
 }
 
@@ -161,6 +155,10 @@ globalThis.onBufferModifiedAfterSave = function (args: {
 
 /**
  * Handle after insert - mark affected lines as modified
+ *
+ * Note: Line indicators automatically track position changes via byte-position markers.
+ * We only need to add new indicators for the modified lines; existing indicators
+ * will automatically shift to stay on the correct lines.
  */
 globalThis.onBufferModifiedAfterInsert = function (args: {
   buffer_id: number;
@@ -178,35 +176,23 @@ globalThis.onBufferModifiedAfterInsert = function (args: {
     return true;
   }
 
-  const state = bufferStates.get(bufferId)!;
-
-  // First, shift existing indicators if lines were added
-  if (args.lines_added > 0) {
-    const shiftedLines = new Set<number>();
-    for (const line of state.modifiedLines) {
-      if (line >= args.start_line) {
-        // Shift lines at or after insertion point
-        shiftedLines.add(line + args.lines_added);
-      } else {
-        shiftedLines.add(line);
-      }
-    }
-    state.modifiedLines = shiftedLines;
-  }
-
   // Mark all affected lines (from start_line to end_line inclusive)
+  // The indicator markers will automatically track their positions
   markLinesModified(bufferId, args.start_line, args.end_line);
 
   return true;
 };
 
 /**
- * Handle after delete - mark affected lines as modified
+ * Handle after delete - mark affected line as modified
+ *
+ * Note: Line indicators automatically track position changes via byte-position markers.
+ * Markers within deleted ranges are automatically removed. We only need to mark the
+ * line where the deletion occurred.
  */
 globalThis.onBufferModifiedAfterDelete = function (args: {
   buffer_id: number;
-  start: number;
-  end: number;
+  range: { start: number; end: number };
   deleted_text: string;
   affected_start: number;
   deleted_len: number;
@@ -220,25 +206,8 @@ globalThis.onBufferModifiedAfterDelete = function (args: {
     return true;
   }
 
-  const state = bufferStates.get(bufferId)!;
-
-  // Shift existing indicators if lines were removed
-  if (args.lines_removed > 0) {
-    const shiftedLines = new Set<number>();
-    for (const line of state.modifiedLines) {
-      if (line > args.end_line) {
-        // Lines after the deleted range shift up
-        shiftedLines.add(line - args.lines_removed);
-      } else if (line < args.start_line) {
-        // Lines before deletion are unchanged
-        shiftedLines.add(line);
-      }
-      // Lines within the deleted range are removed (not added to shiftedLines)
-    }
-    state.modifiedLines = shiftedLines;
-  }
-
   // Mark the line where deletion occurred
+  // Markers for deleted lines are automatically cleaned up
   markLinesModified(bufferId, args.start_line, args.start_line);
 
   return true;

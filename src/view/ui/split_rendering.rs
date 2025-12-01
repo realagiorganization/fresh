@@ -1,5 +1,7 @@
 //! Split pane layout and buffer rendering
 
+use std::collections::BTreeMap;
+
 use crate::app::BufferMetadata;
 use crate::model::buffer::Buffer;
 use crate::model::cursor::SelectionMode;
@@ -68,6 +70,8 @@ struct DecorationContext {
     viewport_overlays: Vec<(crate::view::overlay::Overlay, Range<usize>)>,
     virtual_text_lookup: HashMap<usize, Vec<crate::view::virtual_text::VirtualText>>,
     diagnostic_lines: HashSet<usize>,
+    /// Line indicators indexed by line number (highest priority indicator per line)
+    line_indicators: BTreeMap<usize, crate::view::margin::LineIndicator>,
 }
 
 struct LineRenderOutput {
@@ -143,6 +147,8 @@ struct LeftMarginContext<'a> {
     current_source_line_num: usize,
     estimated_lines: usize,
     diagnostic_lines: &'a HashSet<usize>,
+    /// Pre-computed line indicators (line_num -> indicator)
+    line_indicators: &'a BTreeMap<usize, crate::view::margin::LineIndicator>,
 }
 
 /// Render the left margin (indicators + line numbers + separator) to line_spans
@@ -173,7 +179,7 @@ fn render_left_margin(
             Style::default().fg(ratatui::style::Color::Red),
             None,
         );
-    } else if let Some(indicator) = ctx.state.margins.get_line_indicator(ctx.current_source_line_num) {
+    } else if let Some(indicator) = ctx.line_indicators.get(&ctx.current_source_line_num) {
         // Show line indicator (git gutter, breakpoints, etc.)
         push_span_with_map(
             line_spans,
@@ -1605,8 +1611,14 @@ impl SplitRenderer {
         primary_cursor_position: usize,
         theme: &crate::view::theme::Theme,
     ) -> DecorationContext {
+        // Extend highlighting range by ~1 viewport size before/after for better context.
+        // This helps tree-sitter parse multi-line constructs that span viewport boundaries.
+        let viewport_size = viewport_end.saturating_sub(viewport_start);
+        let highlight_start = viewport_start.saturating_sub(viewport_size);
+        let highlight_end = viewport_end.saturating_add(viewport_size).min(state.buffer.len());
+
         let highlight_spans = if let Some(highlighter) = &mut state.highlighter {
-            highlighter.highlight_viewport(&state.buffer, viewport_start, viewport_end, theme)
+            highlighter.highlight_viewport(&state.buffer, highlight_start, highlight_end, theme)
         } else {
             Vec::new()
         };
@@ -1648,12 +1660,21 @@ impl SplitRenderer {
                 .map(|(position, texts)| (position, texts.into_iter().cloned().collect()))
                 .collect();
 
+        // Pre-compute line indicators for the viewport (only query markers in visible range)
+        let line_indicators =
+            state
+                .margins
+                .get_indicators_for_viewport(viewport_start, viewport_end, |byte_offset| {
+                    state.buffer.get_line_number(byte_offset)
+                });
+
         DecorationContext {
             highlight_spans,
             semantic_spans,
             viewport_overlays,
             virtual_text_lookup,
             diagnostic_lines,
+            line_indicators,
         }
     }
 
@@ -1705,6 +1726,7 @@ impl SplitRenderer {
         let viewport_overlays = &decorations.viewport_overlays;
         let virtual_text_lookup = &decorations.virtual_text_lookup;
         let diagnostic_lines = &decorations.diagnostic_lines;
+        let line_indicators = &decorations.line_indicators;
 
         let mut lines = Vec::new();
         let mut lines_rendered = 0usize;
@@ -1799,6 +1821,7 @@ impl SplitRenderer {
                     current_source_line_num,
                     estimated_lines,
                     diagnostic_lines,
+                    line_indicators,
                 },
                 &mut line_spans,
                 &mut line_view_map,

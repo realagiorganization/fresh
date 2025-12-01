@@ -229,6 +229,7 @@ impl EditorState {
 
         // CRITICAL: Adjust markers BEFORE modifying buffer
         self.marker_list.adjust_for_insert(position, text.len());
+        self.margins.adjust_for_insert(position, text.len());
 
         // Insert text into buffer
         self.buffer.insert(position, text);
@@ -276,6 +277,7 @@ impl EditorState {
 
         // CRITICAL: Adjust markers BEFORE modifying buffer
         self.marker_list.adjust_for_delete(range.start, len);
+        self.margins.adjust_for_delete(range.start, len);
 
         // Delete from buffer
         self.buffer.delete(range.clone());

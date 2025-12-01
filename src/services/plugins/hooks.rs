@@ -724,6 +724,9 @@ mod tests {
                 text: "test".to_string(),
                 affected_start: 0,
                 affected_end: 4,
+                start_line: 0,
+                end_line: 0,
+                lines_added: 0,
             },
             HookArgs::BeforeDelete {
                 buffer_id: BufferId(1),
@@ -735,6 +738,9 @@ mod tests {
                 deleted_text: "test".to_string(),
                 affected_start: 0,
                 deleted_len: 4,
+                start_line: 0,
+                end_line: 0,
+                lines_removed: 0,
             },
             HookArgs::CursorMoved {
                 buffer_id: BufferId(1),

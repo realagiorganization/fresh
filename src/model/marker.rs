@@ -40,6 +40,7 @@ pub enum MarkerEntry {
 /// but uses IntervalTree internally for better performance with many markers.
 ///
 /// Point markers (single positions) are represented as zero-length intervals.
+#[derive(Debug)]
 pub struct MarkerList {
     /// Internal interval tree for O(log n) operations
     tree: IntervalTree,

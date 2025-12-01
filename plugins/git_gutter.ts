@@ -128,8 +128,6 @@ function parseDiffOutput(diffOutput: string): DiffHunk[] {
 
     if (line.startsWith("+") && !line.startsWith("+++")) {
       // Added line
-      flushDeleted(); // Deletions before additions become modifications
-
       if (deletedCount > 0) {
         // If there were deletions right before, this is a modification
         if (modifiedCount === 0) {
@@ -146,7 +144,7 @@ function parseDiffOutput(diffOutput: string): DiffHunk[] {
       }
       currentNewLine++;
     } else if (line.startsWith("-") && !line.startsWith("---")) {
-      // Deleted line
+      // Deleted line - flush any pending additions first
       flushAdded();
 
       if (deletedCount === 0) {
@@ -394,89 +392,8 @@ globalThis.onGitGutterAfterSave = function (args: {
   return true;
 };
 
-/**
- * Handle after insert - shift git indicators to track line movements
- */
-globalThis.onGitGutterAfterInsert = function (args: {
-  buffer_id: number;
-  start_line: number;
-  lines_added: number;
-}): boolean {
-  const bufferId = args.buffer_id;
-  const state = bufferStates.get(bufferId);
-  if (!state || args.lines_added === 0) return true;
-
-  // Shift all hunks that are at or after the insertion point
-  for (const hunk of state.hunks) {
-    if (hunk.newStart >= args.start_line) {
-      // This hunk starts at or after insertion - shift down
-      hunk.newStart += args.lines_added;
-    } else if (hunk.newStart + hunk.newCount > args.start_line) {
-      // Insertion is within this hunk - extend the hunk
-      hunk.newCount += args.lines_added;
-    }
-  }
-
-  // Re-render indicators with updated line positions
-  renderIndicators(bufferId, state.hunks);
-
-  return true;
-};
-
-/**
- * Handle after delete - shift git indicators to track line movements
- */
-globalThis.onGitGutterAfterDelete = function (args: {
-  buffer_id: number;
-  start_line: number;
-  end_line: number;
-  lines_removed: number;
-}): boolean {
-  const bufferId = args.buffer_id;
-  const state = bufferStates.get(bufferId);
-  if (!state || args.lines_removed === 0) return true;
-
-  // Shift all hunks that are affected by the deletion
-  const updatedHunks: DiffHunk[] = [];
-  for (const hunk of state.hunks) {
-    const hunkEnd = hunk.newStart + hunk.newCount;
-
-    if (hunk.newStart > args.end_line) {
-      // Hunk is entirely after deletion - shift up
-      hunk.newStart -= args.lines_removed;
-      updatedHunks.push(hunk);
-    } else if (hunkEnd <= args.start_line) {
-      // Hunk is entirely before deletion - unchanged
-      updatedHunks.push(hunk);
-    } else if (hunk.newStart >= args.start_line && hunkEnd <= args.end_line) {
-      // Hunk is entirely within deletion - remove it
-      // (don't add to updatedHunks)
-    } else {
-      // Hunk partially overlaps deletion - adjust size
-      if (hunk.newStart < args.start_line) {
-        // Hunk starts before deletion
-        const removedFromHunk = Math.min(hunkEnd, args.end_line + 1) - args.start_line;
-        hunk.newCount = Math.max(1, hunk.newCount - removedFromHunk);
-      } else {
-        // Hunk starts within deletion
-        hunk.newStart = args.start_line;
-        const removedFromHunk = args.end_line - hunk.newStart + 1;
-        hunk.newCount = Math.max(1, hunk.newCount - removedFromHunk);
-      }
-      updatedHunks.push(hunk);
-    }
-  }
-
-  state.hunks = updatedHunks;
-
-  // Re-render indicators with updated line positions
-  renderIndicators(bufferId, state.hunks);
-
-  return true;
-};
-
 // Note: Git diff compares the file on disk, not the in-memory buffer.
-// The hooks above shift existing indicators to stay on the same logical lines.
+// Line indicators automatically track position changes via byte-position markers.
 // A full re-diff happens on save. For unsaved changes, see buffer_modified plugin.
 
 /**
@@ -527,11 +444,11 @@ globalThis.git_gutter_refresh = function (): void {
 // =============================================================================
 
 // Register event handlers
+// Note: No need to register after-insert/after-delete hooks - indicators
+// automatically track position changes via byte-position markers in the editor.
 editor.on("after_file_open", "onGitGutterAfterFileOpen");
 editor.on("buffer_activated", "onGitGutterBufferActivated");
 editor.on("after_file_save", "onGitGutterAfterSave");
-editor.on("after-insert", "onGitGutterAfterInsert");
-editor.on("after-delete", "onGitGutterAfterDelete");
 editor.on("buffer_closed", "onGitGutterBufferClosed");
 
 // Register commands

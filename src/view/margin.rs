@@ -1,3 +1,4 @@
+use crate::model::marker::{MarkerId, MarkerList};
 use ratatui::style::{Color, Style};
 use std::collections::BTreeMap;
 
@@ -12,6 +13,9 @@ pub enum MarginPosition {
 
 /// A line indicator displayed in the gutter's indicator column
 /// Can be used for git status, breakpoints, bookmarks, etc.
+///
+/// Indicators are anchored to byte positions via markers, so they automatically
+/// shift when text is inserted or deleted before them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LineIndicator {
     /// The symbol to display (e.g., "│", "●", "★")
@@ -20,15 +24,34 @@ pub struct LineIndicator {
     pub color: Color,
     /// Priority for display when multiple indicators exist (higher wins)
     pub priority: i32,
+    /// Marker ID anchoring this indicator to a byte position
+    /// The line number is derived from this position at render time
+    pub marker_id: MarkerId,
 }
 
 impl LineIndicator {
-    /// Create a new line indicator
+    /// Create a new line indicator (marker_id will be set when added to MarginManager)
     pub fn new(symbol: impl Into<String>, color: Color, priority: i32) -> Self {
         Self {
             symbol: symbol.into(),
             color,
             priority,
+            marker_id: MarkerId(0), // Placeholder, set by MarginManager
+        }
+    }
+
+    /// Create a line indicator with a specific marker ID
+    pub fn with_marker(
+        symbol: impl Into<String>,
+        color: Color,
+        priority: i32,
+        marker_id: MarkerId,
+    ) -> Self {
+        Self {
+            symbol: symbol.into(),
+            color,
+            priority,
+            marker_id,
         }
     }
 }
@@ -258,7 +281,10 @@ impl MarginAnnotation {
 
 /// Manages margins and annotations for a buffer
 /// This is similar to OverlayManager - a general-purpose primitive for margin decorations
-#[derive(Debug, Clone)]
+///
+/// Line indicators use byte-position markers that automatically adjust when the buffer
+/// is edited. This ensures indicators stay anchored to the content they represent.
+#[derive(Debug)]
 pub struct MarginManager {
     /// Configuration for left margin
     pub left_config: MarginConfig,
@@ -280,10 +306,14 @@ pub struct MarginManager {
     /// Maps line number to (symbol, color) tuple
     diagnostic_indicators: BTreeMap<usize, (String, Color)>,
 
-    /// Line indicators per line (displayed in the indicator column)
-    /// Maps line number to a map of namespace -> indicator
-    /// Multiple namespaces can set indicators on the same line; highest priority wins
-    line_indicators: BTreeMap<usize, BTreeMap<String, LineIndicator>>,
+    /// Marker list for tracking indicator positions through edits
+    /// Shared with the buffer's edit tracking
+    indicator_markers: MarkerList,
+
+    /// Line indicators stored by marker ID
+    /// Maps marker_id -> (namespace -> indicator)
+    /// The line number is computed at render time from the marker's byte position
+    line_indicators: BTreeMap<u64, BTreeMap<String, LineIndicator>>,
 }
 
 impl MarginManager {
@@ -296,6 +326,7 @@ impl MarginManager {
             right_annotations: BTreeMap::new(),
             show_line_numbers: true,
             diagnostic_indicators: BTreeMap::new(),
+            indicator_markers: MarkerList::new(),
             line_indicators: BTreeMap::new(),
         }
     }
@@ -305,6 +336,22 @@ impl MarginManager {
         let mut manager = Self::new();
         manager.show_line_numbers = false;
         manager
+    }
+
+    // =========================================================================
+    // Edit Propagation - called when buffer content changes
+    // =========================================================================
+
+    /// Adjust all indicator markers after an insertion
+    /// Call this when text is inserted into the buffer
+    pub fn adjust_for_insert(&mut self, position: usize, length: usize) {
+        self.indicator_markers.adjust_for_insert(position, length);
+    }
+
+    /// Adjust all indicator markers after a deletion
+    /// Call this when text is deleted from the buffer
+    pub fn adjust_for_delete(&mut self, position: usize, length: usize) {
+        self.indicator_markers.adjust_for_delete(position, length);
     }
 
     /// Set a diagnostic indicator for a line
@@ -327,44 +374,126 @@ impl MarginManager {
         self.diagnostic_indicators.get(&line)
     }
 
-    /// Set a line indicator for a specific namespace
-    /// Multiple namespaces can set indicators on the same line; the highest priority wins
+    /// Set a line indicator at a byte position for a specific namespace
+    ///
+    /// The indicator is anchored to the byte position and will automatically
+    /// shift when text is inserted or deleted before it.
+    ///
+    /// Returns the marker ID that can be used to remove or update the indicator.
     pub fn set_line_indicator(
         &mut self,
-        line: usize,
+        byte_offset: usize,
         namespace: String,
-        indicator: LineIndicator,
-    ) {
+        mut indicator: LineIndicator,
+    ) -> MarkerId {
+        // Create a marker at this byte position (left affinity - stays before inserted text)
+        let marker_id = self.indicator_markers.create(byte_offset, true);
+        indicator.marker_id = marker_id;
+
         self.line_indicators
-            .entry(line)
+            .entry(marker_id.0)
             .or_default()
             .insert(namespace, indicator);
+
+        marker_id
     }
 
-    /// Remove line indicator for a specific namespace on a line
-    pub fn remove_line_indicator(&mut self, line: usize, namespace: &str) {
-        if let Some(indicators) = self.line_indicators.get_mut(&line) {
+    /// Remove line indicator for a specific namespace at a marker
+    pub fn remove_line_indicator(&mut self, marker_id: MarkerId, namespace: &str) {
+        if let Some(indicators) = self.line_indicators.get_mut(&marker_id.0) {
             indicators.remove(namespace);
             if indicators.is_empty() {
-                self.line_indicators.remove(&line);
+                self.line_indicators.remove(&marker_id.0);
+                self.indicator_markers.delete(marker_id);
             }
         }
     }
 
     /// Clear all line indicators for a specific namespace
     pub fn clear_line_indicators_for_namespace(&mut self, namespace: &str) {
-        for indicators in self.line_indicators.values_mut() {
+        // Collect marker IDs to delete (can't modify while iterating)
+        let mut markers_to_delete = Vec::new();
+
+        for (&marker_id, indicators) in self.line_indicators.iter_mut() {
             indicators.remove(namespace);
+            if indicators.is_empty() {
+                markers_to_delete.push(marker_id);
+            }
         }
-        // Clean up empty entries
-        self.line_indicators.retain(|_, v| !v.is_empty());
+
+        // Delete empty marker entries and their markers
+        for marker_id in markers_to_delete {
+            self.line_indicators.remove(&marker_id);
+            self.indicator_markers.delete(MarkerId(marker_id));
+        }
     }
 
-    /// Get the line indicator for a line (returns the highest priority indicator if multiple exist)
-    pub fn get_line_indicator(&self, line: usize) -> Option<&LineIndicator> {
-        self.line_indicators.get(&line).and_then(|indicators| {
-            indicators.values().max_by_key(|ind| ind.priority)
-        })
+    /// Get the line indicator for a specific line number
+    ///
+    /// This looks up all indicators whose markers resolve to the given line.
+    /// Returns the highest priority indicator if multiple exist on the same line.
+    ///
+    /// Note: This is O(n) in the number of indicators. For rendering, prefer
+    /// `get_indicators_in_viewport` which is more efficient.
+    pub fn get_line_indicator(&self, line: usize, get_line_fn: impl Fn(usize) -> usize) -> Option<&LineIndicator> {
+        // Find all indicators on this line
+        let mut best: Option<&LineIndicator> = None;
+
+        for (&marker_id, indicators) in &self.line_indicators {
+            if let Some(byte_pos) = self.indicator_markers.get_position(MarkerId(marker_id)) {
+                let indicator_line = get_line_fn(byte_pos);
+                if indicator_line == line {
+                    // Found an indicator on this line, check if it's higher priority
+                    for indicator in indicators.values() {
+                        if best.is_none() || indicator.priority > best.unwrap().priority {
+                            best = Some(indicator);
+                        }
+                    }
+                }
+            }
+        }
+
+        best
+    }
+
+    /// Get indicators within a viewport byte range
+    ///
+    /// Only queries markers within `viewport_start..viewport_end`, avoiding
+    /// iteration over the entire indicator set.
+    ///
+    /// Returns a map of line_number -> highest priority indicator for that line.
+    /// The `get_line_fn` converts byte offsets to line numbers.
+    pub fn get_indicators_for_viewport(
+        &self,
+        viewport_start: usize,
+        viewport_end: usize,
+        get_line_fn: impl Fn(usize) -> usize,
+    ) -> BTreeMap<usize, LineIndicator> {
+        let mut by_line: BTreeMap<usize, LineIndicator> = BTreeMap::new();
+
+        // Query only markers within the viewport byte range
+        for (marker_id, byte_pos, _end) in
+            self.indicator_markers.query_range(viewport_start, viewport_end)
+        {
+            // Look up the indicators for this marker
+            if let Some(indicators) = self.line_indicators.get(&marker_id.0) {
+                let line = get_line_fn(byte_pos);
+
+                // Get highest priority indicator for this marker
+                if let Some(indicator) = indicators.values().max_by_key(|ind| ind.priority) {
+                    // Check if this is higher priority than existing indicator on this line
+                    if let Some(existing) = by_line.get(&line) {
+                        if indicator.priority > existing.priority {
+                            by_line.insert(line, indicator.clone());
+                        }
+                    } else {
+                        by_line.insert(line, indicator.clone());
+                    }
+                }
+            }
+        }
+
+        by_line
     }
 
     /// Add an annotation to a margin
@@ -672,16 +801,27 @@ mod tests {
         assert_eq!(manager.annotation_count(MarginPosition::Right), 1);
     }
 
+    // Helper: simulates a buffer where each line is 10 bytes (9 chars + newline)
+    // Line 0 = bytes 0-9, Line 1 = bytes 10-19, etc.
+    fn byte_to_line(byte_offset: usize) -> usize {
+        byte_offset / 10
+    }
+
+    // Helper: get byte offset for start of a line
+    fn line_to_byte(line: usize) -> usize {
+        line * 10
+    }
+
     #[test]
     fn test_line_indicator_basic() {
         let mut manager = MarginManager::new();
 
-        // Add a line indicator
+        // Add a line indicator at byte offset 50 (line 5 in our simulated buffer)
         let indicator = LineIndicator::new("│", Color::Green, 10);
-        manager.set_line_indicator(5, "git-gutter".to_string(), indicator);
+        manager.set_line_indicator(line_to_byte(5), "git-gutter".to_string(), indicator);
 
-        // Check it can be retrieved
-        let retrieved = manager.get_line_indicator(5);
+        // Check it can be retrieved on line 5
+        let retrieved = manager.get_line_indicator(5, byte_to_line);
         assert!(retrieved.is_some());
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.symbol, "│");
@@ -689,22 +829,22 @@ mod tests {
         assert_eq!(retrieved.priority, 10);
 
         // Non-existent line should return None
-        assert!(manager.get_line_indicator(10).is_none());
+        assert!(manager.get_line_indicator(10, byte_to_line).is_none());
     }
 
     #[test]
     fn test_line_indicator_multiple_namespaces() {
         let mut manager = MarginManager::new();
 
-        // Add indicators from different namespaces on the same line
+        // Add indicators from different namespaces at the same byte position (line 5)
         let git_indicator = LineIndicator::new("│", Color::Green, 10);
         let breakpoint_indicator = LineIndicator::new("●", Color::Red, 20);
 
-        manager.set_line_indicator(5, "git-gutter".to_string(), git_indicator);
-        manager.set_line_indicator(5, "breakpoints".to_string(), breakpoint_indicator);
+        manager.set_line_indicator(line_to_byte(5), "git-gutter".to_string(), git_indicator);
+        manager.set_line_indicator(line_to_byte(5), "breakpoints".to_string(), breakpoint_indicator);
 
         // Should return the highest priority indicator
-        let retrieved = manager.get_line_indicator(5);
+        let retrieved = manager.get_line_indicator(5, byte_to_line);
         assert!(retrieved.is_some());
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.symbol, "●"); // Breakpoint has higher priority
@@ -716,19 +856,19 @@ mod tests {
         let mut manager = MarginManager::new();
 
         // Add indicators on multiple lines
-        manager.set_line_indicator(1, "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
-        manager.set_line_indicator(2, "git-gutter".to_string(), LineIndicator::new("│", Color::Yellow, 10));
-        manager.set_line_indicator(3, "breakpoints".to_string(), LineIndicator::new("●", Color::Red, 20));
+        manager.set_line_indicator(line_to_byte(1), "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
+        manager.set_line_indicator(line_to_byte(2), "git-gutter".to_string(), LineIndicator::new("│", Color::Yellow, 10));
+        manager.set_line_indicator(line_to_byte(3), "breakpoints".to_string(), LineIndicator::new("●", Color::Red, 20));
 
         // Clear git-gutter namespace
         manager.clear_line_indicators_for_namespace("git-gutter");
 
         // Git gutter indicators should be gone
-        assert!(manager.get_line_indicator(1).is_none());
-        assert!(manager.get_line_indicator(2).is_none());
+        assert!(manager.get_line_indicator(1, byte_to_line).is_none());
+        assert!(manager.get_line_indicator(2, byte_to_line).is_none());
 
         // Breakpoint should still be there
-        let breakpoint = manager.get_line_indicator(3);
+        let breakpoint = manager.get_line_indicator(3, byte_to_line);
         assert!(breakpoint.is_some());
         assert_eq!(breakpoint.unwrap().symbol, "●");
     }
@@ -737,22 +877,81 @@ mod tests {
     fn test_line_indicator_remove_specific() {
         let mut manager = MarginManager::new();
 
-        // Add two indicators on the same line
-        manager.set_line_indicator(5, "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
-        manager.set_line_indicator(5, "breakpoints".to_string(), LineIndicator::new("●", Color::Red, 20));
+        // Add two indicators at the same byte position (line 5)
+        let git_marker = manager.set_line_indicator(line_to_byte(5), "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
+        let bp_marker = manager.set_line_indicator(line_to_byte(5), "breakpoints".to_string(), LineIndicator::new("●", Color::Red, 20));
 
         // Remove just the git-gutter indicator
-        manager.remove_line_indicator(5, "git-gutter");
+        manager.remove_line_indicator(git_marker, "git-gutter");
 
-        // Should still have the breakpoint indicator
-        let retrieved = manager.get_line_indicator(5);
+        // Should still have the breakpoint indicator on line 5
+        let retrieved = manager.get_line_indicator(5, byte_to_line);
         assert!(retrieved.is_some());
         assert_eq!(retrieved.unwrap().symbol, "●");
 
         // Remove the breakpoint indicator too
-        manager.remove_line_indicator(5, "breakpoints");
+        manager.remove_line_indicator(bp_marker, "breakpoints");
 
         // Now no indicators on line 5
-        assert!(manager.get_line_indicator(5).is_none());
+        assert!(manager.get_line_indicator(5, byte_to_line).is_none());
+    }
+
+    #[test]
+    fn test_line_indicator_shifts_on_insert() {
+        let mut manager = MarginManager::new();
+
+        // Add indicator on line 5 (byte 50)
+        manager.set_line_indicator(line_to_byte(5), "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
+
+        // Verify it's on line 5
+        assert!(manager.get_line_indicator(5, byte_to_line).is_some());
+        assert!(manager.get_line_indicator(6, byte_to_line).is_none());
+
+        // Insert 10 bytes (one line) at the beginning
+        manager.adjust_for_insert(0, 10);
+
+        // Now indicator should be on line 6 (shifted down by 1)
+        assert!(manager.get_line_indicator(5, byte_to_line).is_none());
+        assert!(manager.get_line_indicator(6, byte_to_line).is_some());
+    }
+
+    #[test]
+    fn test_line_indicator_shifts_on_delete() {
+        let mut manager = MarginManager::new();
+
+        // Add indicator on line 5 (byte 50)
+        manager.set_line_indicator(line_to_byte(5), "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
+
+        // Verify it's on line 5
+        assert!(manager.get_line_indicator(5, byte_to_line).is_some());
+
+        // Delete first 20 bytes (2 lines)
+        manager.adjust_for_delete(0, 20);
+
+        // Now indicator should be on line 3 (shifted up by 2)
+        assert!(manager.get_line_indicator(5, byte_to_line).is_none());
+        assert!(manager.get_line_indicator(3, byte_to_line).is_some());
+    }
+
+    #[test]
+    fn test_multiple_indicators_shift_together() {
+        let mut manager = MarginManager::new();
+
+        // Add indicators on lines 3, 5, and 7
+        manager.set_line_indicator(line_to_byte(3), "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
+        manager.set_line_indicator(line_to_byte(5), "git-gutter".to_string(), LineIndicator::new("│", Color::Yellow, 10));
+        manager.set_line_indicator(line_to_byte(7), "git-gutter".to_string(), LineIndicator::new("│", Color::Red, 10));
+
+        // Insert 2 lines (20 bytes) at byte 25 (middle of line 2)
+        // This should shift lines 3, 5, 7 -> lines 5, 7, 9
+        manager.adjust_for_insert(25, 20);
+
+        // Old positions should be empty
+        assert!(manager.get_line_indicator(3, byte_to_line).is_none());
+
+        // New positions should have indicators
+        assert!(manager.get_line_indicator(5, byte_to_line).is_some());
+        assert!(manager.get_line_indicator(7, byte_to_line).is_some());
+        assert!(manager.get_line_indicator(9, byte_to_line).is_some());
     }
 }
