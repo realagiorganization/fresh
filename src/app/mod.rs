@@ -45,8 +45,8 @@ pub(crate) fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 use self::types::{
-    Bookmark, CachedLayout, InteractiveReplaceState, LspMessageEntry, LspProgressInfo,
-    MacroRecordingState, MouseState, SearchState, DEFAULT_BACKGROUND_FILE,
+    Bookmark, CachedLayout, EventLineInfo, InteractiveReplaceState, LspMessageEntry,
+    LspProgressInfo, MacroRecordingState, MouseState, SearchState, DEFAULT_BACKGROUND_FILE,
 };
 use crate::config::Config;
 use crate::input::actions::action_to_events as convert_action_to_events;
@@ -1009,6 +1009,15 @@ impl Editor {
         // Track file for auto-revert and conflict detection
         self.watch_file(path);
 
+        // Fire AfterFileOpen hook for plugins
+        if let Some(ref ts_manager) = self.ts_plugin_manager {
+            let hook_args = crate::services::plugins::hooks::HookArgs::AfterFileOpen {
+                buffer_id,
+                path: path.to_path_buf(),
+            };
+            ts_manager.run_hook("after_file_open", hook_args);
+        }
+
         Ok(buffer_id)
     }
 
@@ -1968,10 +1977,13 @@ impl Editor {
             _ => {}
         }
 
-        // IMPORTANT: Calculate LSP changes BEFORE applying to buffer!
+        // IMPORTANT: Calculate LSP changes and line info BEFORE applying to buffer!
         // The byte positions in the events are relative to the ORIGINAL buffer,
         // so we must convert them to LSP positions before modifying the buffer.
         let lsp_changes = self.collect_lsp_changes(event);
+
+        // Calculate line info for plugin hooks (using same pre-modification buffer state)
+        let line_info = self.calculate_event_line_info(event);
 
         // 1. Apply the event to the buffer
         self.active_state_mut().apply(event);
@@ -2011,15 +2023,16 @@ impl Editor {
             }
         }
 
-        // 3. Trigger plugin hooks for this event
-        self.trigger_plugin_hooks_for_event(event);
+        // 3. Trigger plugin hooks for this event (with pre-calculated line info)
+        self.trigger_plugin_hooks_for_event(event, line_info);
 
         // 4. Notify LSP of the change using pre-calculated positions
         self.send_lsp_changes_for_buffer(self.active_buffer, lsp_changes);
     }
 
     /// Trigger plugin hooks for an event (if any)
-    fn trigger_plugin_hooks_for_event(&mut self, event: &Event) {
+    /// line_info contains pre-calculated line numbers from BEFORE buffer modification
+    fn trigger_plugin_hooks_for_event(&mut self, event: &Event, line_info: EventLineInfo) {
         let buffer_id = self.active_buffer;
 
         // Convert event to hook args and fire the appropriate hook
@@ -2061,6 +2074,10 @@ impl Editor {
                         // Byte range of the affected area
                         affected_start: insert_position,
                         affected_end: insert_position + insert_len,
+                        // Line info from pre-modification buffer
+                        start_line: line_info.start_line,
+                        end_line: line_info.end_line,
+                        lines_added: line_info.line_delta.max(0) as usize,
                     },
                 ))
             }
@@ -2106,13 +2123,22 @@ impl Editor {
                         // Byte position and length of deleted content
                         affected_start: delete_start,
                         deleted_len: deleted_text.len(),
+                        // Line info from pre-modification buffer
+                        start_line: line_info.start_line,
+                        end_line: line_info.end_line,
+                        lines_removed: (-line_info.line_delta).max(0) as usize,
                     },
                 ))
             }
             Event::Batch { events, .. } => {
                 // Fire hooks for each event in the batch
+                // Note: For batches, line info is approximate since buffer already modified
+                // Individual events will use the passed line_info which covers the whole batch
                 for e in events {
-                    self.trigger_plugin_hooks_for_event(e);
+                    // Use default line info for sub-events - they share the batch's line_info
+                    // This is a simplification; proper tracking would need per-event pre-calculation
+                    let sub_line_info = self.calculate_event_line_info(e);
+                    self.trigger_plugin_hooks_for_event(e, sub_line_info);
                 }
                 None
             }
@@ -2512,13 +2538,25 @@ impl Editor {
         self.notify_lsp_save();
 
         // Emit control event
-        if let Some(p) = path {
+        if let Some(ref p) = path {
             self.emit_event(
                 crate::model::control_event::events::FILE_SAVED.name,
                 serde_json::json!({
                     "path": p.display().to_string()
                 }),
             );
+        }
+
+        // Fire AfterFileSave hook for plugins
+        if let Some(ref p) = path {
+            if let Some(ref ts_manager) = self.ts_plugin_manager {
+                let buffer_id = self.active_buffer;
+                let hook_args = crate::services::plugins::hooks::HookArgs::AfterFileSave {
+                    buffer_id,
+                    path: p.clone(),
+                };
+                ts_manager.run_hook("after_file_save", hook_args);
+            }
         }
 
         Ok(())
@@ -4029,6 +4067,22 @@ impl Editor {
             }
             PluginCommand::RefreshLines { buffer_id } => {
                 self.handle_refresh_lines(buffer_id);
+            }
+            PluginCommand::SetLineIndicator {
+                buffer_id,
+                line,
+                namespace,
+                symbol,
+                color,
+                priority,
+            } => {
+                self.handle_set_line_indicator(buffer_id, line, namespace, symbol, color, priority);
+            }
+            PluginCommand::ClearLineIndicators {
+                buffer_id,
+                namespace,
+            } => {
+                self.handle_clear_line_indicators(buffer_id, namespace);
             }
 
             // ==================== Status/Prompt Commands ====================

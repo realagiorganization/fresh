@@ -46,6 +46,12 @@ pub enum HookArgs {
         affected_start: usize,
         /// Byte position where the affected range ends (after the inserted text)
         affected_end: usize,
+        /// Line number where insertion occurred (0-indexed)
+        start_line: usize,
+        /// Line number where insertion ended (0-indexed)
+        end_line: usize,
+        /// Number of lines added by this insertion
+        lines_added: usize,
     },
 
     /// Before text is deleted
@@ -63,6 +69,12 @@ pub enum HookArgs {
         affected_start: usize,
         /// Length of the deleted content in bytes
         deleted_len: usize,
+        /// Line number where deletion started (0-indexed)
+        start_line: usize,
+        /// Line number where deletion ended (0-indexed, in original buffer)
+        end_line: usize,
+        /// Number of lines removed by this deletion
+        lines_removed: usize,
     },
 
     /// Cursor moved to a new position
@@ -379,6 +391,9 @@ pub fn hook_args_to_json(args: &HookArgs) -> Result<String> {
             text,
             affected_start,
             affected_end,
+            start_line,
+            end_line,
+            lines_added,
         } => {
             serde_json::json!({
                 "buffer_id": buffer_id.0,
@@ -386,6 +401,9 @@ pub fn hook_args_to_json(args: &HookArgs) -> Result<String> {
                 "text": text,
                 "affected_start": affected_start,
                 "affected_end": affected_end,
+                "start_line": start_line,
+                "end_line": end_line,
+                "lines_added": lines_added,
             })
         }
         HookArgs::BeforeDelete { buffer_id, range } => {
@@ -401,6 +419,9 @@ pub fn hook_args_to_json(args: &HookArgs) -> Result<String> {
             deleted_text,
             affected_start,
             deleted_len,
+            start_line,
+            end_line,
+            lines_removed,
         } => {
             serde_json::json!({
                 "buffer_id": buffer_id.0,
@@ -409,6 +430,9 @@ pub fn hook_args_to_json(args: &HookArgs) -> Result<String> {
                 "deleted_text": deleted_text,
                 "affected_start": affected_start,
                 "deleted_len": deleted_len,
+                "start_line": start_line,
+                "end_line": end_line,
+                "lines_removed": lines_removed,
             })
         }
         HookArgs::BeforeFileOpen { path } => {

@@ -1223,6 +1223,88 @@ impl Editor {
         }
     }
 
+    /// Calculate line information for an event (before buffer modification)
+    /// This provides accurate line numbers for plugin hooks to track changes.
+    ///
+    /// ## Design Alternatives for Line Tracking
+    ///
+    /// **Approach 1: Re-diff on every edit (VSCode style)**
+    /// - Store original file content, re-run diff algorithm after each edit
+    /// - Simpler conceptually, but O(n) per edit for diff computation
+    /// - Better for complex scenarios (multi-cursor, large batch edits)
+    ///
+    /// **Approach 2: Track line shifts (our approach)**
+    /// - Calculate line info BEFORE applying edit (like LSP does)
+    /// - Pass `lines_added`/`lines_removed` to plugins via hooks
+    /// - Plugins shift their stored line numbers accordingly
+    /// - O(1) per edit, but requires careful bookkeeping
+    ///
+    /// We use Approach 2 because:
+    /// - Matches existing LSP infrastructure (`collect_lsp_changes`)
+    /// - More efficient for typical editing patterns
+    /// - Plugins can choose to re-diff if they need more accuracy
+    ///
+    pub(super) fn calculate_event_line_info(
+        &self,
+        event: &Event,
+    ) -> super::types::EventLineInfo {
+        match event {
+            Event::Insert { position, text, .. } => {
+                // Get line number at insert position (from original buffer)
+                let start_line = self.active_state().buffer.get_line_number(*position);
+
+                // Count newlines in inserted text to determine lines added
+                let lines_added = text.matches('\n').count();
+                let end_line = start_line + lines_added;
+
+                super::types::EventLineInfo {
+                    start_line,
+                    end_line,
+                    line_delta: lines_added as i32,
+                }
+            }
+            Event::Delete { range, deleted_text, .. } => {
+                // Get line numbers for the deleted range (from original buffer)
+                let start_line = self.active_state().buffer.get_line_number(range.start);
+                let end_line = self.active_state().buffer.get_line_number(range.end);
+
+                // Count newlines in deleted text to determine lines removed
+                let lines_removed = deleted_text.matches('\n').count();
+
+                super::types::EventLineInfo {
+                    start_line,
+                    end_line,
+                    line_delta: -(lines_removed as i32),
+                }
+            }
+            Event::Batch { events, .. } => {
+                // For batches, compute cumulative line info
+                // This is a simplification - we report the range covering all changes
+                let mut min_line = usize::MAX;
+                let mut max_line = 0usize;
+                let mut total_delta = 0i32;
+
+                for sub_event in events {
+                    let info = self.calculate_event_line_info(sub_event);
+                    min_line = min_line.min(info.start_line);
+                    max_line = max_line.max(info.end_line);
+                    total_delta += info.line_delta;
+                }
+
+                if min_line == usize::MAX {
+                    min_line = 0;
+                }
+
+                super::types::EventLineInfo {
+                    start_line: min_line,
+                    end_line: max_line,
+                    line_delta: total_delta,
+                }
+            }
+            _ => super::types::EventLineInfo::default(),
+        }
+    }
+
     /// Notify LSP of a file save
     pub(super) fn notify_lsp_save(&mut self) {
         // Check if LSP is enabled for this buffer

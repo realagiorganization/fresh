@@ -155,9 +155,17 @@ fn render_left_margin(
         return;
     }
 
-    // For continuation lines, don't show diagnostic indicators
-    if !ctx.is_continuation && ctx.diagnostic_lines.contains(&ctx.current_source_line_num) {
-        // Show diagnostic indicator
+    // For continuation lines, don't show any indicators
+    if ctx.is_continuation {
+        push_span_with_map(
+            line_spans,
+            line_view_map,
+            " ".to_string(),
+            Style::default(),
+            None,
+        );
+    } else if ctx.diagnostic_lines.contains(&ctx.current_source_line_num) {
+        // Diagnostic indicators have highest priority
         push_span_with_map(
             line_spans,
             line_view_map,
@@ -165,8 +173,17 @@ fn render_left_margin(
             Style::default().fg(ratatui::style::Color::Red),
             None,
         );
+    } else if let Some(indicator) = ctx.state.margins.get_line_indicator(ctx.current_source_line_num) {
+        // Show line indicator (git gutter, breakpoints, etc.)
+        push_span_with_map(
+            line_spans,
+            line_view_map,
+            indicator.symbol.clone(),
+            Style::default().fg(indicator.color),
+            None,
+        );
     } else {
-        // Show space (reserved for future indicators like breakpoints)
+        // Show space (no indicator)
         push_span_with_map(
             line_spans,
             line_view_map,

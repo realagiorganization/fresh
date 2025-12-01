@@ -48,6 +48,10 @@ impl EventHooks for Event {
                 text: text.clone(),
                 affected_start: *position,
                 affected_end: *position + text.len(),
+                // Line info placeholder - will be filled by caller with buffer access
+                start_line: 0,
+                end_line: 0,
+                lines_added: 0,
             }),
             Event::Delete {
                 range,
@@ -59,6 +63,10 @@ impl EventHooks for Event {
                 deleted_text: deleted_text.clone(),
                 affected_start: range.start,
                 deleted_len: deleted_text.len(),
+                // Line info placeholder - will be filled by caller with buffer access
+                start_line: 0,
+                end_line: 0,
+                lines_removed: 0,
             }),
             Event::MoveCursor {
                 cursor_id,

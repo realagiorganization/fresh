@@ -8,6 +8,18 @@ use std::path::{Path, PathBuf};
 
 pub const DEFAULT_BACKGROUND_FILE: &str = "scripts/landscape-wide.txt";
 
+/// Pre-calculated line information for an event
+/// Calculated BEFORE buffer modification so line numbers are accurate
+#[derive(Debug, Clone, Default)]
+pub(super) struct EventLineInfo {
+    /// Start line (0-indexed) where the change begins
+    pub start_line: usize,
+    /// End line (0-indexed) where the change ends (in original buffer for deletes)
+    pub end_line: usize,
+    /// Number of lines added (for inserts) or removed (for deletes)
+    pub line_delta: i32,
+}
+
 /// Search state for find/replace functionality
 #[derive(Debug, Clone)]
 pub(super) struct SearchState {

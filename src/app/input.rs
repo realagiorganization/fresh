@@ -1504,6 +1504,16 @@ impl Editor {
                                         serde_json::json!({"path": full_path.display().to_string()}),
                                     );
 
+                                    // Fire AfterFileSave hook for plugins
+                                    if let Some(ref ts_manager) = self.ts_plugin_manager {
+                                        let hook_args =
+                                            crate::services::plugins::hooks::HookArgs::AfterFileSave {
+                                                buffer_id: self.active_buffer,
+                                                path: full_path.clone(),
+                                            };
+                                        ts_manager.run_hook("after_file_save", hook_args);
+                                    }
+
                                     // Check if we should close the buffer after saving
                                     if let Some(buffer_to_close) = self.pending_close_buffer.take()
                                     {

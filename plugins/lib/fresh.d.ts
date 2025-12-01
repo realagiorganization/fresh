@@ -448,6 +448,26 @@ interface EditorAPI {
    */
   addVirtualLine(buffer_id: number, position: number, text: string, fg_r: number, fg_g: number, fg_b: number, bg_r: i16, bg_g: i16, bg_b: i16, above: boolean, namespace: string, priority: number): boolean;
   /**
+   * Set a line indicator in the gutter's indicator column
+   * @param buffer_id - The buffer ID
+   * @param line - Line number (0-indexed)
+   * @param namespace - Namespace for grouping (e.g., "git-gutter", "breakpoints")
+   * @param symbol - Symbol to display (e.g., "│", "●", "★")
+   * @param r - Red color component (0-255)
+   * @param g - Green color component (0-255)
+   * @param b - Blue color component (0-255)
+   * @param priority - Priority for display when multiple indicators exist (higher wins)
+   * @returns true if indicator was set
+   */
+  setLineIndicator(buffer_id: number, line: number, namespace: string, symbol: string, r: number, g: number, b: number, priority: number): boolean;
+  /**
+   * Clear all line indicators for a specific namespace
+   * @param buffer_id - The buffer ID
+   * @param namespace - Namespace to clear (e.g., "git-gutter")
+   * @returns true if indicators were cleared
+   */
+  clearLineIndicators(buffer_id: number, namespace: string): boolean;
+  /**
    * Submit a transformed view stream for a viewport
    * @param buffer_id - Buffer to apply the transform to
    * @param start - Viewport start byte

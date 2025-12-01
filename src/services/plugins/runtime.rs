@@ -707,6 +707,69 @@ fn op_fresh_refresh_lines(state: &mut OpState, buffer_id: u32) -> bool {
     false
 }
 
+/// Set a line indicator in the gutter's indicator column
+/// @param buffer_id - The buffer ID
+/// @param line - Line number (0-indexed)
+/// @param namespace - Namespace for grouping (e.g., "git-gutter", "breakpoints")
+/// @param symbol - Symbol to display (e.g., "│", "●", "★")
+/// @param r - Red color component (0-255)
+/// @param g - Green color component (0-255)
+/// @param b - Blue color component (0-255)
+/// @param priority - Priority for display when multiple indicators exist (higher wins)
+/// @returns true if indicator was set
+#[op2(fast)]
+#[allow(clippy::too_many_arguments)]
+fn op_fresh_set_line_indicator(
+    state: &mut OpState,
+    buffer_id: u32,
+    line: u32,
+    #[string] namespace: String,
+    #[string] symbol: String,
+    r: u8,
+    g: u8,
+    b: u8,
+    priority: i32,
+) -> bool {
+    if let Some(runtime_state) = state.try_borrow::<Rc<RefCell<TsRuntimeState>>>() {
+        let runtime_state = runtime_state.borrow();
+        let result = runtime_state
+            .command_sender
+            .send(PluginCommand::SetLineIndicator {
+                buffer_id: BufferId(buffer_id as usize),
+                line: line as usize,
+                namespace,
+                symbol,
+                color: (r, g, b),
+                priority,
+            });
+        return result.is_ok();
+    }
+    false
+}
+
+/// Clear all line indicators for a specific namespace
+/// @param buffer_id - The buffer ID
+/// @param namespace - Namespace to clear (e.g., "git-gutter")
+/// @returns true if indicators were cleared
+#[op2(fast)]
+fn op_fresh_clear_line_indicators(
+    state: &mut OpState,
+    buffer_id: u32,
+    #[string] namespace: String,
+) -> bool {
+    if let Some(runtime_state) = state.try_borrow::<Rc<RefCell<TsRuntimeState>>>() {
+        let runtime_state = runtime_state.borrow();
+        let result = runtime_state
+            .command_sender
+            .send(PluginCommand::ClearLineIndicators {
+                buffer_id: BufferId(buffer_id as usize),
+                namespace,
+            });
+        return result.is_ok();
+    }
+    false
+}
+
 /// Submit a transformed view stream for a viewport
 /// @param buffer_id - Buffer to apply the transform to
 /// @param start - Viewport start byte
@@ -2525,6 +2588,8 @@ extension!(
         op_fresh_submit_view_transform,
         op_fresh_clear_view_transform,
         op_fresh_refresh_lines,
+        op_fresh_set_line_indicator,
+        op_fresh_clear_line_indicators,
         op_fresh_insert_at_cursor,
         op_fresh_register_command,
         op_fresh_unregister_command,
@@ -2744,6 +2809,14 @@ impl TypeScriptRuntime {
 
                     refreshLines(bufferId) {
                         return core.ops.op_fresh_refresh_lines(bufferId);
+                    },
+
+                    // Line indicators (gutter column)
+                    setLineIndicator(bufferId, line, namespace, symbol, r, g, b, priority) {
+                        return core.ops.op_fresh_set_line_indicator(bufferId, line, namespace, symbol, r, g, b, priority);
+                    },
+                    clearLineIndicators(bufferId, namespace) {
+                        return core.ops.op_fresh_clear_line_indicators(bufferId, namespace);
                     },
 
                     // Convenience

@@ -10,6 +10,29 @@ pub enum MarginPosition {
     Right,
 }
 
+/// A line indicator displayed in the gutter's indicator column
+/// Can be used for git status, breakpoints, bookmarks, etc.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LineIndicator {
+    /// The symbol to display (e.g., "│", "●", "★")
+    pub symbol: String,
+    /// The color of the indicator
+    pub color: Color,
+    /// Priority for display when multiple indicators exist (higher wins)
+    pub priority: i32,
+}
+
+impl LineIndicator {
+    /// Create a new line indicator
+    pub fn new(symbol: impl Into<String>, color: Color, priority: i32) -> Self {
+        Self {
+            symbol: symbol.into(),
+            color,
+            priority,
+        }
+    }
+}
+
 /// Content type for a margin at a specific line
 #[derive(Debug, Clone, PartialEq)]
 pub enum MarginContent {
@@ -256,6 +279,11 @@ pub struct MarginManager {
     /// Diagnostic indicators per line (displayed between line numbers and separator)
     /// Maps line number to (symbol, color) tuple
     diagnostic_indicators: BTreeMap<usize, (String, Color)>,
+
+    /// Line indicators per line (displayed in the indicator column)
+    /// Maps line number to a map of namespace -> indicator
+    /// Multiple namespaces can set indicators on the same line; highest priority wins
+    line_indicators: BTreeMap<usize, BTreeMap<String, LineIndicator>>,
 }
 
 impl MarginManager {
@@ -268,6 +296,7 @@ impl MarginManager {
             right_annotations: BTreeMap::new(),
             show_line_numbers: true,
             diagnostic_indicators: BTreeMap::new(),
+            line_indicators: BTreeMap::new(),
         }
     }
 
@@ -296,6 +325,46 @@ impl MarginManager {
     /// Get diagnostic indicator for a line
     pub fn get_diagnostic_indicator(&self, line: usize) -> Option<&(String, Color)> {
         self.diagnostic_indicators.get(&line)
+    }
+
+    /// Set a line indicator for a specific namespace
+    /// Multiple namespaces can set indicators on the same line; the highest priority wins
+    pub fn set_line_indicator(
+        &mut self,
+        line: usize,
+        namespace: String,
+        indicator: LineIndicator,
+    ) {
+        self.line_indicators
+            .entry(line)
+            .or_default()
+            .insert(namespace, indicator);
+    }
+
+    /// Remove line indicator for a specific namespace on a line
+    pub fn remove_line_indicator(&mut self, line: usize, namespace: &str) {
+        if let Some(indicators) = self.line_indicators.get_mut(&line) {
+            indicators.remove(namespace);
+            if indicators.is_empty() {
+                self.line_indicators.remove(&line);
+            }
+        }
+    }
+
+    /// Clear all line indicators for a specific namespace
+    pub fn clear_line_indicators_for_namespace(&mut self, namespace: &str) {
+        for indicators in self.line_indicators.values_mut() {
+            indicators.remove(namespace);
+        }
+        // Clean up empty entries
+        self.line_indicators.retain(|_, v| !v.is_empty());
+    }
+
+    /// Get the line indicator for a line (returns the highest priority indicator if multiple exist)
+    pub fn get_line_indicator(&self, line: usize) -> Option<&LineIndicator> {
+        self.line_indicators.get(&line).and_then(|indicators| {
+            indicators.values().max_by_key(|ind| ind.priority)
+        })
     }
 
     /// Add an annotation to a margin
@@ -601,5 +670,89 @@ mod tests {
         manager.clear_position(MarginPosition::Left);
         assert_eq!(manager.annotation_count(MarginPosition::Left), 0);
         assert_eq!(manager.annotation_count(MarginPosition::Right), 1);
+    }
+
+    #[test]
+    fn test_line_indicator_basic() {
+        let mut manager = MarginManager::new();
+
+        // Add a line indicator
+        let indicator = LineIndicator::new("│", Color::Green, 10);
+        manager.set_line_indicator(5, "git-gutter".to_string(), indicator);
+
+        // Check it can be retrieved
+        let retrieved = manager.get_line_indicator(5);
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.symbol, "│");
+        assert_eq!(retrieved.color, Color::Green);
+        assert_eq!(retrieved.priority, 10);
+
+        // Non-existent line should return None
+        assert!(manager.get_line_indicator(10).is_none());
+    }
+
+    #[test]
+    fn test_line_indicator_multiple_namespaces() {
+        let mut manager = MarginManager::new();
+
+        // Add indicators from different namespaces on the same line
+        let git_indicator = LineIndicator::new("│", Color::Green, 10);
+        let breakpoint_indicator = LineIndicator::new("●", Color::Red, 20);
+
+        manager.set_line_indicator(5, "git-gutter".to_string(), git_indicator);
+        manager.set_line_indicator(5, "breakpoints".to_string(), breakpoint_indicator);
+
+        // Should return the highest priority indicator
+        let retrieved = manager.get_line_indicator(5);
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.symbol, "●"); // Breakpoint has higher priority
+        assert_eq!(retrieved.priority, 20);
+    }
+
+    #[test]
+    fn test_line_indicator_clear_namespace() {
+        let mut manager = MarginManager::new();
+
+        // Add indicators on multiple lines
+        manager.set_line_indicator(1, "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
+        manager.set_line_indicator(2, "git-gutter".to_string(), LineIndicator::new("│", Color::Yellow, 10));
+        manager.set_line_indicator(3, "breakpoints".to_string(), LineIndicator::new("●", Color::Red, 20));
+
+        // Clear git-gutter namespace
+        manager.clear_line_indicators_for_namespace("git-gutter");
+
+        // Git gutter indicators should be gone
+        assert!(manager.get_line_indicator(1).is_none());
+        assert!(manager.get_line_indicator(2).is_none());
+
+        // Breakpoint should still be there
+        let breakpoint = manager.get_line_indicator(3);
+        assert!(breakpoint.is_some());
+        assert_eq!(breakpoint.unwrap().symbol, "●");
+    }
+
+    #[test]
+    fn test_line_indicator_remove_specific() {
+        let mut manager = MarginManager::new();
+
+        // Add two indicators on the same line
+        manager.set_line_indicator(5, "git-gutter".to_string(), LineIndicator::new("│", Color::Green, 10));
+        manager.set_line_indicator(5, "breakpoints".to_string(), LineIndicator::new("●", Color::Red, 20));
+
+        // Remove just the git-gutter indicator
+        manager.remove_line_indicator(5, "git-gutter");
+
+        // Should still have the breakpoint indicator
+        let retrieved = manager.get_line_indicator(5);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().symbol, "●");
+
+        // Remove the breakpoint indicator too
+        manager.remove_line_indicator(5, "breakpoints");
+
+        // Now no indicators on line 5
+        assert!(manager.get_line_indicator(5).is_none());
     }
 }

@@ -810,6 +810,33 @@ impl Editor {
         self.plugin_render_requested = true;
     }
 
+    /// Handle SetLineIndicator command
+    pub(super) fn handle_set_line_indicator(
+        &mut self,
+        buffer_id: BufferId,
+        line: usize,
+        namespace: String,
+        symbol: String,
+        color: (u8, u8, u8),
+        priority: i32,
+    ) {
+        if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            let indicator = crate::view::margin::LineIndicator::new(
+                symbol,
+                ratatui::style::Color::Rgb(color.0, color.1, color.2),
+                priority,
+            );
+            state.margins.set_line_indicator(line, namespace, indicator);
+        }
+    }
+
+    /// Handle ClearLineIndicators command
+    pub(super) fn handle_clear_line_indicators(&mut self, buffer_id: BufferId, namespace: String) {
+        if let Some(state) = self.buffers.get_mut(&buffer_id) {
+            state.margins.clear_line_indicators_for_namespace(&namespace);
+        }
+    }
+
     // ==================== Status/Prompt Commands ====================
 
     /// Handle SetStatus command

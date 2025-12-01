@@ -11,6 +11,7 @@ pub mod emacs_actions;
 pub mod file_browser;
 pub mod file_explorer;
 pub mod git;
+pub mod gutter;
 pub mod large_file_mode;
 pub mod lifecycle;
 pub mod line_wrapping;

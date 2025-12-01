@@ -338,6 +338,53 @@ A sample project for testing.
         fs::copy(&src, &dst)
             .unwrap_or_else(|e| panic!("Failed to copy test_view_marker.ts from {:?}: {}", src, e));
     }
+
+    /// Set up git gutter plugin for line indicator tests
+    pub fn setup_git_gutter_plugin(&self) {
+        let plugins_dir = self.path.join("plugins");
+        fs::create_dir_all(&plugins_dir).expect("Failed to create plugins directory");
+
+        let project_root = std::env::var("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .expect("CARGO_MANIFEST_DIR not set");
+
+        let src = project_root.join("plugins/git_gutter.ts");
+        let dst = plugins_dir.join("git_gutter.ts");
+        fs::copy(&src, &dst)
+            .unwrap_or_else(|e| panic!("Failed to copy git_gutter.ts from {:?}: {}", src, e));
+    }
+
+    /// Set up buffer modified plugin for unsaved changes indicator tests
+    pub fn setup_buffer_modified_plugin(&self) {
+        let plugins_dir = self.path.join("plugins");
+        fs::create_dir_all(&plugins_dir).expect("Failed to create plugins directory");
+
+        let project_root = std::env::var("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .expect("CARGO_MANIFEST_DIR not set");
+
+        let src = project_root.join("plugins/buffer_modified.ts");
+        let dst = plugins_dir.join("buffer_modified.ts");
+        fs::copy(&src, &dst)
+            .unwrap_or_else(|e| panic!("Failed to copy buffer_modified.ts from {:?}: {}", src, e));
+    }
+
+    /// Set up both gutter plugins (git gutter + buffer modified)
+    pub fn setup_gutter_plugins(&self) {
+        self.setup_git_gutter_plugin();
+        self.setup_buffer_modified_plugin();
+    }
+
+    /// Modify a file without staging or committing (working copy change)
+    pub fn modify_file(&self, relative_path: &str, content: &str) {
+        let file_path = self.path.join(relative_path);
+        fs::write(&file_path, content).expect("Failed to modify file");
+    }
+
+    /// Stage a file's changes
+    pub fn stage_file(&self, relative_path: &str) {
+        self.git_add(&[relative_path]);
+    }
 }
 
 /// Helper to restore original directory

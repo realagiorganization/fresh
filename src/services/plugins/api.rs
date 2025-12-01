@@ -346,6 +346,29 @@ pub enum PluginCommand {
     /// Refresh lines for a buffer (clear seen_lines cache to re-trigger lines_changed hook)
     RefreshLines { buffer_id: BufferId },
 
+    /// Set a line indicator in the gutter's indicator column
+    /// Used for git gutter, breakpoints, bookmarks, etc.
+    SetLineIndicator {
+        buffer_id: BufferId,
+        /// Line number (0-indexed)
+        line: usize,
+        /// Namespace for grouping (e.g., "git-gutter", "breakpoints")
+        namespace: String,
+        /// Symbol to display (e.g., "│", "●", "★")
+        symbol: String,
+        /// Color as RGB tuple
+        color: (u8, u8, u8),
+        /// Priority for display when multiple indicators exist (higher wins)
+        priority: i32,
+    },
+
+    /// Clear all line indicators for a specific namespace
+    ClearLineIndicators {
+        buffer_id: BufferId,
+        /// Namespace to clear (e.g., "git-gutter")
+        namespace: String,
+    },
+
     /// Open a file at a specific line and column
     /// Line and column are 1-indexed to match git grep output
     OpenFileAtLocation {

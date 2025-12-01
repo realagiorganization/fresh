@@ -650,6 +650,42 @@ addVirtualLine(buffer_id: number, position: number, text: string, fg_r: number, 
 | `namespace` | `string` | Namespace for bulk removal (e.g., "git-blame") |
 | `priority` | `number` | Priority for ordering multiple lines at same position |
 
+#### `setLineIndicator`
+
+Set a line indicator in the gutter's indicator column
+
+```typescript
+setLineIndicator(buffer_id: number, line: number, namespace: string, symbol: string, r: number, g: number, b: number, priority: number): boolean
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `buffer_id` | `number` | The buffer ID |
+| `line` | `number` | Line number (0-indexed) |
+| `namespace` | `string` | Namespace for grouping (e.g., "git-gutter", "breakpoints") |
+| `symbol` | `string` | Symbol to display (e.g., "│", "●", "★") |
+| `r` | `number` | Red color component (0-255) |
+| `g` | `number` | Green color component (0-255) |
+| `b` | `number` | uffer_id - The buffer ID |
+| `priority` | `number` | Priority for display when multiple indicators exist (higher wins) |
+
+#### `clearLineIndicators`
+
+Clear all line indicators for a specific namespace
+
+```typescript
+clearLineIndicators(buffer_id: number, namespace: string): boolean
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `buffer_id` | `number` | The buffer ID |
+| `namespace` | `string` | Namespace to clear (e.g., "git-gutter") |
+
 #### `submitViewTransform`
 
 Submit a transformed view stream for a viewport
