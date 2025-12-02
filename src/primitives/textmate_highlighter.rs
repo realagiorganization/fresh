@@ -261,7 +261,7 @@ fn scope_stack_to_category(scopes: &ScopeStack) -> Option<HighlightCategory> {
 }
 
 /// Map a single TextMate scope string to HighlightCategory
-fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
+pub fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
     let scope_lower = scope.to_lowercase();
 
     // Comments - highest priority
@@ -276,8 +276,8 @@ fn scope_to_category(scope: &str) -> Option<HighlightCategory> {
 
     // Markdown/markup scopes - handle before generic keyword/punctuation checks
     // See: https://macromates.com/manual/en/language_grammars (TextMate scope naming)
-    // Headings: markup.heading
-    if scope_lower.starts_with("markup.heading") {
+    // Headings: markup.heading and entity.name.section (used by syntect's markdown grammar)
+    if scope_lower.starts_with("markup.heading") || scope_lower.starts_with("entity.name.section") {
         return Some(HighlightCategory::Keyword); // Headers styled like keywords (bold, prominent)
     }
     // Bold: markup.bold
@@ -531,6 +531,11 @@ mod tests {
         );
         assert_eq!(
             scope_to_category("markup.heading.2"),
+            Some(HighlightCategory::Keyword)
+        );
+        // entity.name.section is used by syntect's markdown grammar for heading text
+        assert_eq!(
+            scope_to_category("entity.name.section.markdown"),
             Some(HighlightCategory::Keyword)
         );
         assert_eq!(

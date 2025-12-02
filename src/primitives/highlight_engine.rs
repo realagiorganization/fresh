@@ -204,67 +204,14 @@ impl TextMateEngine {
     fn scope_stack_to_category(
         scopes: &syntect::parsing::ScopeStack,
     ) -> Option<crate::primitives::highlighter::HighlightCategory> {
-        use crate::primitives::highlighter::HighlightCategory;
+        use crate::primitives::textmate_highlighter::scope_to_category;
 
         for scope in scopes.as_slice().iter().rev() {
             let scope_str = scope.build_string();
-            if let Some(cat) = Self::scope_to_category(&scope_str) {
+            if let Some(cat) = scope_to_category(&scope_str) {
                 return Some(cat);
             }
         }
-        None
-    }
-
-    /// Map a scope string to category
-    fn scope_to_category(scope: &str) -> Option<crate::primitives::highlighter::HighlightCategory> {
-        use crate::primitives::highlighter::HighlightCategory;
-        let s = scope.to_lowercase();
-
-        if s.starts_with("comment") {
-            return Some(HighlightCategory::Comment);
-        }
-        if s.starts_with("string") {
-            return Some(HighlightCategory::String);
-        }
-        if s.starts_with("keyword.operator") || s.starts_with("punctuation") {
-            return Some(HighlightCategory::Operator);
-        }
-        if s.starts_with("keyword") {
-            return Some(HighlightCategory::Keyword);
-        }
-        if s.starts_with("entity.name.function")
-            || s.starts_with("support.function")
-            || s.starts_with("variable.function")
-        {
-            return Some(HighlightCategory::Function);
-        }
-        if s.starts_with("entity.name.type")
-            || s.starts_with("entity.name.class")
-            || s.starts_with("support.type")
-            || s.starts_with("support.class")
-            || s.starts_with("storage.type")
-        {
-            return Some(HighlightCategory::Type);
-        }
-        if s.starts_with("storage.modifier") {
-            return Some(HighlightCategory::Keyword);
-        }
-        if s.starts_with("constant.numeric") {
-            return Some(HighlightCategory::Number);
-        }
-        if s.starts_with("constant") {
-            return Some(HighlightCategory::Constant);
-        }
-        if s.starts_with("variable") {
-            return Some(HighlightCategory::Variable);
-        }
-        if s.starts_with("entity.name.tag") || s.starts_with("meta.object-literal.key") {
-            return Some(HighlightCategory::Property);
-        }
-        if s.starts_with("entity.other.attribute") {
-            return Some(HighlightCategory::Attribute);
-        }
-
         None
     }
 
