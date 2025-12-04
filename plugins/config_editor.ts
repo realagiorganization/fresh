@@ -1057,6 +1057,20 @@ function buildDisplayEntries(): TextPropertyEntry[] {
 }
 
 /**
+ * Helper to add a colored overlay
+ * API: addOverlay(buffer_id, namespace, start, end, r, g, b, underline, bold, italic)
+ */
+function addColorOverlay(
+  bufferId: number,
+  start: number,
+  end: number,
+  color: [number, number, number],
+  bold: boolean = false
+): void {
+  editor.addOverlay(bufferId, "config", start, end, color[0], color[1], color[2], false, bold, false);
+}
+
+/**
  * Apply syntax highlighting to the config editor buffer
  */
 function applyHighlighting(): void {
@@ -1077,29 +1091,17 @@ function applyHighlighting(): void {
 
     // Apply colors based on entry type
     if (entryType === "title") {
-      // Title - gold/yellow
-      editor.addOverlay(bufferId, byteOffset, byteOffset + textLen, {
-        fg: colors.sectionHeader,
-        namespace: "config",
-      });
+      // Title - gold/yellow, bold
+      addColorOverlay(bufferId, byteOffset, byteOffset + textLen, colors.sectionHeader, true);
     } else if (entryType === "file-path") {
       // File path - gray
-      editor.addOverlay(bufferId, byteOffset, byteOffset + textLen, {
-        fg: colors.description,
-        namespace: "config",
-      });
+      addColorOverlay(bufferId, byteOffset, byteOffset + textLen, colors.description);
     } else if (entryType === "description") {
       // Description/comment - subdued gray
-      editor.addOverlay(bufferId, byteOffset, byteOffset + textLen, {
-        fg: colors.description,
-        namespace: "config",
-      });
+      addColorOverlay(bufferId, byteOffset, byteOffset + textLen, colors.description);
     } else if (entryType === "section") {
-      // Section header - gold
-      editor.addOverlay(bufferId, byteOffset, byteOffset + textLen, {
-        fg: colors.sectionHeader,
-        namespace: "config",
-      });
+      // Section header - gold, bold
+      addColorOverlay(bufferId, byteOffset, byteOffset + textLen, colors.sectionHeader, true);
     } else if (entryType === "field") {
       // Field line - highlight name and value differently
       const fieldType = props.fieldType as string;
@@ -1112,10 +1114,7 @@ function applyHighlighting(): void {
         const valueStart = nameEnd + getUtf8ByteLength(": ");
 
         // Field name - light blue
-        editor.addOverlay(bufferId, byteOffset, nameEnd, {
-          fg: colors.fieldName,
-          namespace: "config",
-        });
+        addColorOverlay(bufferId, byteOffset, nameEnd, colors.fieldName);
 
         // Value - color based on type and default status
         let valueFg = isDefault ? colors.defaultValue : colors.customValue;
@@ -1134,17 +1133,11 @@ function applyHighlighting(): void {
           valueFg = isDefault ? colors.defaultValue : colors.stringValue;
         }
 
-        editor.addOverlay(bufferId, valueStart, byteOffset + textLen, {
-          fg: valueFg,
-          namespace: "config",
-        });
+        addColorOverlay(bufferId, valueStart, byteOffset + textLen, valueFg);
       }
     } else if (entryType === "separator" || entryType === "footer") {
       // Footer/separator - dim
-      editor.addOverlay(bufferId, byteOffset, byteOffset + textLen, {
-        fg: colors.footer,
-        namespace: "config",
-      });
+      addColorOverlay(bufferId, byteOffset, byteOffset + textLen, colors.footer);
     }
 
     byteOffset += textLen;
