@@ -284,13 +284,27 @@ jobs:
           name: artifacts-linux-packages-${{ matrix.arch }}
           path: packages/*
 
-  # Test .deb package installation on Ubuntu
+  # Test .deb package installation on multiple Ubuntu versions
   test-deb-package:
     needs:
       - plan
       - build-linux-packages
     if: ${{ needs.plan.outputs.publishing == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu:22.04
+            name: Ubuntu 22.04
+          - distro: ubuntu:24.04
+            name: Ubuntu 24.04
+          - distro: debian:12
+            name: Debian 12
     runs-on: ubuntu-22.04
+    container:
+      image: ${{ matrix.distro }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
       - name: Download .deb package
         uses: actions/download-artifact@v4
@@ -299,9 +313,13 @@ jobs:
           path: packages/
       - name: Install .deb package
         run: |
-          sudo dpkg -i packages/*.deb || sudo apt-get install -f -y
+          apt-get update
+          apt-get install -y ./packages/*.deb
       - name: Verify installation
         run: |
+          echo "=== Testing on ${{ matrix.name }} ==="
+
+          echo ""
           echo "=== Checking installed files ==="
           dpkg -L fresh-editor
 
@@ -312,23 +330,34 @@ jobs:
           echo ""
           echo "=== Checking plugins directory ==="
           ls -la /usr/share/fresh-editor/plugins/
-
-          echo ""
-          echo "=== Checking plugin lib directory ==="
           ls -la /usr/share/fresh-editor/plugins/lib/
 
           echo ""
-          echo "✓ .deb package test PASSED"
+          echo "=== Testing uninstall ==="
+          apt-get remove -y fresh-editor
 
-  # Test .rpm package installation on Fedora
+          echo ""
+          echo "✓ .deb package test PASSED on ${{ matrix.name }}"
+
+  # Test .rpm package installation on multiple Fedora/RHEL versions
   test-rpm-package:
     needs:
       - plan
       - build-linux-packages
     if: ${{ needs.plan.outputs.publishing == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: fedora:39
+            name: Fedora 39
+          - distro: fedora:40
+            name: Fedora 40
+          - distro: rockylinux:9
+            name: Rocky Linux 9
     runs-on: ubuntu-22.04
     container:
-      image: fedora:39
+      image: ${{ matrix.distro }}
     steps:
       - name: Download .rpm package
         uses: actions/download-artifact@v4
@@ -340,6 +369,9 @@ jobs:
           dnf install -y packages/*.rpm
       - name: Verify installation
         run: |
+          echo "=== Testing on ${{ matrix.name }} ==="
+
+          echo ""
           echo "=== Checking installed files ==="
           rpm -ql fresh-editor
 
@@ -350,13 +382,14 @@ jobs:
           echo ""
           echo "=== Checking plugins directory ==="
           ls -la /usr/share/fresh-editor/plugins/
-
-          echo ""
-          echo "=== Checking plugin lib directory ==="
           ls -la /usr/share/fresh-editor/plugins/lib/
 
           echo ""
-          echo "✓ .rpm package test PASSED"
+          echo "=== Testing uninstall ==="
+          dnf remove -y fresh-editor
+
+          echo ""
+          echo "✓ .rpm package test PASSED on ${{ matrix.name }}"
 
   # Determines if we should publish/announce
   host:
