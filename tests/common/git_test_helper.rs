@@ -1,3 +1,4 @@
+#![cfg(test)]
 //! Git test helper - creates hermetic git repositories for testing
 
 use std::fs;

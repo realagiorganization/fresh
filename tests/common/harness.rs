@@ -1,3 +1,4 @@
+#![cfg(test)]
 // EditorTestHarness - Virtual terminal environment for E2E testing
 
 // Initialize V8 early - must happen before any Editor/JsRuntime is created

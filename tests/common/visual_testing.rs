@@ -1,3 +1,4 @@
+#![cfg(test)]
 // Visual regression testing utilities
 
 use ratatui::buffer::Buffer;

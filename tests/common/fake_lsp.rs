@@ -1,3 +1,4 @@
+#![cfg(test)]
 //! Fake LSP server for E2E testing
 //!
 //! This module provides a simple fake LSP server that responds to LSP requests
