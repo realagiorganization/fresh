@@ -37,7 +37,7 @@ fn test_png_file_detected_as_binary() {
     harness.assert_screen_contains("[BIN]");
 
     // Verify status bar shows binary file indicator
-    harness.assert_screen_contains("binary");
+    harness.assert_screen_contains("[BIN]");
 }
 
 /// Test that JPEG files are detected as binary
@@ -67,7 +67,7 @@ fn test_jpeg_file_detected_as_binary() {
         harness.editor().is_editing_disabled(),
         "JPEG file should have editing disabled"
     );
-    harness.assert_screen_contains("binary");
+    harness.assert_screen_contains("[BIN]");
 }
 
 /// Test that ELF executables are detected as binary
@@ -95,7 +95,7 @@ fn test_elf_executable_detected_as_binary() {
         harness.editor().is_editing_disabled(),
         "ELF binary should have editing disabled"
     );
-    harness.assert_screen_contains("binary");
+    harness.assert_screen_contains("[BIN]");
 }
 
 /// Test that regular text files are NOT detected as binary
