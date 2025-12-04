@@ -885,7 +885,8 @@ fn test_file_browser_prompt_shows_buffer_directory() {
     assert!(
         prompt_line.ends_with(expected_suffix),
         "Prompt should end with '{}'\nActual: '{}'",
-        expected_suffix, prompt_line,
+        expected_suffix,
+        prompt_line,
     );
 
     // The sibling file should be visible in the file list

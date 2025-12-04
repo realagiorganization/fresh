@@ -273,8 +273,12 @@ impl Editor {
                 (full_path.clone(), String::new())
             } else {
                 // Get parent directory so the file will be in the listing
-                let parent = full_path.parent().map(|p| p.to_path_buf()).unwrap_or(full_path.clone());
-                let name = full_path.file_name()
+                let parent = full_path
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or(full_path.clone());
+                let name = full_path
+                    .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_default();
                 (parent, name)
