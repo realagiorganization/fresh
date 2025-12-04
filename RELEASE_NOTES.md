@@ -1,6 +1,38 @@
 # Release Notes
 
-## 0.1.18 - Unreleased
+## 0.1.20
+
+### Features
+
+* **Theme Editor Plugin**: New interactive theme editor for customizing colors. Allows editing all theme color values with a visual interface.
+
+* **Drag-to-Select Mouse Support**: Click and drag to select text, similar to graphical editors.
+
+* **Homebrew Distribution**: Preliminary setup for Homebrew distribution on macOS.
+
+### Bug Fixes
+
+* **File Open Dialog**: Fixed handling of pasted paths in the file open dialog. Previously pasting a full path would fail; now it correctly opens the file or navigates to the directory.
+
+* **Mouse Click on Wrapped Lines**: Fixed mouse click positioning not working correctly on wrapped lines and empty lines.
+
+### Packaging
+
+* **Linux Packages**: `.deb` and `.rpm` packages are now available for Debian/Ubuntu and Fedora/RHEL distributions respectively.
+
+* **Homepage**: Set official homepage to https://sinelaw.github.io/fresh/
+
+---
+
+## 0.1.19
+
+### Packaging
+
+* **Linux packages fix**: Fixed `.deb` and `.rpm` packages not being included in GitHub releases.
+
+---
+
+## 0.1.18
 
 ### Features
 
