@@ -370,7 +370,13 @@ mod tests {
         });
 
         let empty_contexts = std::collections::HashSet::new();
-        let results = registry.filter("save", KeyContext::Normal, &keybindings, false, &empty_contexts);
+        let results = registry.filter(
+            "save",
+            KeyContext::Normal,
+            &keybindings,
+            false,
+            &empty_contexts,
+        );
         assert!(results.len() >= 2); // At least "Save File" + "Test Save"
 
         // Check that both built-in and custom commands appear

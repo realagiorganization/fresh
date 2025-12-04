@@ -88,7 +88,10 @@ fn test_config_schema_exists_and_valid() {
     // Verify Config has expected properties
     let config = defs.get("Config").unwrap();
     let properties = config.get("properties").unwrap();
-    assert!(properties.get("theme").is_some(), "Config should have theme");
+    assert!(
+        properties.get("theme").is_some(),
+        "Config should have theme"
+    );
     assert!(
         properties.get("editor").is_some(),
         "Config should have editor"
@@ -267,9 +270,7 @@ fn test_config_editor_cursor_preserved_after_toggle() {
     // The editor should show sections like: theme, editor, file_explorer, etc.
     // Navigate down to find a section
     for _ in 0..5 {
-        harness
-            .send_key(KeyCode::Down, KeyModifiers::NONE)
-            .unwrap();
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
         harness.render().unwrap();
     }
 
@@ -277,9 +278,7 @@ fn test_config_editor_cursor_preserved_after_toggle() {
     let screen_before = harness.screen_to_string();
 
     // Press Tab to toggle the section (expand/collapse)
-    harness
-        .send_key(KeyCode::Tab, KeyModifiers::NONE)
-        .unwrap();
+    harness.send_key(KeyCode::Tab, KeyModifiers::NONE).unwrap();
 
     // Process any async operations
     for _ in 0..5 {

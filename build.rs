@@ -1210,7 +1210,8 @@ fn extract_config_structs(source: &str) -> Vec<ConfigStructInfo> {
                     // Extract rename_all value
                     if let Some(start) = next_line.find('"') {
                         if let Some(end) = next_line[start + 1..].find('"') {
-                            serde_rename_all = Some(next_line[start + 1..start + 1 + end].to_string());
+                            serde_rename_all =
+                                Some(next_line[start + 1..start + 1 + end].to_string());
                         }
                     }
                     def_line_idx += 1;
