@@ -1,5 +1,75 @@
 # Release Notes
 
+## 0.1.25 - Unreleased
+
+### Bug Fixes
+
+* **Mouse Wheel After Keyboard**: Fixed mouse wheel scroll not working in main editor after keyboard navigation (#248).
+
+### Internal
+
+* **Reduced Logging**: Reduced verbose debug logging in default config.
+
+* **Signal Handling**: Removed ctrlc dependency, use nix sigaction directly.
+
+---
+
+## 0.1.24
+
+### Bug Fixes
+
+* **Windows Build**: Fixed Windows build compatibility.
+
+---
+
+## 0.1.23
+
+### Bug Fixes
+
+* **Split Close Tab Preservation**: Fixed tabs not being preserved when closing a split.
+
+### Performance
+
+* **Diff Optimization**: Optimized diff_since_saved with two-phase algorithm.
+
+---
+
+## 0.1.22
+
+### Features
+
+* **CLI file:line:col**: Support `file:line:col` format on CLI command (#217).
+
+* **LSP Error Logging**: LSP stderr is now piped to a file and opened as read-only buffer on error.
+
+* **Config Languages**: Use config languages section for LSP language detection.
+
+### Bug Fixes
+
+* **TypeScript Highlighting**: Fixed TypeScript syntax highlighting by falling back to tree-sitter.
+
+* **Plugin Race Condition**: Fixed race condition in plugin hooks reading stale state snapshot.
+
+* **Long Path Truncation**: Truncate long paths in Open File prompt with styled [...].
+
+* **Graceful Shutdown**: Prevent spurious LspError on graceful shutdown.
+
+### Internal
+
+* **Syntect for Highlighting**: Use syntect for syntax highlighting, retain tree-sitter for other features (#237).
+
+---
+
+## 0.1.21
+
+### Packaging
+
+* **AUR Package**: Added AUR package automation and installation instructions.
+
+* **npm and crates.io**: Added automated npm and crates.io publishing.
+
+---
+
 ## 0.1.20
 
 ### Features
