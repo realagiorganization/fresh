@@ -82,10 +82,7 @@ fn long_function() {
     harness.render().unwrap();
 
     // Wait for file explorer to load
-    let _ = harness.wait_for_async(
-        |h| h.screen_to_string().contains("File explorer ready"),
-        2000,
-    );
+    let _ = harness.wait_until(|h| h.screen_to_string().contains("File explorer ready"));
     harness.render().unwrap();
 
     // Expand the src directory in the explorer

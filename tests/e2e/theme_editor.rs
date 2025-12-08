@@ -140,29 +140,18 @@ fn test_theme_editor_opens_without_error() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    // Wait for theme editor to load - use wait_for_async with a condition
+    // Wait for theme editor to load
     // The theme editor should show "Theme Editor" in the title when loaded
-    let loaded = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // The theme editor shows "Theme Editor:" in its header when loaded
-                // If pathJoin bug exists, it will stay stuck at "Loading theme editor..."
-                screen.contains("Theme Editor:") || screen.contains("custom")
-            },
-            5000, // 5 second timeout - should be plenty for async loading
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // The theme editor shows "Theme Editor:" in its header when loaded
+            // If pathJoin bug exists, it will stay stuck at "Loading theme editor..."
+            screen.contains("Theme Editor:") || screen.contains("custom")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
-
-    // The theme editor should open and show content
-    // If pathJoin bug exists, it will fail with serde_v8 error and never show this
-    assert!(
-        loaded,
-        "Theme editor should load within timeout. Screen shows:\n{}",
-        screen
-    );
 
     // Verify the editor actually opened with proper content
     assert!(
@@ -232,24 +221,15 @@ fn test_theme_editor_shows_color_sections() {
         .unwrap();
 
     // Wait for theme editor to load with sections
-    let loaded = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Theme editor should show sections like "Editor" and "Syntax"
-                screen.contains("Theme Editor:") || screen.contains("Syntax")
-            },
-            5000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Theme editor should show sections like "Editor" and "Syntax"
+            screen.contains("Theme Editor:") || screen.contains("Syntax")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
-
-    assert!(
-        loaded,
-        "Theme editor should load within timeout. Got:\n{}",
-        screen
-    );
 
     // Should show theme sections - the plugin creates sections like "Editor", "Syntax"
     // These are the section headers that should appear
@@ -321,10 +301,9 @@ fn test_theme_editor_copy_from_builtin() {
         .unwrap();
 
     // Wait for theme editor to load
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // Press 'c' to copy from builtin theme
     harness
@@ -333,10 +312,9 @@ fn test_theme_editor_copy_from_builtin() {
     harness.render().unwrap();
 
     // Wait for the prompt to appear
-    let prompt_appeared = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Copy from theme"), 2000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Copy from theme"))
         .unwrap();
-    assert!(prompt_appeared, "Copy prompt should appear");
 
     // Type the source theme name
     harness.type_text("source").unwrap();
@@ -346,18 +324,14 @@ fn test_theme_editor_copy_from_builtin() {
         .unwrap();
 
     // Wait for theme to be copied - should show the new name "source-custom"
-    let copied = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("source-custom") || screen.contains("Copied from")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("source-custom") || screen.contains("Copied from")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
-    assert!(copied, "Theme should be copied. Screen shows:\n{}", screen);
 
     // Verify the theme editor now shows the copied theme name
     assert!(
@@ -417,10 +391,9 @@ fn test_theme_editor_displays_correct_colors() {
         .unwrap();
 
     // Wait for theme editor to load
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // The theme editor should now be showing color fields with swatches
     let screen = harness.screen_to_string();
@@ -497,10 +470,9 @@ fn test_editor_uses_rgb_colors() {
     harness.render().unwrap();
 
     // Wait for the file content to be rendered
-    let content_loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Hello World"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Hello World"))
         .unwrap();
-    assert!(content_loaded, "File content should be rendered on screen");
 
     // Count RGB colors used in the rendering
     let buffer = harness.buffer();
@@ -580,10 +552,9 @@ fn test_cursor_position_preserved_after_section_toggle() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // Navigate down to find "UI Elements" section header
     // Keep pressing down until we see "UI Elements" on screen
@@ -662,10 +633,9 @@ fn test_color_prompt_shows_suggestions() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // Navigate down to find a color field (Background)
     // The structure is: Title, File path, blank, Section, Section desc, Field desc, Field
@@ -676,10 +646,9 @@ fn test_color_prompt_shows_suggestions() {
     }
 
     // Wait for Background to appear on screen
-    let found = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Background:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Background:"))
         .unwrap();
-    assert!(found, "Should find Background field");
 
     // Keep pressing Down until we're on a field that opens a prompt
     // Try pressing Enter and check if prompt appears
@@ -939,10 +908,9 @@ fn test_theme_applied_immediately_after_save() {
     harness.render().unwrap();
 
     // Wait for file to load
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Hello World"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Hello World"))
         .unwrap();
-    assert!(loaded, "File should load");
 
     // Record the initial background color of the editor area
     let buffer = harness.buffer();
@@ -974,10 +942,9 @@ fn test_theme_applied_immediately_after_save() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // The theme "red-test" should be available
     // Press 'd' to set as default (this opens a prompt)
@@ -986,10 +953,9 @@ fn test_theme_applied_immediately_after_save() {
         .unwrap();
 
     // Wait for the prompt to appear
-    let prompt_appeared = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Set default theme"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Set default theme"))
         .unwrap();
-    assert!(prompt_appeared, "Set default theme prompt should appear");
 
     // Type the theme name "red-test"
     harness.type_text("red-test").unwrap();
@@ -1002,28 +968,23 @@ fn test_theme_applied_immediately_after_save() {
 
     // Wait for theme to be applied - check for either status message
     // (Rust sets "Theme changed to '...'" and plugin sets "applied")
-    let applied = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("applied") || screen.contains("Theme changed to")
-            },
-            5000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("applied") || screen.contains("Theme changed to")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
-    assert!(applied, "Theme should be applied. Screen:\n{}", screen);
 
     // Close the theme editor
     harness
         .send_key(KeyCode::Char('q'), KeyModifiers::NONE)
         .unwrap();
 
-    let closed = harness
-        .wait_for_async(|h| !h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| !h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(closed, "Theme editor should close");
 
     // Now check if the editor background color changed
     let buffer = harness.buffer();
@@ -1105,10 +1066,9 @@ fn test_cursor_x_position_preserved_after_section_toggle() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // Navigate down to find "UI Elements" section header (collapsed by default)
     let mut found_ui_elements = false;
@@ -1255,10 +1215,9 @@ fn test_color_suggestions_show_hex_format() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // Navigate down to a color field and open the prompt
     for _ in 0..8 {
@@ -1359,10 +1318,9 @@ fn test_color_prompt_prefilled_with_current_value() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    let loaded = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Theme Editor:"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Theme Editor:"))
         .unwrap();
-    assert!(loaded, "Theme editor should load");
 
     // Navigate down to Background field
     for _ in 0..8 {
@@ -1456,23 +1414,14 @@ fn test_theme_editor_color_values_no_internal_spaces() {
 
     // Wait for theme editor to load AND swatches to appear
     // Swatches are indicated by the color block "██"
-    let loaded = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("Theme Editor:") && screen.contains("██")
-            },
-            5000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("Theme Editor:") && screen.contains("██")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
-
-    assert!(
-        loaded,
-        "Theme editor should load with color swatches. Screen:\n{}",
-        screen
-    );
 
     // The bug causes hex colors to render as "#  XXXXXX" (spaces after #) instead of "#XXXXXX"
     // This is because the buggy code used two addVirtualText calls:

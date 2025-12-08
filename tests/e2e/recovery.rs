@@ -858,14 +858,11 @@ fn test_recovery_after_save_with_size_change() {
 
     // Wait for async save to complete
     harness
-        .wait_for_async(
-            |_h| {
-                fs::read_to_string(&file_path)
-                    .map(|c| c.len() > initial_size)
-                    .unwrap_or(false)
-            },
-            5000,
-        )
+        .wait_until(|_h| {
+            fs::read_to_string(&file_path)
+                .map(|c| c.len() > initial_size)
+                .unwrap_or(false)
+        })
         .unwrap();
 
     // Verify file was saved with new content

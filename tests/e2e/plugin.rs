@@ -905,24 +905,15 @@ editor.setStatus("Message queue test plugin loaded!");
         .unwrap();
 
     // Wait for the async operation to complete by checking for visible buffer content
-    let completed = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("*Test Buffer*") || screen.contains("Test entry")
-            },
-            5000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("*Test Buffer*") || screen.contains("Test entry")
+        })
         .unwrap();
 
     let final_screen = harness.screen_to_string();
     println!("Final screen after command execution:\n{}", final_screen);
-
-    assert!(
-        completed,
-        "Async operation should complete within timeout. Got:\n{}",
-        final_screen
-    );
 
     // Verify the async operation completed successfully by checking for visible content
     // Note: We check for the buffer content rather than status message,

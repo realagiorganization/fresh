@@ -58,25 +58,14 @@ fn test_git_grep_shows_results() {
 
     // Wait for git grep to complete by checking for results in the suggestions box
     // The plugin populates suggestions with file:line:column format
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Wait for suggestions to appear - they show as "filename:line:column: content"
-                // The suggestion box appears above the prompt
-                screen.contains(".yml:") || screen.contains(".md:") || screen.contains(".rs:")
-            },
-            5000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Wait for suggestions to appear - they show as "filename:line:column: content"
+            // The suggestion box appears above the prompt
+            screen.contains(".yml:") || screen.contains(".md:") || screen.contains(".rs:")
+        })
         .unwrap();
-
-    if !found {
-        // Print screen for debugging if test fails
-        let screen = harness.screen_to_string();
-        eprintln!("Git grep timeout - screen content:\n{}", screen);
-    }
-
-    assert!(found, "Git grep should complete and show suggestions");
 
     // Verify results are visible
     let screen = harness.screen_to_string();
@@ -112,7 +101,7 @@ fn test_git_grep_interactive_updates() {
 
     // Wait for initial results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("src/"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("src/"))
         .unwrap();
 
     let screen_config = harness.screen_to_string();
@@ -130,13 +119,10 @@ fn test_git_grep_interactive_updates() {
 
     // Wait for new results
     harness
-        .wait_for_async(
-            |h| {
-                let s = h.screen_to_string();
-                s.contains("println") || s.contains("main.rs")
-            },
-            2000,
-        )
+        .wait_until(|h| {
+            let s = h.screen_to_string();
+            s.contains("println") || s.contains("main.rs")
+        })
         .unwrap();
 
     let screen_println = harness.screen_to_string();
@@ -175,7 +161,7 @@ fn test_git_grep_selection_navigation() {
 
     // Wait for results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("src/"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("src/"))
         .unwrap();
 
     // Navigate down through suggestions
@@ -221,7 +207,7 @@ fn test_git_grep_confirm_jumps_to_location() {
 
     // Wait for results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("main.rs"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("main.rs"))
         .unwrap();
 
     // Confirm selection (Enter) - this should open file and jump to line
@@ -314,24 +300,16 @@ fn test_git_find_file_shows_results() {
     // Wait for async git ls-files to complete and the file picker to appear
     // The plugin loads files asynchronously, so we need to wait for both
     // the prompt "Find file: " and some file results to appear
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Wait for both the prompt and file content
-                screen.contains("Find file:")
-                    && (screen.contains("src/")
-                        || screen.contains(".rs")
-                        || screen.contains("Cargo.toml"))
-            },
-            5000, // Increased timeout for async git command
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Wait for both the prompt and file content
+            screen.contains("Find file:")
+                && (screen.contains("src/")
+                    || screen.contains(".rs")
+                    || screen.contains("Cargo.toml"))
+        })
         .unwrap();
-
-    assert!(
-        found,
-        "File picker and file list should appear within timeout"
-    );
 
     let screen = harness.screen_to_string();
     println!("Git find file screen:\n{screen}");
@@ -363,7 +341,7 @@ fn test_git_find_file_interactive_filtering() {
 
     // Wait for initial results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("src/"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("src/"))
         .unwrap();
 
     // Type filter to narrow down results
@@ -371,7 +349,7 @@ fn test_git_find_file_interactive_filtering() {
 
     // Wait for filtered results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("main"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("main"))
         .unwrap();
 
     let screen_main = harness.screen_to_string();
@@ -394,7 +372,7 @@ fn test_git_find_file_interactive_filtering() {
 
     // Wait for new filtered results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("lib"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("lib"))
         .unwrap();
 
     let screen_lib = harness.screen_to_string();
@@ -427,7 +405,7 @@ fn test_git_find_file_selection_navigation() {
 
     // Wait for results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("src/"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("src/"))
         .unwrap();
 
     // Navigate down
@@ -472,7 +450,7 @@ fn test_git_find_file_confirm_opens_file() {
 
     // Wait for results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("main.rs"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("main.rs"))
         .unwrap();
 
     // Confirm selection - should open the file
@@ -483,14 +461,11 @@ fn test_git_find_file_confirm_opens_file() {
 
     // Wait for file to actually load (async operation)
     harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Wait for prompt to close (file opened)
-                !screen.contains("Find file:")
-            },
-            3000,
-        )
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Wait for prompt to close (file opened)
+            !screen.contains("Find file:")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
@@ -535,7 +510,7 @@ fn test_git_grep_scrolling_many_results() {
 
     // Wait for results (should be truncated to 100 max)
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("file"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("file"))
         .unwrap();
 
     // Navigate down multiple times to test scrolling
@@ -573,7 +548,7 @@ fn test_git_find_file_scrolling_many_files() {
 
     // Wait for file list
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("file"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("file"))
         .unwrap();
 
     // Navigate down multiple times
@@ -669,10 +644,9 @@ fn test_git_grep_opens_correct_file_and_jumps_to_line() {
     harness.type_text("println").unwrap();
 
     // Wait for results
-    let found = harness
-        .wait_for_async(|h| h.screen_to_string().contains("main.rs"), 2000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("main.rs"))
         .unwrap();
-    assert!(found, "Should find grep results");
 
     let screen_before = harness.screen_to_string();
     println!("Screen with results:\n{screen_before}");
@@ -684,14 +658,11 @@ fn test_git_grep_opens_correct_file_and_jumps_to_line() {
     harness.render().unwrap();
 
     // Wait for file to actually load (async operation)
-    let file_loaded = harness
-        .wait_for_async(
-            |h| {
-                let content = h.get_buffer_content().unwrap();
-                !content.is_empty() && content != "\n" && content.contains("println")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let content = h.get_buffer_content().unwrap();
+            !content.is_empty() && content != "\n" && content.contains("println")
+        })
         .unwrap();
 
     // CRITICAL CHECKS:
@@ -699,11 +670,6 @@ fn test_git_grep_opens_correct_file_and_jumps_to_line() {
     // 1. Buffer content should have changed from empty to the file content
     let buffer_content = harness.get_buffer_content().unwrap();
     println!("Buffer content after selection:\n{buffer_content}");
-
-    assert!(
-        file_loaded,
-        "BUG: File was not opened within timeout. Buffer: {buffer_content:?}"
-    );
 
     assert!(
         buffer_content.contains("println"),
@@ -768,33 +734,25 @@ fn test_git_find_file_actually_opens_file() {
     harness.type_text("lib.rs").unwrap();
 
     // Wait for results - check that suggestions are populated
-    let found = harness
-        .wait_for_async(
-            |h| {
-                // Check if the prompt has suggestions by checking if a file path appears
-                // in the screen content (not just the prompt input line)
-                // We look for "src/" which only appears in file results, not in the prompt
-                let s = h.screen_to_string();
-                let lines: Vec<&str> = s.lines().collect();
+    harness
+        .wait_until(|h| {
+            // Check if the prompt has suggestions by checking if a file path appears
+            // in the screen content (not just the prompt input line)
+            // We look for "src/" which only appears in file results, not in the prompt
+            let s = h.screen_to_string();
+            let lines: Vec<&str> = s.lines().collect();
 
-                // The last line is the prompt "Find file: lib.rs"
-                // Check if any line EXCEPT the last one contains "src/"
-                lines
-                    .iter()
-                    .take(lines.len().saturating_sub(1))
-                    .any(|line| line.contains("src/"))
-            },
-            3000, // Increased timeout
-        )
+            // The last line is the prompt "Find file: lib.rs"
+            // Check if any line EXCEPT the last one contains "src/"
+            lines
+                .iter()
+                .take(lines.len().saturating_sub(1))
+                .any(|line| line.contains("src/"))
+        })
         .unwrap();
 
     let screen_before = harness.screen_to_string();
     println!("Screen with file list:\n{screen_before}");
-
-    assert!(
-        found,
-        "Should find lib.rs in results. Screen:\n{screen_before}"
-    );
 
     // Confirm selection (Enter)
     harness
@@ -869,7 +827,7 @@ fn test_git_grep_cursor_position_accuracy() {
 
     // Wait for results
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("test.txt"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("test.txt"))
         .unwrap();
 
     // Confirm selection
@@ -879,24 +837,16 @@ fn test_git_grep_cursor_position_accuracy() {
     harness.render().unwrap();
 
     // Wait for file to actually load (async operation)
-    let file_loaded = harness
-        .wait_for_async(
-            |h| {
-                let content = h.get_buffer_content().unwrap();
-                content.contains("MARKER")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let content = h.get_buffer_content().unwrap();
+            content.contains("MARKER")
+        })
         .unwrap();
 
     // Check buffer content
     let buffer_content = harness.get_buffer_content().unwrap();
     println!("Buffer content:\n{buffer_content}");
-
-    assert!(
-        file_loaded,
-        "BUG: File not opened or wrong file opened within timeout. Buffer: {buffer_content:?}"
-    );
 
     // The cursor should be on line 3 (0-indexed = line 2)
     // Calculate expected byte position for line 3
@@ -960,21 +910,17 @@ fn test_git_log_shows_commits() {
     trigger_git_log(&mut harness);
 
     // Wait for git log to load
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Should show "Commits:" header and at least one commit hash
-                screen.contains("Commits:") && screen.contains("Initial commit")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Should show "Commits:" header and at least one commit hash
+            screen.contains("Commits:") && screen.contains("Initial commit")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("Git log screen:\n{screen}");
 
-    assert!(found, "Git log should show commits. Screen:\n{screen}");
     assert!(screen.contains("Commits:"), "Should show Commits: header");
 }
 
@@ -1015,7 +961,7 @@ fn test_git_log_cursor_navigation() {
 
     // Wait for git log to load
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 3000)
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     // Navigate down using j key (should work via inherited normal mode)
@@ -1065,7 +1011,7 @@ fn test_git_log_show_commit_detail() {
 
     // Wait for git log to load
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 3000)
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     // Move cursor to a commit line (down from header)
@@ -1078,21 +1024,16 @@ fn test_git_log_show_commit_detail() {
         .unwrap();
 
     // Wait for commit detail to load
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // git show output includes "commit", "Author:", "Date:"
-                screen.contains("Author:") && screen.contains("Date:")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // git show output includes "commit", "Author:", "Date:"
+            screen.contains("Author:") && screen.contains("Date:")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("Commit detail screen:\n{screen}");
-
-    assert!(found, "Should show commit detail. Screen:\n{screen}");
 }
 
 /// Test going back from commit detail to git log
@@ -1119,7 +1060,7 @@ fn test_git_log_back_from_commit_detail() {
 
     // Wait for git log to load
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 3000)
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     // Move to commit and show detail
@@ -1131,7 +1072,7 @@ fn test_git_log_back_from_commit_detail() {
 
     // Wait for commit detail
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Author:"), 3000)
+        .wait_until(|h| h.screen_to_string().contains("Author:"))
         .unwrap();
 
     let screen_detail = harness.screen_to_string();
@@ -1144,17 +1085,12 @@ fn test_git_log_back_from_commit_detail() {
     harness.process_async_and_render().unwrap();
 
     // Wait for git log to reappear
-    let back_to_log = harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 2000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     let screen_log = harness.screen_to_string();
     println!("Back to git log:\n{screen_log}");
-
-    assert!(
-        back_to_log,
-        "Should return to git log view. Screen:\n{screen_log}"
-    );
 }
 
 /// Test closing git log with q
@@ -1181,7 +1117,7 @@ fn test_git_log_close() {
 
     // Wait for git log to load
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 3000)
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     let screen_before = harness.screen_to_string();
@@ -1229,7 +1165,7 @@ fn test_git_log_diff_coloring() {
 
     // Wait for git log to load
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 3000)
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     // Move to the commit and show detail
@@ -1240,20 +1176,15 @@ fn test_git_log_diff_coloring() {
         .unwrap();
 
     // Wait for commit detail (git show output includes Author:)
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("Author:")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("Author:")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("Commit detail with diff:\n{screen}");
-
-    assert!(found, "Should show commit detail. Screen:\n{screen}");
 
     // The commit detail should show commit info from git show output
     // Note: The exact coloring is applied via overlays which aren't visible in screen text
@@ -1302,7 +1233,7 @@ fn test_git_log_open_different_commits_sequentially() {
 
     // Wait for git log to load
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 3000)
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     let screen_log = harness.screen_to_string();
@@ -1333,23 +1264,15 @@ fn test_git_log_open_different_commits_sequentially() {
         .unwrap();
 
     // Wait for commit detail
-    let found_first = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("Author:") && screen.contains("THIRD_UNIQUE_COMMIT_CCC")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("Author:") && screen.contains("THIRD_UNIQUE_COMMIT_CCC")
+        })
         .unwrap();
 
     let screen_first_detail = harness.screen_to_string();
     println!("First commit detail (should be THIRD):\n{screen_first_detail}");
-
-    assert!(
-        found_first,
-        "Should show THIRD commit detail. Screen:\n{screen_first_detail}"
-    );
 
     // Press q to go back to git log
     harness
@@ -1359,7 +1282,7 @@ fn test_git_log_open_different_commits_sequentially() {
 
     // Wait for git log to reappear
     harness
-        .wait_for_async(|h| h.screen_to_string().contains("Commits:"), 2000)
+        .wait_until(|h| h.screen_to_string().contains("Commits:"))
         .unwrap();
 
     let screen_back_to_log = harness.screen_to_string();
@@ -1378,20 +1301,15 @@ fn test_git_log_open_different_commits_sequentially() {
         .unwrap();
 
     // Wait for commit detail
-    let found_second = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("Author:")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("Author:")
+        })
         .unwrap();
 
     let screen_second_detail = harness.screen_to_string();
     println!("Second commit detail (should be SECOND):\n{screen_second_detail}");
-
-    assert!(found_second, "Should show commit detail");
 
     // CRITICAL ASSERTION: The bug is that it opens the first commit again instead of the second
     // This should show SECOND_UNIQUE_COMMIT_BBB, NOT THIRD_UNIQUE_COMMIT_CCC
@@ -1460,23 +1378,14 @@ fn test_git_blame_shows_blocks_with_headers() {
     // Trigger git blame
     trigger_git_blame(&mut harness);
 
-    // Wait until git blame view appears (logical event) with timeout
-    let blame_appeared = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Should show block headers with ── (commit info injected via view transform)
-                screen.contains("──") && screen.contains("Initial commit")
-            },
-            5000,
-        )
+    // Wait until git blame view appears (logical event)
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Should show block headers with ── (commit info injected via view transform)
+            screen.contains("──") && screen.contains("Initial commit")
+        })
         .unwrap();
-
-    if !blame_appeared {
-        let screen = harness.screen_to_string();
-        println!("TIMEOUT: Git blame view did not show headers. Current screen:\n{screen}");
-        panic!("Blame headers (──) not found after 5 seconds");
-    }
 
     let screen = harness.screen_to_string();
     println!("Git blame screen:\n{screen}");
@@ -1900,16 +1809,10 @@ fn test_git_blame_scroll_to_bottom() {
     // Trigger git blame
     trigger_git_blame(&mut harness);
 
-    // Wait until blame view appears (with timeout and debug output)
-    let blame_appeared = harness
-        .wait_for_async(|h| h.screen_to_string().contains("──"), 5000)
+    // Wait until blame view appears
+    harness
+        .wait_until(|h| h.screen_to_string().contains("──"))
         .unwrap();
-
-    if !blame_appeared {
-        let screen = harness.screen_to_string();
-        println!("TIMEOUT waiting for blame view. Current screen:\n{screen}");
-        panic!("Blame view did not appear within timeout");
-    }
 
     let screen_top = harness.screen_to_string();
     println!("Git blame at top:\n{screen_top}");
@@ -1985,10 +1888,9 @@ fn test_git_blame_scroll_with_many_virtual_lines() {
     trigger_git_blame(&mut harness);
 
     // Wait for blame view
-    let appeared = harness
-        .wait_for_async(|h| h.screen_to_string().contains("──"), 3000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("──"))
         .unwrap();
-    assert!(appeared, "Blame view should appear");
 
     // Scroll down repeatedly with Down arrow; should make progress even with many virtual lines
     for _ in 0..40 {
@@ -2108,43 +2010,23 @@ fn test_view_transform_header_at_byte_zero() {
     trigger_test_view_marker(&mut harness);
 
     // Wait for the virtual buffer to be created
-    let buffer_created = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("Test view marker active") || screen.contains("*test-view-marker*")
-            },
-            5000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("Test view marker active") || screen.contains("*test-view-marker*")
+        })
         .unwrap();
 
-    if !buffer_created {
-        let screen = harness.screen_to_string();
-        panic!("Virtual buffer was not created within timeout. Screen:\n{screen}");
-    }
-
-    // Wait a bit more for the view transform to be applied
-    let header_appeared = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("HEADER AT BYTE 0")
-            },
-            5000,
-        )
+    // Wait for the view transform to be applied
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("HEADER AT BYTE 0")
+        })
         .unwrap();
 
     let screen_after = harness.screen_to_string();
     println!("Screen after view marker:\n{screen_after}");
-
-    // CRITICAL ASSERTION: The header text should be visible
-    assert!(
-        header_appeared,
-        "BUG: View transform header at byte 0 is not visible!\n\
-         Expected to see 'HEADER AT BYTE 0' on screen.\n\
-         This reproduces the bug where headers injected at startByte=0 have empty text.\n\
-         Screen:\n{screen_after}"
-    );
 }
 
 /// Ensure scrolling still works when a view transform injects many virtual lines
@@ -2180,19 +2062,12 @@ fn test_view_transform_scroll_with_many_virtual_lines() {
     // Wait for the virtual buffer to be created and rendered
     // The cursor starts at Line 1 (byte 0), which is view line 121 (after 120 virtual pads + 1 header)
     // Auto-scroll should bring the cursor into view, showing the source lines
-    let source_visible = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("Line 1") || screen.contains("Line 2") || screen.contains("Line 3")
-            },
-            5000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("Line 1") || screen.contains("Line 2") || screen.contains("Line 3")
+        })
         .unwrap();
-    assert!(
-        source_visible,
-        "Source content should be visible after auto-scroll to cursor"
-    );
 
     let initial_screen = harness.screen_to_string();
     println!("Initial screen (auto-scrolled to cursor):\n{initial_screen}");
@@ -2245,10 +2120,9 @@ fn test_view_transform_scroll_with_single_virtual_line() {
     trigger_test_view_marker(&mut harness);
 
     // Wait for virtual buffer to render with header
-    let header_seen = harness
-        .wait_for_async(|h| h.screen_to_string().contains("HEADER AT BYTE 0"), 5000)
+    harness
+        .wait_until(|h| h.screen_to_string().contains("HEADER AT BYTE 0"))
         .unwrap();
-    assert!(header_seen, "Header should appear with single virtual line");
 
     let screen = harness.screen_to_string();
     println!("Screen with single virtual header line:\n{screen}");
@@ -2346,16 +2220,10 @@ fn test_git_blame_original_buffer_not_decorated() {
     // Trigger git blame
     trigger_git_blame(&mut harness);
 
-    // Wait until blame view appears (with timeout and debug output)
-    let blame_appeared = harness
-        .wait_for_async(|h| h.screen_to_string().contains("──"), 5000)
+    // Wait until blame view appears
+    harness
+        .wait_until(|h| h.screen_to_string().contains("──"))
         .unwrap();
-
-    if !blame_appeared {
-        let screen = harness.screen_to_string();
-        println!("TIMEOUT waiting for blame view. Current screen:\n{screen}");
-        panic!("Blame view did not appear within timeout");
-    }
 
     let screen_with_blame = harness.screen_to_string();
     println!("Screen with blame:\n{screen_with_blame}");
@@ -2371,22 +2239,13 @@ fn test_git_blame_original_buffer_not_decorated() {
         .send_key(KeyCode::Char('q'), KeyModifiers::NONE)
         .unwrap();
 
-    // Wait until we're back to original file (with timeout)
-    let back_to_original = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                screen.contains("fn main") && !screen.contains("──")
-            },
-            5000,
-        )
+    // Wait until we're back to original file
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("fn main") && !screen.contains("──")
+        })
         .unwrap();
-
-    if !back_to_original {
-        let screen = harness.screen_to_string();
-        println!("TIMEOUT waiting to return to original file. Current screen:\n{screen}");
-        panic!("Did not return to original file within timeout");
-    }
 
     let screen_after_close = harness.screen_to_string();
     println!("Screen after closing blame:\n{screen_after_close}");

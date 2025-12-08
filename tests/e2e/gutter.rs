@@ -213,24 +213,16 @@ fn start_server(config: Config) {
     open_file(&mut harness, &repo.path, "src/main.rs");
 
     // Wait for git gutter to update
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Look for the modified indicator (│) in the gutter
-                has_gutter_indicator(&screen, "│")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Look for the modified indicator (│) in the gutter
+            has_gutter_indicator(&screen, "│")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("Git gutter screen:\n{}", screen);
-
-    assert!(
-        found,
-        "Git gutter should show indicator for modified line on file open"
-    );
 }
 
 /// Test that git gutter updates after saving a file
@@ -266,24 +258,16 @@ fn test_git_gutter_updates_after_save() {
     save_file(&mut harness);
 
     // Wait for git gutter to update
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // After save, there should be git indicators (file differs from HEAD)
-                count_gutter_indicators(&screen, "│") > initial_indicators
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // After save, there should be git indicators (file differs from HEAD)
+            count_gutter_indicators(&screen, "│") > initial_indicators
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("After save screen:\n{}", screen);
-
-    assert!(
-        found,
-        "Git gutter should update after saving with new changes"
-    );
 }
 
 /// Test that git gutter shows added lines indicator
@@ -330,21 +314,16 @@ fn start_server(config: Config) {
     open_file(&mut harness, &repo.path, "src/main.rs");
 
     // Wait for indicators
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                // Should have multiple added line indicators
-                count_gutter_indicators(&screen, "│") >= 3
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Should have multiple added line indicators
+            count_gutter_indicators(&screen, "│") >= 3
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("Added lines screen:\n{}", screen);
-
-    assert!(found, "Git gutter should show indicators for added lines");
 }
 
 /// Test that git gutter shows deleted lines indicator
@@ -380,23 +359,15 @@ fn start_server(config: Config) {
     open_file(&mut harness, &repo.path, "src/main.rs");
 
     // Wait for indicators - deleted lines show as ▾
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                has_gutter_indicator(&screen, "▾") || has_gutter_indicator(&screen, "│")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            has_gutter_indicator(&screen, "▾") || has_gutter_indicator(&screen, "│")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("Deleted lines screen:\n{}", screen);
-
-    assert!(
-        found,
-        "Git gutter should show indicator for deleted lines area"
-    );
 }
 
 /// Test git gutter with staged changes (should still show diff vs HEAD)
@@ -439,23 +410,15 @@ fn start_server(config: Config) {
     open_file(&mut harness, &repo.path, "src/main.rs");
 
     // Wait for indicators - staged changes should still show vs HEAD
-    let found = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                has_gutter_indicator(&screen, "│")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            has_gutter_indicator(&screen, "│")
+        })
         .unwrap();
 
     let screen = harness.screen_to_string();
     println!("Staged changes screen:\n{}", screen);
-
-    assert!(
-        found,
-        "Git gutter should show indicators for staged changes (diff vs HEAD)"
-    );
 }
 
 /// Test that git gutter clears after committing changes
@@ -684,17 +647,12 @@ fn start_server(config: Config) {
     open_file(&mut harness, &repo.path, "src/main.rs");
 
     // Wait for git gutter indicators
-    let found_git = harness
-        .wait_for_async(
-            |h| {
-                let screen = h.screen_to_string();
-                has_gutter_indicator(&screen, "│")
-            },
-            3000,
-        )
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            has_gutter_indicator(&screen, "│")
+        })
         .unwrap();
-
-    assert!(found_git, "Git gutter should show indicators");
 
     // Now make an additional in-memory edit
     harness
