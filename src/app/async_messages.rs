@@ -660,7 +660,7 @@ impl Editor {
     }
 
     /// Re-send didOpen notifications for all buffers of a given language
-    fn resend_did_open_for_language(&mut self, language: &str) {
+    pub(super) fn resend_did_open_for_language(&mut self, language: &str) {
         // Find all open buffers for this language
         let buffers_for_language: Vec<_> = self
             .buffer_metadata

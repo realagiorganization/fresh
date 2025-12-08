@@ -33,6 +33,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
+use std::time::Instant;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, oneshot};
@@ -347,6 +348,10 @@ struct LspState {
     /// Document versions
     document_versions: HashMap<PathBuf, i64>,
 
+    /// Track when didOpen was sent for each document to avoid race with didChange
+    /// The LSP server needs time to process didOpen before it can handle didChange
+    pending_opens: HashMap<PathBuf, Instant>,
+
     /// Whether initialized
     initialized: bool,
 
@@ -590,11 +595,18 @@ impl LspState {
             },
         };
 
-        self.document_versions
-            .insert(PathBuf::from(uri.path().as_str()), 0);
+        let path = PathBuf::from(uri.path().as_str());
+        self.document_versions.insert(path.clone(), 0);
+
+        // Record when we sent didOpen so didChange can wait if needed
+        self.pending_opens.insert(path, Instant::now());
 
         self.send_notification::<DidOpenTextDocument>(params).await
     }
+
+    /// Grace period after didOpen before sending didChange (in milliseconds)
+    /// This gives the LSP server time to process didOpen before receiving changes
+    const DID_OPEN_GRACE_PERIOD_MS: u64 = 200;
 
     /// Handle did_change command
     async fn handle_did_change_sequential(
@@ -606,6 +618,36 @@ impl LspState {
         tracing::trace!("LSP: did_change for {}", uri.as_str());
 
         let path = PathBuf::from(uri.path().as_str());
+
+        // If the document hasn't been opened yet (not in document_versions),
+        // skip this change - the upcoming didOpen will have the current content
+        if !self.document_versions.contains_key(&path) {
+            tracing::debug!(
+                "LSP ({}): skipping didChange - document not yet opened",
+                self.language
+            );
+            return Ok(());
+        }
+
+        // Check if this document was recently opened and wait if needed
+        // This prevents race conditions where the server receives didChange
+        // before it has finished processing didOpen
+        if let Some(opened_at) = self.pending_opens.get(&path) {
+            let elapsed = opened_at.elapsed();
+            let grace_period = std::time::Duration::from_millis(Self::DID_OPEN_GRACE_PERIOD_MS);
+            if elapsed < grace_period {
+                let wait_time = grace_period - elapsed;
+                tracing::debug!(
+                    "LSP ({}): waiting {:?} for didOpen grace period before didChange",
+                    self.language,
+                    wait_time
+                );
+                tokio::time::sleep(wait_time).await;
+            }
+            // Remove from pending_opens after grace period has passed
+            self.pending_opens.remove(&path);
+        }
+
         let version = self.document_versions.entry(path).or_insert(0);
         *version += 1;
 
@@ -1498,6 +1540,10 @@ struct LspTask {
     /// Document versions
     document_versions: HashMap<PathBuf, i64>,
 
+    /// Track when didOpen was sent for each document to avoid race with didChange
+    /// The LSP server needs time to process didOpen before it can handle didChange
+    pending_opens: HashMap<PathBuf, Instant>,
+
     /// Whether initialized
     initialized: bool,
 
@@ -1573,6 +1619,7 @@ impl LspTask {
             pending: HashMap::new(),
             capabilities: None,
             document_versions: HashMap::new(),
+            pending_opens: HashMap::new(),
             initialized: false,
             async_tx,
             language,
@@ -1648,6 +1695,7 @@ impl LspTask {
             next_id: self.next_id,
             capabilities: self.capabilities,
             document_versions: self.document_versions,
+            pending_opens: self.pending_opens,
             initialized: self.initialized,
             async_tx: self.async_tx.clone(),
             language: self.language.clone(),
@@ -2108,6 +2156,10 @@ impl LspTask {
         Ok(result)
     }
 
+    /// Grace period after didOpen before sending didChange (in milliseconds)
+    /// This gives the LSP server time to process didOpen before receiving changes
+    const DID_OPEN_GRACE_PERIOD_MS: u64 = 200;
+
     /// Sequential version of handle_did_open
     async fn handle_did_open_sequential(
         &mut self,
@@ -2127,8 +2179,11 @@ impl LspTask {
             },
         };
 
-        self.document_versions
-            .insert(PathBuf::from(uri.path().as_str()), 0);
+        let path = PathBuf::from(uri.path().as_str());
+        self.document_versions.insert(path.clone(), 0);
+
+        // Record when we sent didOpen so didChange can wait if needed
+        self.pending_opens.insert(path, Instant::now());
 
         self.send_notification::<DidOpenTextDocument>(params).await
     }
@@ -2143,6 +2198,26 @@ impl LspTask {
         tracing::trace!("LSP: did_change for {}", uri.as_str());
 
         let path = PathBuf::from(uri.path().as_str());
+
+        // Check if this document was recently opened and wait if needed
+        // This prevents race conditions where the server receives didChange
+        // before it has finished processing didOpen
+        if let Some(opened_at) = self.pending_opens.get(&path) {
+            let elapsed = opened_at.elapsed();
+            let grace_period = std::time::Duration::from_millis(Self::DID_OPEN_GRACE_PERIOD_MS);
+            if elapsed < grace_period {
+                let wait_time = grace_period - elapsed;
+                tracing::debug!(
+                    "LSP: waiting {:?} for didOpen grace period before didChange for {}",
+                    wait_time,
+                    uri.as_str()
+                );
+                tokio::time::sleep(wait_time).await;
+            }
+            // Remove from pending_opens after grace period has passed
+            self.pending_opens.remove(&path);
+        }
+
         let version = self.document_versions.entry(path).or_insert(0);
         *version += 1;
 

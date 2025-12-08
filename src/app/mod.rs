@@ -4220,6 +4220,9 @@ impl Editor {
                 AsyncMessage::LspInitialized { language } => {
                     tracing::info!("LSP server initialized for language: {}", language);
                     self.status_message = Some(format!("LSP ({}) ready", language));
+
+                    // Send didOpen for all open buffers of this language
+                    self.resend_did_open_for_language(&language);
                 }
                 AsyncMessage::LspError {
                     language,
