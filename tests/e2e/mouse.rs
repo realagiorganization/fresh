@@ -1354,3 +1354,211 @@ fn test_tab_hover_with_real_files() {
         other => panic!("Expected RGB color, got {:?}", other),
     }
 }
+
+/// Test that mouse hover over editor text tracks the position
+#[test]
+fn test_mouse_hover_tracks_position() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    // Load some content
+    let content = "fn main() {\n    let x = 42;\n}\n";
+    let _fixture = harness.load_buffer_from_text(content).unwrap();
+    harness.render().unwrap();
+
+    // Get content area info
+    let (content_first_row, _) = harness.content_area_rows();
+
+    // Initially no hover state
+    assert!(
+        harness.editor().get_mouse_hover_state().is_none(),
+        "Should have no hover state initially"
+    );
+
+    // Move mouse over the text area (after gutter, which is ~8 chars)
+    let text_col = 12; // Should be over "main"
+    let text_row = content_first_row as u16;
+
+    harness.mouse_move(text_col, text_row).unwrap();
+
+    // Should now have hover state tracking the position
+    let hover_state = harness.editor().get_mouse_hover_state();
+    assert!(
+        hover_state.is_some(),
+        "Should have hover state after moving mouse over text"
+    );
+
+    let (byte_pos, screen_x, screen_y) = hover_state.unwrap();
+    assert_eq!(screen_x, text_col, "Screen X should match mouse position");
+    assert_eq!(screen_y, text_row, "Screen Y should match mouse position");
+    assert!(
+        byte_pos < content.len(),
+        "Byte position {} should be within buffer (len {})",
+        byte_pos,
+        content.len()
+    );
+}
+
+/// Test that mouse hover state is cleared when mouse moves away from editor
+#[test]
+fn test_mouse_hover_clears_when_leaving_editor() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    let content = "Hello World\n";
+    let _fixture = harness.load_buffer_from_text(content).unwrap();
+    harness.render().unwrap();
+
+    let (content_first_row, _) = harness.content_area_rows();
+
+    // Move mouse over text
+    harness
+        .mouse_move(12, content_first_row as u16)
+        .unwrap();
+
+    assert!(
+        harness.editor().get_mouse_hover_state().is_some(),
+        "Should have hover state over text"
+    );
+
+    // Move mouse to status bar (bottom row, outside editor content)
+    harness.mouse_move(40, 23).unwrap();
+
+    assert!(
+        harness.editor().get_mouse_hover_state().is_none(),
+        "Hover state should be cleared when mouse leaves editor content"
+    );
+}
+
+/// Test that mouse hover state updates when position changes
+#[test]
+fn test_mouse_hover_updates_on_position_change() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    let content = "First line of text\nSecond line here\n";
+    let _fixture = harness.load_buffer_from_text(content).unwrap();
+    harness.render().unwrap();
+
+    let (content_first_row, _) = harness.content_area_rows();
+
+    // Move to first position
+    harness
+        .mouse_move(12, content_first_row as u16)
+        .unwrap();
+
+    let state1 = harness.editor().get_mouse_hover_state();
+    assert!(state1.is_some(), "Should have hover state");
+    let (pos1, _, _) = state1.unwrap();
+
+    // Move to a different position (second line)
+    harness
+        .mouse_move(12, content_first_row as u16 + 1)
+        .unwrap();
+
+    let state2 = harness.editor().get_mouse_hover_state();
+    assert!(state2.is_some(), "Should still have hover state");
+    let (pos2, _, _) = state2.unwrap();
+
+    // Position should have changed
+    assert_ne!(
+        pos1, pos2,
+        "Byte position should change when moving to different line"
+    );
+}
+
+/// Test that moving mouse to gutter clears hover state
+#[test]
+fn test_mouse_hover_clears_in_gutter() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    let content = "Some code here\n";
+    let _fixture = harness.load_buffer_from_text(content).unwrap();
+    harness.render().unwrap();
+
+    let (content_first_row, _) = harness.content_area_rows();
+
+    // Move to text area first
+    harness
+        .mouse_move(15, content_first_row as u16)
+        .unwrap();
+
+    assert!(
+        harness.editor().get_mouse_hover_state().is_some(),
+        "Should have hover state over text"
+    );
+
+    // Move to gutter (line numbers area, column 3)
+    harness.mouse_move(3, content_first_row as u16).unwrap();
+
+    assert!(
+        harness.editor().get_mouse_hover_state().is_none(),
+        "Hover state should be cleared when mouse is in gutter"
+    );
+}
+
+/// Test that force_check_mouse_hover triggers hover request
+#[test]
+fn test_force_check_mouse_hover() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    let content = "let variable = 123;\n";
+    let _fixture = harness.load_buffer_from_text(content).unwrap();
+    harness.render().unwrap();
+
+    let (content_first_row, _) = harness.content_area_rows();
+
+    // Move to text area
+    harness
+        .mouse_move(12, content_first_row as u16)
+        .unwrap();
+
+    assert!(
+        harness.editor().get_mouse_hover_state().is_some(),
+        "Should have hover state"
+    );
+
+    // Force check should return true (would trigger hover if LSP was available)
+    let triggered = harness.editor_mut().force_check_mouse_hover();
+    assert!(
+        triggered,
+        "force_check_mouse_hover should return true when hover state exists"
+    );
+
+    // Second call should return false (already sent)
+    let triggered_again = harness.editor_mut().force_check_mouse_hover();
+    assert!(
+        !triggered_again,
+        "Second force_check should return false (already sent)"
+    );
+}
+
+/// Test that hover state is preserved when staying at same position
+#[test]
+fn test_mouse_hover_same_position_preserves_state() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    let content = "test content\n";
+    let _fixture = harness.load_buffer_from_text(content).unwrap();
+    harness.render().unwrap();
+
+    let (content_first_row, _) = harness.content_area_rows();
+    let col = 12;
+    let row = content_first_row as u16;
+
+    // Move to position
+    harness.mouse_move(col, row).unwrap();
+
+    let state1 = harness.editor().get_mouse_hover_state();
+    assert!(state1.is_some(), "Should have hover state");
+    let (pos1, _, _) = state1.unwrap();
+
+    // Move to same position again (should preserve state, not reset timer)
+    harness.mouse_move(col, row).unwrap();
+
+    let state2 = harness.editor().get_mouse_hover_state();
+    assert!(state2.is_some(), "Should still have hover state");
+    let (pos2, _, _) = state2.unwrap();
+
+    assert_eq!(
+        pos1, pos2,
+        "Position should be preserved when staying at same spot"
+    );
+}

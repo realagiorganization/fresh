@@ -1975,6 +1975,41 @@ impl Editor {
         self.split_manager.get_ratio(split_id)
     }
 
+    /// Get the current mouse hover state for testing
+    /// Returns Some((byte_position, screen_x, screen_y)) if hovering over text
+    pub fn get_mouse_hover_state(&self) -> Option<(usize, u16, u16)> {
+        self.mouse_state
+            .lsp_hover_state
+            .map(|(pos, _, x, y)| (pos, x, y))
+    }
+
+    /// Check if a hover popup is currently visible (for testing)
+    pub fn has_hover_popup(&self) -> bool {
+        self.active_state()
+            .popups
+            .top()
+            .and_then(|p| p.title.as_ref())
+            .is_some_and(|title| title == "Hover")
+    }
+
+    /// Force check the mouse hover timer (for testing)
+    /// This bypasses the normal 500ms delay
+    pub fn force_check_mouse_hover(&mut self) -> bool {
+        // Temporarily mark the hover as ready by checking if state exists
+        if let Some((byte_pos, _, screen_x, screen_y)) = self.mouse_state.lsp_hover_state {
+            if !self.mouse_state.lsp_hover_request_sent {
+                self.mouse_state.lsp_hover_request_sent = true;
+                self.mouse_hover_screen_position = Some((screen_x, screen_y));
+                if let Err(e) = self.request_hover_at_position(byte_pos) {
+                    tracing::debug!("Failed to request hover: {}", e);
+                    return false;
+                }
+                return true;
+            }
+        }
+        false
+    }
+
     /// Toggle line numbers in the gutter for the active buffer
     pub fn toggle_line_numbers(&mut self) {
         if let Some(state) = self.buffers.get_mut(&self.active_buffer) {
