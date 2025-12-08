@@ -2285,6 +2285,9 @@ impl Editor {
                 // (preserve needs_render if already set, e.g., for GPM cursor updates)
                 let hover_changed = self.update_hover_target(col, row);
                 needs_render = needs_render || hover_changed;
+
+                // Track LSP hover state for mouse-triggered hover popups
+                self.update_lsp_hover_state(col, row);
             }
             MouseEventKind::ScrollUp => {
                 // Check if file browser is active and should handle scroll
@@ -2341,6 +2344,79 @@ impl Editor {
         }
 
         changed
+    }
+
+    /// Update LSP hover state based on mouse position
+    /// Tracks position for debounced hover requests
+    fn update_lsp_hover_state(&mut self, col: u16, row: u16) {
+        // Find which split the mouse is over
+        let split_info = self
+            .cached_layout
+            .split_areas
+            .iter()
+            .find(|(_, _, content_rect, _, _, _)| {
+                col >= content_rect.x
+                    && col < content_rect.x + content_rect.width
+                    && row >= content_rect.y
+                    && row < content_rect.y + content_rect.height
+            })
+            .map(|(split_id, buffer_id, content_rect, _, _, _)| (*split_id, *buffer_id, *content_rect));
+
+        let Some((split_id, buffer_id, content_rect)) = split_info else {
+            // Mouse is not over editor content - clear hover state and dismiss popup
+            if self.mouse_state.lsp_hover_state.is_some() {
+                self.mouse_state.lsp_hover_state = None;
+                self.mouse_state.lsp_hover_request_sent = false;
+                self.dismiss_transient_popups();
+            }
+            return;
+        };
+
+        // Get cached mappings and gutter width for this split
+        let cached_mappings = self.cached_layout.view_line_mappings.get(&split_id).cloned();
+        let gutter_width = self
+            .buffers
+            .get(&buffer_id)
+            .map(|s| s.margins.left_total_width() as u16)
+            .unwrap_or(0);
+        let fallback = self
+            .buffers
+            .get(&buffer_id)
+            .map(|s| s.buffer.len())
+            .unwrap_or(0);
+
+        // Convert screen position to buffer byte position
+        let Some(byte_pos) = Self::screen_to_buffer_position(
+            col,
+            row,
+            content_rect,
+            gutter_width,
+            &cached_mappings,
+            fallback,
+            false, // Don't include gutter
+        ) else {
+            // Mouse is in gutter - clear hover state
+            if self.mouse_state.lsp_hover_state.is_some() {
+                self.mouse_state.lsp_hover_state = None;
+                self.mouse_state.lsp_hover_request_sent = false;
+                self.dismiss_transient_popups();
+            }
+            return;
+        };
+
+        // Check if we're still hovering the same position
+        if let Some((old_pos, _, _, _)) = self.mouse_state.lsp_hover_state {
+            if old_pos == byte_pos {
+                // Same position - keep existing state
+                return;
+            }
+            // Position changed - reset state and dismiss popup
+            self.dismiss_transient_popups();
+        }
+
+        // Start tracking new hover position
+        self.mouse_state.lsp_hover_state = Some((byte_pos, std::time::Instant::now(), col, row));
+        self.mouse_state.lsp_hover_request_sent = false;
     }
 
     /// Compute what hover target is at the given position

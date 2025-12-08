@@ -251,6 +251,10 @@ pub struct Editor {
     /// Hover symbol overlay handle (for removal)
     hover_symbol_overlay: Option<crate::view::overlay::OverlayHandle>,
 
+    /// Mouse hover screen position for popup placement
+    /// Set when a mouse-triggered hover request is sent
+    mouse_hover_screen_position: Option<(u16, u16)>,
+
     /// Search state (if search is active)
     search_state: Option<SearchState>,
 
@@ -680,6 +684,7 @@ impl Editor {
             pending_inlay_hints_request: None,
             hover_symbol_range: None,
             hover_symbol_overlay: None,
+            mouse_hover_screen_position: None,
             search_state: None,
             search_namespace: crate::view::overlay::OverlayNamespace::from_string(
                 "search".to_string(),
@@ -944,6 +949,47 @@ impl Editor {
         }
 
         has_warnings
+    }
+
+    /// Check if mouse hover timer has expired and trigger LSP hover request
+    ///
+    /// This implements debounced hover - we wait 500ms before sending the request
+    /// to avoid spamming the LSP server on every mouse move.
+    /// Returns true if a hover request was triggered.
+    pub fn check_mouse_hover_timer(&mut self) -> bool {
+        const HOVER_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+        // Get hover state without borrowing self
+        let hover_info = match self.mouse_state.lsp_hover_state {
+            Some((byte_pos, start_time, screen_x, screen_y)) => {
+                if self.mouse_state.lsp_hover_request_sent {
+                    return false; // Already sent request for this position
+                }
+                if start_time.elapsed() < HOVER_DELAY {
+                    return false; // Timer hasn't expired yet
+                }
+                Some((byte_pos, screen_x, screen_y))
+            }
+            None => return false,
+        };
+
+        let Some((byte_pos, screen_x, screen_y)) = hover_info else {
+            return false;
+        };
+
+        // Mark as sent before requesting (to prevent double-sending)
+        self.mouse_state.lsp_hover_request_sent = true;
+
+        // Store mouse position for popup positioning
+        self.mouse_hover_screen_position = Some((screen_x, screen_y));
+
+        // Request hover at the byte position
+        if let Err(e) = self.request_hover_at_position(byte_pos) {
+            tracing::debug!("Failed to request hover: {}", e);
+            return false;
+        }
+
+        true
     }
 
     /// Load an ANSI background image from a user-provided path
@@ -5621,6 +5667,62 @@ impl Editor {
         Ok(())
     }
 
+    /// Request LSP hover documentation at a specific byte position
+    /// Used for mouse-triggered hover
+    fn request_hover_at_position(&mut self, byte_pos: usize) -> io::Result<()> {
+        // Get the current buffer
+        let state = self.active_state();
+
+        // Convert byte position to LSP position (line, UTF-16 code units)
+        let (line, character) = state.buffer.position_to_lsp_position(byte_pos);
+
+        // Debug: Log the position conversion details
+        if let Some(pos) = state.buffer.offset_to_position(byte_pos) {
+            tracing::debug!(
+                "Mouse hover request: byte_pos={}, line={}, byte_col={}, utf16_col={}",
+                byte_pos,
+                pos.line,
+                pos.column,
+                character
+            );
+        }
+
+        // Get the current file URI and path
+        let metadata = self.buffer_metadata.get(&self.active_buffer);
+        let (uri, file_path) = if let Some(meta) = metadata {
+            (meta.file_uri(), meta.file_path())
+        } else {
+            (None, None)
+        };
+
+        if let (Some(uri), Some(path)) = (uri, file_path) {
+            // Detect language from file extension
+            if let Some(language) = detect_language(path, &self.config.languages) {
+                // Get LSP handle
+                if let Some(lsp) = self.lsp.as_mut() {
+                    if let Some(handle) = lsp.get_or_spawn(&language) {
+                        let request_id = self.next_lsp_request_id;
+                        self.next_lsp_request_id += 1;
+                        self.pending_hover_request = Some(request_id);
+                        self.lsp_status = "LSP: hover...".to_string();
+
+                        let _ =
+                            handle.hover(request_id, uri.clone(), line as u32, character as u32);
+                        tracing::debug!(
+                            "Mouse hover requested at {}:{}:{} (byte_pos={})",
+                            uri.as_str(),
+                            line,
+                            character,
+                            byte_pos
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Handle hover response from LSP
     fn handle_hover_response(
         &mut self,
@@ -5705,7 +5807,13 @@ impl Editor {
 
         // Configure popup properties
         popup.title = Some("Hover".to_string());
-        popup.position = PopupPosition::BelowCursor;
+        // Use mouse position if this was a mouse-triggered hover, otherwise use cursor position
+        popup.position = if let Some((x, y)) = self.mouse_hover_screen_position.take() {
+            // Position below the mouse, offset by 1 row
+            PopupPosition::Fixed { x, y: y + 1 }
+        } else {
+            PopupPosition::BelowCursor
+        };
         popup.width = 80;
         popup.max_height = 20;
         popup.border_style = Style::default().fg(self.theme.popup_border_fg);

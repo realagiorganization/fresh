@@ -308,6 +308,11 @@ pub(super) struct MouseState {
     pub dragging_scrollbar: Option<SplitId>,
     /// Last mouse position
     pub last_position: Option<(u16, u16)>,
+    /// Mouse hover for LSP: byte position being hovered, timer start, and screen position
+    /// Format: (byte_position, hover_start_instant, screen_x, screen_y)
+    pub lsp_hover_state: Option<(usize, std::time::Instant, u16, u16)>,
+    /// Whether we've already sent a hover request for the current position
+    pub lsp_hover_request_sent: bool,
     /// Initial mouse row when starting to drag the scrollbar thumb
     /// Used to calculate relative movement rather than jumping
     pub drag_start_row: Option<u16>,

@@ -464,6 +464,11 @@ fn run_event_loop(
             needs_render = true;
         }
 
+        // Check mouse hover timer for LSP hover requests
+        if editor.check_mouse_hover_timer() {
+            needs_render = true;
+        }
+
         // Check for warnings and open warning log if any occurred
         if editor.check_warning_log() {
             needs_render = true;
@@ -554,6 +559,11 @@ fn run_event_loop(
 
     loop {
         if editor.process_async_messages() {
+            needs_render = true;
+        }
+
+        // Check mouse hover timer for LSP hover requests
+        if editor.check_mouse_hover_timer() {
             needs_render = true;
         }
 
