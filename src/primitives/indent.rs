@@ -144,7 +144,7 @@ impl IndentCalculator {
                 "csharp",
                 tree_sitter_c_sharp::LANGUAGE.into(),
                 include_str!("../../queries/csharp/indents.scm"),
-            )
+            ),
         };
 
         // Check if we already have this config

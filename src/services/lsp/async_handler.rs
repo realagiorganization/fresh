@@ -3096,11 +3096,8 @@ impl LspHandle {
         let state = Arc::new(Mutex::new(LspClientState::Starting));
 
         // Create stderr log path in system temp directory (cross-platform)
-        let stderr_log_path = std::env::temp_dir().join(format!(
-            "fresh-lsp-{}-{}.log",
-            language,
-            std::process::id()
-        ));
+        let stderr_log_path =
+            std::env::temp_dir().join(format!("fresh-lsp-{}-{}.log", language, std::process::id()));
 
         // Send starting status
         let _ = async_tx.send(AsyncMessage::LspStatusUpdate {
