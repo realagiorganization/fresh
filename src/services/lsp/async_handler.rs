@@ -38,6 +38,30 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, oneshot};
 
+/// Grace period after didOpen before sending didChange (in milliseconds)
+/// This gives the LSP server time to process didOpen before receiving changes
+const DID_OPEN_GRACE_PERIOD_MS: u64 = 200;
+
+/// Check if a document is already open and should skip didOpen.
+/// Returns true if the document is already open (should skip), false if it should proceed.
+fn should_skip_did_open(
+    document_versions: &HashMap<PathBuf, i64>,
+    path: &PathBuf,
+    language: &str,
+    uri: &Uri,
+) -> bool {
+    if document_versions.contains_key(path) {
+        tracing::debug!(
+            "LSP ({}): skipping didOpen - document already open: {}",
+            language,
+            uri.as_str()
+        );
+        true
+    } else {
+        false
+    }
+}
+
 /// A JSON-RPC message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -584,6 +608,12 @@ impl LspState {
         language_id: String,
         _pending: &Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, String>>>>>,
     ) -> Result<(), String> {
+        let path = PathBuf::from(uri.path().as_str());
+
+        if should_skip_did_open(&self.document_versions, &path, &self.language, &uri) {
+            return Ok(());
+        }
+
         tracing::trace!("LSP: did_open for {}", uri.as_str());
 
         let params = DidOpenTextDocumentParams {
@@ -595,7 +625,6 @@ impl LspState {
             },
         };
 
-        let path = PathBuf::from(uri.path().as_str());
         self.document_versions.insert(path.clone(), 0);
 
         // Record when we sent didOpen so didChange can wait if needed
@@ -603,10 +632,6 @@ impl LspState {
 
         self.send_notification::<DidOpenTextDocument>(params).await
     }
-
-    /// Grace period after didOpen before sending didChange (in milliseconds)
-    /// This gives the LSP server time to process didOpen before receiving changes
-    const DID_OPEN_GRACE_PERIOD_MS: u64 = 200;
 
     /// Handle did_change command
     async fn handle_did_change_sequential(
@@ -634,7 +659,7 @@ impl LspState {
         // before it has finished processing didOpen
         if let Some(opened_at) = self.pending_opens.get(&path) {
             let elapsed = opened_at.elapsed();
-            let grace_period = std::time::Duration::from_millis(Self::DID_OPEN_GRACE_PERIOD_MS);
+            let grace_period = std::time::Duration::from_millis(DID_OPEN_GRACE_PERIOD_MS);
             if elapsed < grace_period {
                 let wait_time = grace_period - elapsed;
                 tracing::debug!(
@@ -2156,10 +2181,6 @@ impl LspTask {
         Ok(result)
     }
 
-    /// Grace period after didOpen before sending didChange (in milliseconds)
-    /// This gives the LSP server time to process didOpen before receiving changes
-    const DID_OPEN_GRACE_PERIOD_MS: u64 = 200;
-
     /// Sequential version of handle_did_open
     async fn handle_did_open_sequential(
         &mut self,
@@ -2168,6 +2189,12 @@ impl LspTask {
         language_id: String,
         _pending: &Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, String>>>>>,
     ) -> Result<(), String> {
+        let path = PathBuf::from(uri.path().as_str());
+
+        if should_skip_did_open(&self.document_versions, &path, &self.language, &uri) {
+            return Ok(());
+        }
+
         tracing::trace!("LSP: did_open for {}", uri.as_str());
 
         let params = DidOpenTextDocumentParams {
@@ -2179,7 +2206,6 @@ impl LspTask {
             },
         };
 
-        let path = PathBuf::from(uri.path().as_str());
         self.document_versions.insert(path.clone(), 0);
 
         // Record when we sent didOpen so didChange can wait if needed
@@ -2204,7 +2230,7 @@ impl LspTask {
         // before it has finished processing didOpen
         if let Some(opened_at) = self.pending_opens.get(&path) {
             let elapsed = opened_at.elapsed();
-            let grace_period = std::time::Duration::from_millis(Self::DID_OPEN_GRACE_PERIOD_MS);
+            let grace_period = std::time::Duration::from_millis(DID_OPEN_GRACE_PERIOD_MS);
             if elapsed < grace_period {
                 let wait_time = grace_period - elapsed;
                 tracing::debug!(
