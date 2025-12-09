@@ -1657,9 +1657,18 @@ mod tests {
         assert_eq!(loaded.lsp["rust"].command, "custom-rust-analyzer");
 
         // Default LSP servers should also be present (merged from defaults)
-        assert!(loaded.lsp.contains_key("python"), "python LSP should be merged from defaults");
-        assert!(loaded.lsp.contains_key("typescript"), "typescript LSP should be merged from defaults");
-        assert!(loaded.lsp.contains_key("javascript"), "javascript LSP should be merged from defaults");
+        assert!(
+            loaded.lsp.contains_key("python"),
+            "python LSP should be merged from defaults"
+        );
+        assert!(
+            loaded.lsp.contains_key("typescript"),
+            "typescript LSP should be merged from defaults"
+        );
+        assert!(
+            loaded.lsp.contains_key("javascript"),
+            "javascript LSP should be merged from defaults"
+        );
 
         // Default language configs should also be present
         assert!(loaded.languages.contains_key("rust"));
