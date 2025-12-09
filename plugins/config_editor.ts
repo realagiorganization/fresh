@@ -790,10 +790,10 @@ function loadConfig(): { merged: Record<string, unknown>; user: Record<string, u
   state.configPath = findConfigPath();
 
   // Get the merged runtime config (defaults + user overrides)
-  const merged = editor.getConfig() as Record<string, unknown>;
+  const merged = (editor.getConfig() as Record<string, unknown>) || {};
 
-  // Get only what the user has explicitly set
-  const user = editor.getUserConfig() as Record<string, unknown>;
+  // Get only what the user has explicitly set (may be null if no config file exists)
+  const user = (editor.getUserConfig() as Record<string, unknown>) || {};
 
   return { merged, user };
 }
