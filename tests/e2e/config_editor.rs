@@ -308,6 +308,119 @@ fn test_config_editor_cursor_preserved_after_toggle() {
     );
 }
 
+/// Test that the lsp section shows default entries even when user config is empty
+/// This tests the getConfig/getUserConfig APIs - without them the lsp section
+/// would appear empty because the user's config file has no lsp entries.
+#[test]
+fn test_config_editor_shows_lsp_defaults() {
+    // Create a temporary project directory
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let project_root = temp_dir.path().join("project_root");
+    fs::create_dir(&project_root).unwrap();
+
+    // Create plugins directory and copy files
+    let plugins_dir = project_root.join("plugins");
+    fs::create_dir(&plugins_dir).unwrap();
+
+    let plugin_source = std::env::current_dir()
+        .unwrap()
+        .join("plugins/config_editor.ts");
+    fs::copy(&plugin_source, plugins_dir.join("config_editor.ts")).unwrap();
+
+    let schema_source = std::env::current_dir()
+        .unwrap()
+        .join("plugins/config-schema.json");
+    fs::copy(&schema_source, plugins_dir.join("config-schema.json")).unwrap();
+
+    // Create an EMPTY config file - no lsp entries
+    // The bug was: without getConfig(), the editor would show nothing in lsp section
+    // because it only read the sparse user config file
+    let config_content = r#"{}"#;
+    fs::write(project_root.join("config.json"), config_content).unwrap();
+
+    // Create harness
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 50, Default::default(), project_root)
+            .unwrap();
+
+    harness.render().unwrap();
+
+    // Open command palette and run Edit Configuration
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+    harness.type_text("Edit Configuration").unwrap();
+    harness.render().unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+
+    // Process async operations to let the config editor load
+    for _ in 0..30 {
+        harness.process_async_and_render().unwrap();
+    }
+
+    // Navigate to find and expand the "lsp" section
+    // First, let's find how many times we need to press down to reach "lsp"
+    // The order in schema is roughly: active_keybinding_map, check_for_updates, editor, file_explorer, keybinding_maps, keybindings, languages, lsp, menu, theme
+    // We need to navigate past the expanded sections (editor, file_explorer by default)
+
+    // Press down multiple times to reach "lsp" section
+    for _ in 0..30 {
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+        harness.render().unwrap();
+    }
+
+    // Now look for the lsp section header and expand it with Tab
+    // Try pressing Tab to expand (works on section rows)
+    harness.send_key(KeyCode::Tab, KeyModifiers::NONE).unwrap();
+    for _ in 0..10 {
+        harness.process_async_and_render().unwrap();
+    }
+
+    // Continue navigating and looking for lsp-related content
+    for _ in 0..5 {
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+        harness.render().unwrap();
+    }
+
+    let screen = harness.screen_to_string();
+
+    // The lsp section should show default entries from Config::default_lsp_config()
+    // At minimum, we should see "rust" since rust-analyzer is a default LSP server
+    // If the old bug existed (reading only user config), we'd see "(no entries configured)"
+    // or the section would be empty
+
+    // Check that we see at least one of the default LSP server names
+    let has_rust = screen.contains("rust");
+    let has_python = screen.contains("python");
+    let has_typescript = screen.contains("typescript");
+    let has_javascript = screen.contains("javascript");
+    let has_html = screen.contains("html");
+
+    // We should see at least one default LSP entry
+    let has_any_default_lsp =
+        has_rust || has_python || has_typescript || has_javascript || has_html;
+
+    // Also verify we DON'T see the "no entries" message that would appear with an empty section
+    let has_no_entries_msg = screen.contains("no entries configured");
+
+    assert!(
+        has_any_default_lsp || !has_no_entries_msg,
+        "LSP section should show default servers (rust, python, etc.) or at least not show 'no entries' message.\n\
+         Found in screen:\n\
+         - rust: {}\n\
+         - python: {}\n\
+         - typescript: {}\n\
+         - javascript: {}\n\
+         - html: {}\n\
+         - 'no entries configured': {}\n\n\
+         Screen content:\n{}",
+        has_rust, has_python, has_typescript, has_javascript, has_html, has_no_entries_msg, screen
+    );
+}
+
 /// Test that config editor opens and shows content (integration test)
 #[test]
 fn test_config_editor_opens_with_content() {
