@@ -1403,11 +1403,6 @@ fn test_color_highlighter_disable() {
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
 
-    // Need multiple async processing cycles for plugin to process virtual text insertion
-    harness.process_async_and_render().unwrap();
-    harness.process_async_and_render().unwrap();
-    harness.process_async_and_render().unwrap();
-
     // Helper function to count color swatches (excludes scrollbar at position 79)
     fn count_color_swatches(screen: &str) -> usize {
         screen
@@ -1426,14 +1421,13 @@ fn test_color_highlighter_disable() {
             .count()
     }
 
-    // Verify swatch appears
+    // Wait for swatches to appear (plugin needs time to process)
+    harness
+        .wait_until(|h| count_color_swatches(&h.screen_to_string()) > 0)
+        .unwrap();
+
     let screen_enabled = harness.screen_to_string();
     let swatches_enabled = count_color_swatches(&screen_enabled);
-    assert!(
-        swatches_enabled > 0,
-        "Expected swatches when enabled. Got:\n{}",
-        screen_enabled
-    );
 
     // Now disable it
     harness
@@ -1443,7 +1437,11 @@ fn test_color_highlighter_disable() {
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
-    harness.render().unwrap();
+
+    // Wait for swatches to be removed
+    harness
+        .wait_until(|h| count_color_swatches(&h.screen_to_string()) < swatches_enabled)
+        .unwrap();
 
     // Verify the content is still visible after disabling
     harness.assert_screen_contains("#ff0000");
@@ -1491,6 +1489,22 @@ fn test_color_highlighter_toggle() {
     harness.open_file(&fixture.path).unwrap();
     harness.render().unwrap();
 
+    // Helper function to count color swatches (excludes scrollbar at position 79)
+    fn count_color_swatches(screen: &str) -> usize {
+        screen
+            .lines()
+            .flat_map(|line| {
+                line.char_indices().filter(|&(char_idx, ch)| {
+                    if ch != '█' {
+                        return false;
+                    }
+                    let x = line[..char_idx].chars().count();
+                    x < 79
+                })
+            })
+            .count()
+    }
+
     // Toggle on
     harness
         .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
@@ -1499,17 +1513,14 @@ fn test_color_highlighter_toggle() {
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
-    harness.render().unwrap();
-    harness.render().unwrap();
 
-    // Verify swatches appear
+    // Wait for swatches to appear
+    harness
+        .wait_until(|h| count_color_swatches(&h.screen_to_string()) > 0)
+        .unwrap();
+
     let screen_on = harness.screen_to_string();
-    let swatches_on = screen_on.matches('█').count();
-    assert!(
-        swatches_on > 0,
-        "Expected swatches after toggle on. Got:\n{}",
-        screen_on
-    );
+    let swatches_on = count_color_swatches(&screen_on);
 
     // Toggle off
     harness
@@ -1519,7 +1530,11 @@ fn test_color_highlighter_toggle() {
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
         .unwrap();
-    harness.render().unwrap();
+
+    // Wait for swatches to be removed
+    harness
+        .wait_until(|h| count_color_swatches(&h.screen_to_string()) < swatches_on)
+        .unwrap();
 
     // Verify content is still visible after toggling off
     harness.assert_screen_contains("rgb(128, 64, 255)");
