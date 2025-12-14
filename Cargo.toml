@@ -3,6 +3,7 @@ name = "fresh-editor"
 version = "0.1.44"
 authors = ["Noam Lewis"]
 edition = "2021"
+default-run = "fresh"
 description = "A lightweight, fast terminal-based text editor with LSP support and TypeScript plugins"
 license = "GPL-2.0"
 repository = "https://github.com/sinelaw/fresh"
