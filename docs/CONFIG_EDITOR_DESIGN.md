@@ -1021,6 +1021,323 @@ Alternatives considered:
 
 ---
 
+## ScrollablePanel Abstraction
+
+The settings panel scrolling logic should be extracted into a reusable `ScrollablePanel` component. This follows patterns from established UI frameworks.
+
+### Inspiration from Other Frameworks
+
+| Framework | Component | Key Patterns |
+|-----------|-----------|--------------|
+| Flutter | `ListView` / `Sliver` | Items report size, `Scrollable.ensureVisible()` |
+| WPF/WinUI | `ScrollViewer` | `BringIntoView()`, pixel-based scrolling |
+| Qt | `QAbstractScrollArea` | Viewport + scroll position, `ensureWidgetVisible()` |
+| Web/React | `react-window` | Virtual scrolling, dynamic measurement |
+
+### Core Design
+
+#### ScrollState - Pure State Management
+
+```rust
+/// Pure scroll state - knows nothing about content
+pub struct ScrollState {
+    /// Scroll offset in rows (not items)
+    pub offset: u16,
+    /// Viewport height
+    pub viewport: u16,
+    /// Total content height
+    pub content_height: u16,
+}
+
+impl ScrollState {
+    /// Create new scroll state
+    pub fn new(viewport: u16) -> Self;
+
+    /// Update content height (call when items change)
+    pub fn set_content_height(&mut self, height: u16);
+
+    /// Scroll to ensure a region is visible
+    /// If region is taller than viewport, shows the top
+    pub fn ensure_visible(&mut self, y: u16, height: u16) {
+        if y < self.offset {
+            // Region is above viewport - scroll up
+            self.offset = y;
+        } else if y + height > self.offset + self.viewport {
+            // Region is below viewport - scroll down
+            if height > self.viewport {
+                // Oversized item - show top
+                self.offset = y;
+            } else {
+                self.offset = y + height - self.viewport;
+            }
+        }
+    }
+
+    /// Scroll by delta rows (positive = down, negative = up)
+    pub fn scroll_by(&mut self, delta: i16);
+
+    /// Scroll to a ratio (0.0 = top, 1.0 = bottom)
+    pub fn scroll_to_ratio(&mut self, ratio: f32);
+
+    /// Get scrollbar thumb ratio (size relative to track)
+    pub fn thumb_ratio(&self) -> f32 {
+        self.viewport as f32 / self.content_height as f32
+    }
+
+    /// Get scrollbar thumb position (0.0 to 1.0)
+    pub fn thumb_position(&self) -> f32 {
+        self.offset as f32 / (self.content_height - self.viewport) as f32
+    }
+
+    /// Check if scrolling is needed
+    pub fn needs_scrollbar(&self) -> bool {
+        self.content_height > self.viewport
+    }
+}
+```
+
+#### ScrollItem Trait - Item Size Reporting
+
+```rust
+/// Trait for items that can be displayed in a scrollable panel
+pub trait ScrollItem {
+    /// Total height of this item in terminal rows
+    fn height(&self) -> u16;
+
+    /// Optional: sub-focus regions within this item
+    /// Used for items with internal navigation (e.g., TextList rows)
+    fn focus_regions(&self) -> &[FocusRegion] {
+        &[]
+    }
+}
+
+/// A focusable region within an item
+pub struct FocusRegion {
+    /// Identifier for this region
+    pub id: usize,
+    /// Y offset within the parent item
+    pub y_offset: u16,
+    /// Height of this region
+    pub height: u16,
+}
+```
+
+#### ScrollablePanel - Rendering Coordinator
+
+```rust
+/// Manages scrolling for a list of items
+pub struct ScrollablePanel {
+    scroll: ScrollState,
+}
+
+impl ScrollablePanel {
+    pub fn new(viewport_height: u16) -> Self;
+
+    /// Update scroll state for new viewport size
+    pub fn set_viewport(&mut self, height: u16);
+
+    /// Calculate total content height from items
+    pub fn update_content_height<I: ScrollItem>(&mut self, items: &[I]) {
+        let height: u16 = items.iter().map(|i| i.height()).sum();
+        self.scroll.set_content_height(height);
+    }
+
+    /// Ensure focused item (and optional sub-region) is visible
+    pub fn ensure_focused_visible<I: ScrollItem>(
+        &mut self,
+        items: &[I],
+        focused_index: usize,
+        sub_focus: Option<usize>,
+    ) {
+        // Calculate Y offset of focused item
+        let item_y: u16 = items[..focused_index].iter().map(|i| i.height()).sum();
+        let item = &items[focused_index];
+
+        // If sub-focus specified, use that region
+        let (focus_y, focus_h) = if let Some(sub_id) = sub_focus {
+            if let Some(region) = item.focus_regions().iter().find(|r| r.id == sub_id) {
+                (item_y + region.y_offset, region.height)
+            } else {
+                (item_y, item.height())
+            }
+        } else {
+            (item_y, item.height())
+        };
+
+        self.scroll.ensure_visible(focus_y, focus_h);
+    }
+
+    /// Render visible items and scrollbar
+    /// Returns layout info for hit testing
+    pub fn render<I, F, L>(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        items: &[I],
+        render_item: F,
+        theme: &Theme,
+    ) -> ScrollablePanelLayout<L>
+    where
+        I: ScrollItem,
+        F: Fn(&mut Frame, Rect, &I, usize) -> L,
+    {
+        let scrollbar_width = if self.scroll.needs_scrollbar() { 1 } else { 0 };
+        let content_area = Rect::new(
+            area.x,
+            area.y,
+            area.width.saturating_sub(scrollbar_width),
+            area.height,
+        );
+
+        let mut layouts = Vec::new();
+        let mut current_y = 0u16;
+        let mut render_y = area.y;
+
+        for (idx, item) in items.iter().enumerate() {
+            let item_h = item.height();
+
+            // Skip items before scroll offset
+            if current_y + item_h <= self.scroll.offset {
+                current_y += item_h;
+                continue;
+            }
+
+            // Stop if past viewport
+            if render_y >= area.y + area.height {
+                break;
+            }
+
+            // Calculate visible portion of item
+            let skip_top = self.scroll.offset.saturating_sub(current_y);
+            let available_h = (area.y + area.height).saturating_sub(render_y);
+            let visible_h = (item_h - skip_top).min(available_h);
+
+            let item_area = Rect::new(content_area.x, render_y, content_area.width, visible_h);
+            let layout = render_item(frame, item_area, item, idx);
+            layouts.push((idx, layout));
+
+            render_y += visible_h;
+            current_y += item_h;
+        }
+
+        // Render scrollbar if needed
+        if self.scroll.needs_scrollbar() {
+            let scrollbar_area = Rect::new(
+                area.x + content_area.width,
+                area.y,
+                1,
+                area.height,
+            );
+            let scrollbar_state = ScrollbarState::new(
+                self.scroll.content_height as usize,
+                self.scroll.viewport as usize,
+                self.scroll.offset as usize,
+            );
+            render_scrollbar(frame, scrollbar_area, &scrollbar_state, &ScrollbarColors::from_theme(theme));
+        }
+
+        ScrollablePanelLayout {
+            content_area,
+            scrollbar_area: if self.scroll.needs_scrollbar() {
+                Some(Rect::new(area.x + content_area.width, area.y, 1, area.height))
+            } else {
+                None
+            },
+            item_layouts: layouts,
+        }
+    }
+
+    // Delegate scroll operations
+    pub fn scroll_up(&mut self, rows: u16) { self.scroll.scroll_by(-(rows as i16)); }
+    pub fn scroll_down(&mut self, rows: u16) { self.scroll.scroll_by(rows as i16); }
+    pub fn scroll_to_ratio(&mut self, ratio: f32) { self.scroll.scroll_to_ratio(ratio); }
+}
+
+/// Layout info returned by ScrollablePanel::render
+pub struct ScrollablePanelLayout<L> {
+    /// Content area (excluding scrollbar)
+    pub content_area: Rect,
+    /// Scrollbar area (if visible)
+    pub scrollbar_area: Option<Rect>,
+    /// Per-item layouts with their indices
+    pub item_layouts: Vec<(usize, L)>,
+}
+```
+
+### Handling Oversized Items
+
+When an item is taller than the viewport (e.g., a TextList with 20 rows):
+
+1. **Show top on first focus**: When navigating to an oversized item, show its top
+2. **Sub-focus tracking**: Track which internal region is focused
+3. **Scroll within item**: Use `ensure_visible()` with sub-focus region
+
+```rust
+// Example: TextList with 10 visible rows, user focuses row 15
+panel.ensure_focused_visible(
+    &items,
+    focused_item_idx,
+    Some(15), // Sub-focus: row 15 within the TextList
+);
+// This scrolls to show row 15, even if the TextList item is only partially visible
+```
+
+### Integration with Settings UI
+
+The settings panel would use `ScrollablePanel` like this:
+
+```rust
+impl SettingsState {
+    fn render_settings_panel(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let page = self.current_page().unwrap();
+
+        // Update content height
+        self.scroll_panel.update_content_height(&page.items);
+
+        // Ensure focused item visible
+        if let Some(selected) = self.selected_item {
+            self.scroll_panel.ensure_focused_visible(
+                &page.items,
+                selected,
+                self.sub_focus, // For TextList/Map internal focus
+            );
+        }
+
+        // Render
+        let layout = self.scroll_panel.render(
+            frame,
+            area,
+            &page.items,
+            |frame, area, item, idx| render_setting_item(frame, area, item, idx, theme),
+            theme,
+        );
+
+        // Store layout for hit testing
+        self.panel_layout = Some(layout);
+    }
+}
+```
+
+### Benefits
+
+1. **Reusable**: Same component for settings, file picker, popup lists, etc.
+2. **Row-based scrolling**: Pixel/row precision instead of item-based
+3. **Partial visibility**: Natural handling of items at viewport edges
+4. **Sub-item focus**: Built-in support for navigating within large items
+5. **Consistent behavior**: Same scrolling semantics everywhere
+6. **Testable**: Pure state management can be unit tested
+
+### Implementation Plan
+
+1. Create `src/view/ui/scroll_panel.rs` with `ScrollState` and `ScrollablePanel`
+2. Add `ScrollItem` trait
+3. Implement `ScrollItem` for `SettingItem`
+4. Refactor `render_settings_panel` to use `ScrollablePanel`
+5. Add sub-focus support to `SettingsState` for TextList/Map navigation
+6. Consider adopting for file picker and popup lists
+
+---
+
 ## Future Enhancements
 
 1. **Project Settings**: Per-project config overrides (`.fresh/config.json` in project root)
