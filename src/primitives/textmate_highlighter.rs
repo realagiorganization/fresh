@@ -68,7 +68,7 @@ impl TextMateHighlighter {
     }
 
     /// Create a highlighter from a syntax set and syntax name
-    pub fn from_syntax_name(name: &str, syntax_set: Arc<SyntaxSet>) -> Option<Self> {
+    pub fn from_syntax_name(_name: &str, _syntax_set: Arc<SyntaxSet>) -> Option<Self> {
         // We need a static reference, which is tricky with Arc
         // This is a limitation - in practice, we'll use find_syntax methods
         // that return references valid for the SyntaxSet's lifetime

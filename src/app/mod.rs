@@ -4327,29 +4327,6 @@ impl Editor {
         }
     }
 
-    /// Compute the default directory text for the Open File prompt
-    fn open_file_prompt_directory_hint(&self) -> String {
-        let mut directory = self
-            .active_state()
-            .buffer
-            .file_path()
-            .and_then(|path| path.parent())
-            .map(|parent| {
-                parent
-                    .strip_prefix(&self.working_dir)
-                    .map(|relative| relative.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| parent.to_string_lossy().to_string())
-            })
-            .unwrap_or_default();
-
-        // Only add trailing slash if we have a non-empty directory
-        if !directory.is_empty() && !directory.ends_with('/') {
-            directory.push('/');
-        }
-
-        directory
-    }
-
     /// Pre-fill the Open File prompt input with the current buffer directory
     fn prefill_open_file_prompt(&mut self) {
         // With the native file browser, the directory is shown from file_open_state.current_dir

@@ -34,10 +34,6 @@ pub(super) struct SearchState {
     pub wrap_search: bool,
     /// Optional search range (for search in selection)
     pub search_range: Option<Range<usize>>,
-    /// Whether search is case-sensitive (default: true)
-    pub case_sensitive: bool,
-    /// Whether to match whole words only (default: false)
-    pub whole_word: bool,
 }
 
 /// A bookmark in the editor (position in a specific buffer)

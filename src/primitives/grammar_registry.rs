@@ -31,7 +31,7 @@ impl GrammarRegistry {
 
         // Load default syntect grammars
         let defaults = SyntaxSet::load_defaults_newlines();
-        for syntax in defaults.syntaxes() {
+        for _syntax in defaults.syntaxes() {
             // SyntaxSetBuilder doesn't have a direct way to add from another set,
             // so we'll just use the defaults as our base and add user grammars on top
         }
@@ -52,7 +52,7 @@ impl GrammarRegistry {
                     builder.add_plain_text_syntax();
 
                     // Add defaults first
-                    for syntax in syntax_set.syntaxes() {
+                    for _syntax in syntax_set.syntaxes() {
                         // We can't directly add syntaxes, so we'll keep defaults as base
                     }
 
@@ -81,7 +81,7 @@ impl GrammarRegistry {
     }
 
     /// Merge two syntax sets (user grammars override defaults)
-    fn merge_syntax_sets(base: SyntaxSet, user: SyntaxSet) -> SyntaxSet {
+    fn merge_syntax_sets(base: SyntaxSet, _user: SyntaxSet) -> SyntaxSet {
         // syntect doesn't have a great API for merging, so we use a builder
         let mut builder = SyntaxSetBuilder::new();
         builder.add_plain_text_syntax();
@@ -148,7 +148,7 @@ impl GrammarRegistry {
     fn load_direct_grammar(
         dir: &Path,
         builder: &mut SyntaxSetBuilder,
-        user_extensions: &mut HashMap<String, String>,
+        _user_extensions: &mut HashMap<String, String>,
         found_any: &mut bool,
     ) {
         // Look for .tmLanguage.json or .sublime-syntax files
@@ -310,8 +310,6 @@ impl Default for GrammarRegistry {
 #[derive(Debug, Deserialize)]
 struct PackageManifest {
     #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
     contributes: Option<Contributes>,
 }
 
@@ -328,10 +326,6 @@ struct LanguageContribution {
     id: String,
     #[serde(default)]
     extensions: Vec<String>,
-    #[serde(default)]
-    aliases: Vec<String>,
-    #[serde(default)]
-    filenames: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -340,8 +334,6 @@ struct GrammarContribution {
     #[serde(rename = "scopeName")]
     scope_name: String,
     path: String,
-    #[serde(default)]
-    embedded_languages: HashMap<String, String>,
 }
 
 #[cfg(test)]

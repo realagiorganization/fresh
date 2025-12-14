@@ -144,7 +144,6 @@ impl LspClient {
         let params = InitializeParams {
             process_id: Some(std::process::id()),
             capabilities: ClientCapabilities::default(),
-            root_uri: root_uri.clone(),
             workspace_folders,
             ..Default::default()
         };

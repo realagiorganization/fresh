@@ -316,11 +316,9 @@ fn main() -> io::Result<()> {
     // Track whether we should restore session on restart (for project switching)
     let mut restore_session_on_restart = false;
 
-    // Track the last update result for display after exit
-    let mut last_update_result = None;
-
     // Main editor loop - supports restarting with a new working directory
-    let result = loop {
+    // Returns (loop_result, last_update_result) tuple
+    let (result, last_update_result) = loop {
         // Create editor with actual terminal size and working directory
         let mut editor = if args.no_plugins {
             Editor::with_plugins_disabled(
@@ -379,8 +377,6 @@ fn main() -> io::Result<()> {
                     tracing::warn!("Failed to restore session: {}", e);
                 }
             }
-            // Reset the flag after restoring
-            restore_session_on_restart = false;
         }
 
         // Open file if provided (only on first run, this takes precedence over session)
@@ -447,7 +443,7 @@ fn main() -> io::Result<()> {
         }
 
         // Save update result before potentially dropping editor
-        last_update_result = editor.get_update_result().cloned();
+        let update_result = editor.get_update_result().cloned();
 
         // Check if we should restart with a new working directory
         if let Some(new_dir) = editor.take_restart_dir() {
@@ -465,8 +461,8 @@ fn main() -> io::Result<()> {
             continue;
         }
 
-        // Normal exit - break out of the loop
-        break loop_result;
+        // Normal exit - break out of the loop with update result
+        break (loop_result, update_result);
     };
 
     // Clean up terminal

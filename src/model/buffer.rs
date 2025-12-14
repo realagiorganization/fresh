@@ -643,10 +643,7 @@ impl TextBuffer {
         use crate::model::piece_tree::PieceTreeNode;
         match root.as_ref() {
             PieceTreeNode::Internal {
-                left_bytes,
-                left,
-                right,
-                ..
+                left_bytes, right, ..
             } => left_bytes + self.tree_total_bytes(right),
             PieceTreeNode::Leaf { bytes, .. } => *bytes,
         }

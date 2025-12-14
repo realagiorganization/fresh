@@ -1590,7 +1590,7 @@ impl DirectoryContext {
             })?
             .join("fresh");
 
-        let mut config_dir = dirs::config_dir()
+        let config_dir = dirs::config_dir()
             .ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::NotFound,

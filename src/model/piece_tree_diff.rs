@@ -47,7 +47,7 @@ pub fn diff_piece_trees(
     let before_spans = with_doc_offsets(&before_leaves);
     let after_spans = with_doc_offsets(&after_leaves);
 
-    let total_after = sum_bytes(&after_leaves);
+    let _total_after = sum_bytes(&after_leaves);
 
     // Longest common prefix at byte granularity.
     let prefix = common_prefix_bytes(&before_spans, &after_spans);

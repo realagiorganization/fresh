@@ -1139,7 +1139,6 @@ struct ConfigFieldInfo {
 struct EnumVariantInfo {
     name: String,
     serde_rename: Option<String>,
-    doc_comment: String,
     is_default: bool,
 }
 
@@ -1371,7 +1370,7 @@ fn parse_config_enum(
         }
 
         // Parse variant
-        if let Some(variant) = parse_enum_variant(line, &variant_doc, &variant_attrs, rename_all) {
+        if let Some(variant) = parse_enum_variant(line, &variant_attrs, rename_all) {
             variants.push(variant);
         }
         variant_doc.clear();
@@ -1437,7 +1436,6 @@ fn parse_config_field(line: &str, doc_comment: &str, attrs: &[String]) -> Option
 /// Parse an enum variant
 fn parse_enum_variant(
     line: &str,
-    doc_comment: &str,
     attrs: &[String],
     rename_all: &Option<String>,
 ) -> Option<EnumVariantInfo> {
@@ -1477,7 +1475,6 @@ fn parse_enum_variant(
     Some(EnumVariantInfo {
         name,
         serde_rename,
-        doc_comment: doc_comment.to_string(),
         is_default,
     })
 }

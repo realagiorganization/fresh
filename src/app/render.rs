@@ -1288,107 +1288,6 @@ impl Editor {
     // NOTE: Diagnostics are now applied automatically via process_async_messages()
     // when received from the LSP server asynchronously. No manual polling needed!
 
-    /// Notify LSP of a text change event
-    pub(super) fn notify_lsp_change(&mut self, event: &Event) {
-        // Collect all changes from the event (handles batches efficiently)
-        let changes = self.collect_lsp_changes(event);
-        if changes.is_empty() {
-            return;
-        }
-
-        // Check if LSP is enabled for this buffer
-        let metadata = match self.buffer_metadata.get(&self.active_buffer()) {
-            Some(m) => m,
-            None => {
-                tracing::debug!(
-                    "notify_lsp_change: no metadata for buffer {:?}",
-                    self.active_buffer()
-                );
-                return;
-            }
-        };
-
-        if !metadata.lsp_enabled {
-            // LSP is disabled for this buffer, don't try to spawn or notify
-            tracing::debug!("notify_lsp_change: LSP disabled for this buffer");
-            return;
-        }
-
-        // Get the URI (computed once in with_file)
-        let uri = match metadata.file_uri() {
-            Some(u) => u.clone(),
-            None => {
-                tracing::debug!(
-                    "notify_lsp_change: no URI for buffer (not a file or URI creation failed)"
-                );
-                return;
-            }
-        };
-
-        // Get the file path for language detection
-        let path = match metadata.file_path() {
-            Some(p) => p,
-            None => {
-                tracing::debug!("notify_lsp_change: no file path for buffer");
-                return;
-            }
-        };
-
-        let language = match detect_language(path, &self.config.languages) {
-            Some(l) => l,
-            None => {
-                tracing::debug!("notify_lsp_change: no language detected for {:?}", path);
-                return;
-            }
-        };
-
-        tracing::debug!(
-            "notify_lsp_change: sending {} changes to {} in single didChange notification",
-            changes.len(),
-            uri.as_str()
-        );
-
-        if let Some(lsp) = &mut self.lsp {
-            if let Some(client) = lsp.get_or_spawn(&language) {
-                // Send all changes in a single didChange notification
-                // This is much more efficient for batch operations like LSP rename
-                if let Err(e) = client.did_change(uri.clone(), changes) {
-                    tracing::warn!("Failed to send didChange to LSP: {}", e);
-                } else {
-                    tracing::info!("Successfully sent batched didChange to LSP");
-
-                    // Request pull diagnostics after the change
-                    // TODO: Consider debouncing this to avoid excessive requests during rapid typing
-                    let previous_result_id = self.diagnostic_result_ids.get(uri.as_str()).cloned();
-                    let request_id = self.next_lsp_request_id;
-                    self.next_lsp_request_id += 1;
-
-                    if let Err(e) =
-                        client.document_diagnostic(request_id, uri.clone(), previous_result_id)
-                    {
-                        tracing::debug!(
-                            "Failed to request pull diagnostics after change (server may not support): {}",
-                            e
-                        );
-                    } else {
-                        tracing::debug!(
-                            "Requested pull diagnostics after change for {} (request_id={})",
-                            uri.as_str(),
-                            request_id
-                        );
-                    }
-                }
-            } else {
-                tracing::warn!(
-                    "notify_lsp_change: failed to get or spawn LSP client for {}",
-                    language
-                );
-            }
-        } else {
-            tracing::debug!("notify_lsp_change: no LSP manager available");
-        }
-    }
-
     /// Collect all LSP text document changes from an event (recursively for batches)
     pub(super) fn collect_lsp_changes(&self, event: &Event) -> Vec<TextDocumentContentChangeEvent> {
         match event {
@@ -1870,8 +1769,6 @@ impl Editor {
             current_match_index: Some(current_match_index),
             wrap_search: search_range.is_none(), // Only wrap if not searching in selection
             search_range,
-            case_sensitive: self.search_case_sensitive,
-            whole_word: self.search_whole_word,
         });
 
         let msg = if self.search_state.as_ref().unwrap().search_range.is_some() {

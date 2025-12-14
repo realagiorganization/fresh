@@ -685,14 +685,6 @@ impl Editor {
         Ok(())
     }
 
-    fn dispatch_plugin_hook(&mut self, hook_name: &str, args: HookArgs, fallback: &str) {
-        if self.plugin_manager.has_hook_handlers(hook_name) {
-            self.plugin_manager.run_hook(hook_name, args);
-            return;
-        }
-        self.set_status_message(fallback.to_string());
-    }
-
     /// Handle an action (for normal mode and command execution)
     pub(super) fn handle_action(&mut self, action: Action) -> std::io::Result<()> {
         use crate::input::keybindings::Action;

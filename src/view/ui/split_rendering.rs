@@ -1887,7 +1887,7 @@ impl SplitRenderer {
             let _line_start_type = current_view_line.line_start; // Available for future use
 
             // Helper to get source byte at a visual column using the new O(1) lookup
-            let source_byte_at_col = |vis_col: usize| -> Option<usize> {
+            let _source_byte_at_col = |vis_col: usize| -> Option<usize> {
                 let char_idx = line_visual_to_char.get(vis_col).copied()?;
                 line_char_source_bytes.get(char_idx).copied().flatten()
             };

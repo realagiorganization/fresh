@@ -413,6 +413,9 @@ impl<'a> Iterator for ViewLineIterator<'a> {
             }
         }
 
+        // col's final value is intentionally unused (only needed during iteration)
+        let _ = col;
+
         // Don't return empty lines at the end
         if text.is_empty() && self.token_idx >= self.tokens.len() {
             return None;

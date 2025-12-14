@@ -377,7 +377,7 @@ impl StatusBarRenderer {
         };
 
         // View mode indicator
-        let mode_label = match state.view_mode {
+        let _mode_label = match state.view_mode {
             crate::state::ViewMode::Compose => " | Compose",
             _ => "",
         };

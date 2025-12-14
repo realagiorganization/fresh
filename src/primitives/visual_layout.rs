@@ -120,7 +120,7 @@ impl LineMappingsBuilder {
         if let Some(ref mut parser) = self.ansi_parser {
             if parser.parse_char(ch).is_none() {
                 // ANSI escape character - zero visual width
-                let char_idx = self.mappings.char_source_bytes.len();
+                let _char_idx = self.mappings.char_source_bytes.len();
                 self.mappings.char_source_bytes.push(source_byte);
                 self.mappings.char_visual_cols.push(self.current_visual_col);
                 // No entry in visual_to_char for zero-width chars

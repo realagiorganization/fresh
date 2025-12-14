@@ -191,8 +191,3 @@ impl GpmLib {
 pub fn get_gpm_lib() -> Option<&'static GpmLib> {
     GPM_LIB.get_or_init(GpmLib::try_load).as_ref()
 }
-
-/// Check if libgpm is available on this system
-pub fn is_available() -> bool {
-    get_gpm_lib().is_some()
-}

@@ -566,7 +566,6 @@ impl LspState {
         let params = InitializeParams {
             process_id: Some(std::process::id()),
             capabilities: create_client_capabilities(),
-            root_uri: root_uri.clone(),
             workspace_folders,
             initialization_options,
             ..Default::default()
@@ -2147,7 +2146,6 @@ impl LspTask {
         let params = InitializeParams {
             process_id: Some(std::process::id()),
             capabilities: create_client_capabilities(),
-            root_uri: root_uri.clone(),
             workspace_folders,
             initialization_options,
             ..Default::default()
