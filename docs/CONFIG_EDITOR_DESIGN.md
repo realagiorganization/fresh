@@ -813,7 +813,9 @@ The current `plugins/config_editor.ts` provides similar functionality via the pl
 
 | Bug | Severity | Status | Description |
 |-----|----------|--------|-------------|
-| Ctrl+, keybinding broken | Critical | Open | Inserts comma character instead of opening settings. Must use command palette. |
+| Keybindings not editable | High | Open | Shows `<Complex - edit in config.toml>`. Need table UI for key/modifiers/action entries. |
+| Menus not editable | High | Open | Shows `<Complex - edit in config.toml>`. Need hierarchical tree UI for menu structure. |
+| Map entry values not editable | High | Open | Map entries show `{N fields}` but expanding/editing individual fields not implemented. |
 | Dropdown editing doesn't work | High | Open | Enter/arrows on dropdown don't open menu or change value. |
 | Number input editing not implemented | High | Open | No way to change number values (no +/- buttons active, no text entry). |
 | No settings item selection indicator | Medium | Open | Can't see which setting is selected in the settings panel. |
