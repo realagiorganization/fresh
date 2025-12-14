@@ -195,8 +195,10 @@ pub fn parse_schema(schema_json: &str) -> Result<Vec<SettingCategory>, serde_jso
     let mut categories = Vec::new();
     let mut top_level_settings = Vec::new();
 
-    // Process each top-level property
-    for (name, prop) in properties {
+    // Process each top-level property (sorted for deterministic output)
+    let mut sorted_props: Vec<_> = properties.into_iter().collect();
+    sorted_props.sort_by(|a, b| a.0.cmp(&b.0));
+    for (name, prop) in sorted_props {
         let path = format!("/{}", name);
         let display_name = humanize_name(&name);
 
@@ -223,6 +225,8 @@ pub fn parse_schema(schema_json: &str) -> Result<Vec<SettingCategory>, serde_jso
 
     // If there are top-level settings, create a "General" category for them
     if !top_level_settings.is_empty() {
+        // Sort top-level settings alphabetically
+        top_level_settings.sort_by(|a, b| a.name.cmp(&b.name));
         categories.insert(0, SettingCategory {
             name: "General".to_string(),
             path: String::new(),
