@@ -9,6 +9,7 @@ use super::schema::{parse_schema, SettingCategory};
 use super::search::{search_settings, SearchResult};
 use crate::config::Config;
 use crate::view::controls::FocusState;
+use crate::view::ui::ScrollablePanel;
 use std::collections::HashMap;
 
 /// The state of the settings UI
@@ -44,10 +45,10 @@ pub struct SettingsState {
     pub confirm_dialog_selection: usize,
     /// Whether the help overlay is showing
     pub showing_help: bool,
-    /// Scroll offset for the settings panel (in items)
-    pub scroll_offset: usize,
-    /// Number of visible items (set during rendering)
-    pub visible_items: usize,
+    /// Scrollable panel for settings items
+    pub scroll_panel: ScrollablePanel,
+    /// Sub-focus index within the selected item (for TextList/Map navigation)
+    pub sub_focus: Option<usize>,
     /// Whether we're in text editing mode (for TextList controls)
     pub editing_text: bool,
     /// Current mouse hover position (for hover feedback)
@@ -79,8 +80,8 @@ impl SettingsState {
             showing_confirm_dialog: false,
             confirm_dialog_selection: 0,
             showing_help: false,
-            scroll_offset: 0,
-            visible_items: 10, // Will be updated during rendering
+            scroll_panel: ScrollablePanel::new(),
+            sub_focus: None,
             editing_text: false,
             hover_position: None,
             hover_hit: None,
@@ -93,7 +94,8 @@ impl SettingsState {
         self.category_focus = true;
         self.selected_category = 0;
         self.selected_item = 0;
-        self.scroll_offset = 0;
+        self.scroll_panel = ScrollablePanel::new();
+        self.sub_focus = None;
     }
 
     /// Hide the settings panel
@@ -132,10 +134,12 @@ impl SettingsState {
             if self.selected_category > 0 {
                 self.selected_category -= 1;
                 self.selected_item = 0;
-                self.scroll_offset = 0;
+                self.scroll_panel = ScrollablePanel::new();
+                self.sub_focus = None;
             }
         } else if self.selected_item > 0 {
             self.selected_item -= 1;
+            self.sub_focus = None;
             self.ensure_visible();
         }
     }
@@ -146,11 +150,13 @@ impl SettingsState {
             if self.selected_category + 1 < self.pages.len() {
                 self.selected_category += 1;
                 self.selected_item = 0;
-                self.scroll_offset = 0;
+                self.scroll_panel = ScrollablePanel::new();
+                self.sub_focus = None;
             }
         } else if let Some(page) = self.current_page() {
             if self.selected_item + 1 < page.items.len() {
                 self.selected_item += 1;
+                self.sub_focus = None;
                 self.ensure_visible();
             }
         }
@@ -163,6 +169,7 @@ impl SettingsState {
         if !self.category_focus && self.selected_item >= self.current_page().map_or(0, |p| p.items.len()) {
             self.selected_item = 0;
         }
+        self.sub_focus = None;
         self.ensure_visible();
     }
 
@@ -172,15 +179,15 @@ impl SettingsState {
             return;
         }
 
-        // If selection is before the viewport, scroll up
-        if self.selected_item < self.scroll_offset {
-            self.scroll_offset = self.selected_item;
-        }
-
-        // If selection is after the viewport, scroll down
-        // Account for the fact that visible_items might be 0 initially
-        if self.visible_items > 0 && self.selected_item >= self.scroll_offset + self.visible_items {
-            self.scroll_offset = self.selected_item.saturating_sub(self.visible_items - 1);
+        // Need to avoid borrowing self for both page and scroll_panel
+        let selected_item = self.selected_item;
+        let sub_focus = self.sub_focus;
+        if let Some(page) = self.pages.get(self.selected_category) {
+            self.scroll_panel.ensure_focused_visible(
+                &page.items,
+                selected_item,
+                sub_focus,
+            );
         }
     }
 
@@ -347,7 +354,8 @@ impl SettingsState {
             self.selected_category = result.page_index;
             self.selected_item = result.item_index;
             self.category_focus = false;
-            self.scroll_offset = 0; // Reset scroll when jumping to new category
+            self.scroll_panel = ScrollablePanel::new(); // Reset scroll when jumping to new category
+            self.sub_focus = None;
             self.ensure_visible();
             self.cancel_search();
         }
@@ -394,46 +402,33 @@ impl SettingsState {
         self.showing_help = false;
     }
 
-    /// Get the maximum scroll offset for the current page
-    pub fn max_scroll(&self) -> usize {
-        self.current_page()
-            .map(|p| p.items.len().saturating_sub(self.visible_items))
-            .unwrap_or(0)
+    /// Get the maximum scroll offset for the current page (in rows)
+    pub fn max_scroll(&self) -> u16 {
+        self.scroll_panel.scroll.max_offset()
     }
 
-    /// Scroll up by a given number of items
+    /// Scroll up by a given number of rows
     /// Returns true if the scroll offset changed
     pub fn scroll_up(&mut self, delta: usize) -> bool {
-        if self.scroll_offset > 0 {
-            let old = self.scroll_offset;
-            self.scroll_offset = self.scroll_offset.saturating_sub(delta);
-            return old != self.scroll_offset;
-        }
-        false
+        let old = self.scroll_panel.scroll.offset;
+        self.scroll_panel.scroll_up(delta as u16);
+        old != self.scroll_panel.scroll.offset
     }
 
-    /// Scroll down by a given number of items
+    /// Scroll down by a given number of rows
     /// Returns true if the scroll offset changed
     pub fn scroll_down(&mut self, delta: usize) -> bool {
-        let max_scroll = self.max_scroll();
-        if self.scroll_offset < max_scroll {
-            let old = self.scroll_offset;
-            self.scroll_offset = (self.scroll_offset + delta).min(max_scroll);
-            return old != self.scroll_offset;
-        }
-        false
+        let old = self.scroll_panel.scroll.offset;
+        self.scroll_panel.scroll_down(delta as u16);
+        old != self.scroll_panel.scroll.offset
     }
 
     /// Scroll to a position based on a ratio (0.0 to 1.0)
     /// Returns true if the scroll offset changed
     pub fn scroll_to_ratio(&mut self, ratio: f32) -> bool {
-        let max_scroll = self.max_scroll();
-        let new_offset = ((ratio * max_scroll as f32) as usize).min(max_scroll);
-        if self.scroll_offset != new_offset {
-            self.scroll_offset = new_offset;
-            return true;
-        }
-        false
+        let old = self.scroll_panel.scroll.offset;
+        self.scroll_panel.scroll_to_ratio(ratio);
+        old != self.scroll_panel.scroll.offset
     }
 
     /// Start text editing mode for TextList controls

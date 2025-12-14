@@ -6,6 +6,7 @@ use super::schema::{SettingCategory, SettingSchema, SettingType};
 use crate::view::controls::{
     DropdownState, MapState, NumberInputState, TextInputState, TextListState, ToggleState,
 };
+use crate::view::ui::{FocusRegion, ScrollItem};
 
 /// A renderable setting item
 #[derive(Debug, Clone)]
@@ -84,6 +85,104 @@ impl SettingItem {
         };
         // name line (if needed) + control height + 1 line spacing
         name_height + self.control.control_height() + 1
+    }
+
+    /// Get the Y offset of the control within this item
+    fn control_y_offset(&self) -> u16 {
+        match &self.control {
+            SettingControl::Toggle(_)
+            | SettingControl::Number(_)
+            | SettingControl::TextList(_)
+            | SettingControl::Map(_) => 0,
+            _ => 1, // After name line
+        }
+    }
+}
+
+impl ScrollItem for SettingItem {
+    fn height(&self) -> u16 {
+        self.item_height()
+    }
+
+    fn focus_regions(&self) -> Vec<FocusRegion> {
+        let control_y = self.control_y_offset();
+
+        match &self.control {
+            // TextList: each row is a focus region
+            SettingControl::TextList(state) => {
+                let mut regions = Vec::new();
+                // Label row
+                regions.push(FocusRegion {
+                    id: 0,
+                    y_offset: control_y,
+                    height: 1,
+                });
+                // Each item row (id = 1 + row_index)
+                for i in 0..state.items.len() {
+                    regions.push(FocusRegion {
+                        id: 1 + i,
+                        y_offset: control_y + 1 + i as u16,
+                        height: 1,
+                    });
+                }
+                // Add-new row
+                regions.push(FocusRegion {
+                    id: 1 + state.items.len(),
+                    y_offset: control_y + 1 + state.items.len() as u16,
+                    height: 1,
+                });
+                regions
+            }
+            // Map: each entry row is a focus region
+            SettingControl::Map(state) => {
+                let mut regions = Vec::new();
+                let mut y = control_y;
+
+                // Label row
+                regions.push(FocusRegion {
+                    id: 0,
+                    y_offset: y,
+                    height: 1,
+                });
+                y += 1;
+
+                // Each entry (id = 1 + entry_index)
+                for (i, (_, v)) in state.entries.iter().enumerate() {
+                    let mut entry_height = 1u16;
+                    // Add expanded content height if expanded
+                    if state.expanded.contains(&i) {
+                        if let Some(obj) = v.as_object() {
+                            entry_height += obj.len().min(5) as u16;
+                            if obj.len() > 5 {
+                                entry_height += 1;
+                            }
+                        }
+                    }
+                    regions.push(FocusRegion {
+                        id: 1 + i,
+                        y_offset: y,
+                        height: entry_height,
+                    });
+                    y += entry_height;
+                }
+
+                // Add-new row
+                regions.push(FocusRegion {
+                    id: 1 + state.entries.len(),
+                    y_offset: y,
+                    height: 1,
+                });
+                regions
+            }
+            // Other controls: single region covering the whole item
+            _ => {
+                vec![FocusRegion {
+                    id: 0,
+                    y_offset: 0,
+                    height: self.item_height().saturating_sub(1), // Exclude spacing
+                }]
+            }
+        }
     }
 }
 

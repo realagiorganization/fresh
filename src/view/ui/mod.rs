@@ -9,11 +9,13 @@
 //! - `split_rendering` - Split pane layout and rendering
 //! - `file_explorer` - File tree explorer rendering
 //! - `scrollbar` - Reusable scrollbar widget
+//! - `scroll_panel` - Reusable scrollable panel for variable-height items
 //! - `file_browser` - File open dialog popup
 
 pub mod file_browser;
 pub mod file_explorer;
 pub mod menu;
+pub mod scroll_panel;
 pub mod scrollbar;
 pub mod split_rendering;
 pub mod status_bar;
@@ -25,6 +27,7 @@ pub mod view_pipeline;
 pub use file_browser::{FileBrowserLayout, FileBrowserRenderer};
 pub use file_explorer::FileExplorerRenderer;
 pub use menu::{context_keys, MenuContext, MenuRenderer, MenuState};
+pub use scroll_panel::{FocusRegion, RenderInfo, ScrollItem, ScrollState, ScrollablePanel, ScrollablePanelLayout};
 pub use scrollbar::{render_scrollbar, ScrollbarColors, ScrollbarState};
 pub use split_rendering::SplitRenderer;
 pub use status_bar::{truncate_path, StatusBarRenderer, TruncatedPath};

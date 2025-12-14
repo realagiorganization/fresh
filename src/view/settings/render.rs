@@ -3,16 +3,15 @@
 //! Renders the settings modal with category navigation and setting controls.
 
 use super::items::SettingControl;
-use super::layout::SettingsLayout;
+use super::layout::{SettingsHit, SettingsLayout};
 use super::search::SearchResult;
 use super::state::SettingsState;
 use crate::view::controls::{
-    render_button, render_dropdown, render_map, render_number_input, render_text_input,
-    render_text_list, render_toggle, ButtonColors, ButtonState, DropdownColors, MapColors,
-    NumberInputColors, TextInputColors, TextListColors, ToggleColors,
+    render_button, render_dropdown, render_number_input, render_text_input, render_toggle,
+    ButtonColors, ButtonState, DropdownColors, MapColors, NumberInputColors, TextInputColors,
+    TextListColors, ToggleColors,
 };
 use crate::view::theme::Theme;
-use crate::view::ui::{render_scrollbar, ScrollbarColors, ScrollbarState};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -190,6 +189,13 @@ fn render_separator(frame: &mut Frame, area: Rect, theme: &Theme) {
     }
 }
 
+/// Context for rendering a setting item (extracted to avoid borrow issues)
+struct RenderContext {
+    selected_item: usize,
+    category_focus: bool,
+    hover_hit: Option<SettingsHit>,
+}
+
 /// Render the settings panel for the current category
 fn render_settings_panel(
     frame: &mut Frame,
@@ -232,113 +238,74 @@ fn render_settings_panel(
     let items_start_y = y;
 
     // Calculate available height for items
-    let available_height = area.height.saturating_sub(header_height as u16 + 1); // +1 for scrollbar gutter
+    let available_height = area.height.saturating_sub(header_height as u16 + 1);
 
-    // Get page items and total count
-    let page = state.current_page().unwrap();
-    let total_items = page.items.len();
-    let scroll_offset = state.scroll_offset;
+    // Update scroll panel with current viewport and content
+    let page = state.pages.get(state.selected_category).unwrap();
+    state.scroll_panel.set_viewport(available_height);
+    state.scroll_panel.update_content_height(&page.items);
 
-    // Calculate total content height and height-based scroll metrics
-    let mut total_content_height = 0u16;
-    for idx in 0..total_items {
-        total_content_height += page.items[idx].item_height();
-    }
+    // Extract state needed for rendering (to avoid borrow issues with scroll_panel)
+    let render_ctx = RenderContext {
+        selected_item: state.selected_item,
+        category_focus: state.category_focus,
+        hover_hit: state.hover_hit.clone(),
+    };
 
-    // Calculate scroll offset in rows (height of items before scroll_offset)
-    let mut scroll_offset_height = 0u16;
-    for idx in 0..scroll_offset {
-        scroll_offset_height += page.items[idx].item_height();
-    }
+    // Area for items (below header)
+    let items_area = Rect::new(area.x, items_start_y, area.width, available_height.max(1));
 
-    // Calculate how many items can fit (including partial visibility at bottom)
-    let mut visible_items = 0;
-    let mut cumulative_height = 0u16;
-    for idx in scroll_offset..total_items {
-        let item_h = page.items[idx].item_height();
-        visible_items += 1;
-        cumulative_height += item_h;
-        if cumulative_height >= available_height {
-            break;
-        }
-    }
-    visible_items = visible_items.max(1);
+    // Get items reference for rendering
+    let page = state.pages.get(state.selected_category).unwrap();
 
-    // Update visible_items in state for scrolling calculations
-    state.visible_items = visible_items;
+    // Use ScrollablePanel to render items with automatic scroll handling
+    let panel_layout = state.scroll_panel.render(
+        frame,
+        items_area,
+        &page.items,
+        |frame, info, item| {
+            render_setting_item_pure(frame, info.area, item, info.index, info.skip_top, &render_ctx, theme)
+        },
+        theme,
+    );
 
-    // Re-borrow page after updating state
-    let page = state.current_page().unwrap();
-
-    // Reserve space for scrollbar if needed
-    let scrollbar_width = if total_content_height > available_height { 1 } else { 0 };
-    let content_width = area.width.saturating_sub(scrollbar_width);
-
-    // Render visible items with dynamic heights (allow partial visibility)
-    let mut current_y = items_start_y;
-    let max_y = area.y + area.height;
-    for idx in scroll_offset..(scroll_offset + visible_items).min(total_items) {
-        let item = &page.items[idx];
-        let item_h = item.item_height();
-
-        // Stop only if we're completely past the visible area
-        if current_y >= max_y {
-            break;
-        }
-
-        // Clamp height to available space (ratatui panics on out-of-bounds)
-        let clamped_h = item_h.min(max_y.saturating_sub(current_y));
-        let item_area = Rect::new(area.x, current_y, content_width, clamped_h);
-        render_setting_item(frame, item_area, item, idx, state, theme, layout);
-        current_y += item_h;
-    }
-
-    // Track the settings panel area for scroll hit testing (use fixed available_height)
-    layout.settings_panel_area = Some(Rect::new(
-        area.x,
-        items_start_y,
-        content_width,
-        available_height.max(1),
-    ));
-
-    // Render scrollbar if needed (use fixed available_height for consistent size)
-    if total_content_height > available_height {
-        let scrollbar_area = Rect::new(
-            area.x + content_width,
-            items_start_y,
-            1,
-            available_height.max(1),
+    // Transfer item layouts to SettingsLayout
+    let page = state.pages.get(state.selected_category).unwrap();
+    for item_info in panel_layout.item_layouts {
+        layout.add_item(
+            item_info.index,
+            page.items[item_info.index].path.clone(),
+            item_info.area,
+            item_info.layout,
         );
-        // Use height-based values for correct thumb size and position with variable-height items
-        let scrollbar_state = ScrollbarState::new(
-            total_content_height as usize,
-            available_height as usize,
-            scroll_offset_height as usize,
-        );
-        let scrollbar_colors = ScrollbarColors::from_theme(theme);
-        render_scrollbar(frame, scrollbar_area, &scrollbar_state, &scrollbar_colors);
+    }
 
-        // Track the scrollbar area for drag detection
-        layout.scrollbar_area = Some(scrollbar_area);
+    // Track the settings panel area for scroll hit testing
+    layout.settings_panel_area = Some(panel_layout.content_area);
+
+    // Track scrollbar area for drag detection
+    if let Some(sb_area) = panel_layout.scrollbar_area {
+        layout.scrollbar_area = Some(sb_area);
     }
 }
 
-/// Render a single setting item
-fn render_setting_item(
+/// Pure render function for a setting item (returns layout, doesn't modify external state)
+///
+/// # Arguments
+/// * `skip_top` - Number of rows to skip at top of item (for partial visibility when scrolling)
+fn render_setting_item_pure(
     frame: &mut Frame,
     area: Rect,
     item: &super::items::SettingItem,
     idx: usize,
-    state: &SettingsState,
+    skip_top: u16,
+    ctx: &RenderContext,
     theme: &Theme,
-    layout: &mut SettingsLayout,
-) {
-    use super::layout::SettingsHit;
-
-    let is_selected = !state.category_focus && idx == state.selected_item;
+) -> ControlLayoutInfo {
+    let is_selected = !ctx.category_focus && idx == ctx.selected_item;
 
     // Check if this item or any of its controls is being hovered
-    let is_item_hovered = match state.hover_hit {
+    let is_item_hovered = match ctx.hover_hit {
         Some(SettingsHit::Item(i)) => i == idx,
         Some(SettingsHit::ControlToggle(i)) => i == idx,
         Some(SettingsHit::ControlDecrement(i)) => i == idx,
@@ -359,30 +326,30 @@ fn render_setting_item(
             | SettingControl::Map(_)
     );
 
-    // Draw selection or hover highlight background
+    // Calculate what to render based on skip_top
+    // For items with name line: row 0 = name, rows 1+ = control
+    // For items without: all rows are control
+    let name_line_height: u16 = if control_has_own_label { 0 } else { 1 };
+    let control_skip = skip_top.saturating_sub(name_line_height);
+    let show_name_line = !control_has_own_label && skip_top == 0;
+
+    // Draw selection or hover highlight background (for visible portion)
     if is_selected || is_item_hovered {
         let bg_style = if is_selected {
             Style::default().bg(theme.current_line_bg)
         } else {
-            // Hover uses the menu hover background for consistency
             Style::default().bg(theme.menu_hover_bg)
         };
-        let highlight_height = if control_has_own_label {
-            item.control.control_height()
-        } else {
-            1 + item.control.control_height() // name line + control
-        };
-        for row in 0..highlight_height.min(area.height) {
+        for row in 0..area.height {
             let row_area = Rect::new(area.x, area.y + row, area.width, 1);
             frame.render_widget(Paragraph::new("").style(bg_style), row_area);
         }
     }
 
-    let (name_height, control_y) = if control_has_own_label {
-        // Control renders its own label, no separate name line
-        (0, area.y)
-    } else {
-        // Setting name with modification indicator
+    let mut render_y = area.y;
+
+    // Render name line if visible (not skipped)
+    if show_name_line {
         let name_style = if is_selected {
             Style::default().fg(theme.menu_highlight_fg)
         } else if item.modified {
@@ -401,48 +368,58 @@ fn render_setting_item(
         ));
         frame.render_widget(
             Paragraph::new(name_line),
-            Rect::new(area.x, area.y, area.width, 1),
+            Rect::new(area.x, render_y, area.width, 1),
         );
-        (1, area.y + 1)
-    };
-    let _ = name_height; // suppress unused warning
+        render_y += 1;
+    }
 
     // Control area (indented for controls without own label)
-    let control_height = item.control.control_height();
     let (control_x, control_width) = if control_has_own_label {
         (area.x, area.width)
     } else {
         (area.x + 4, area.width.saturating_sub(4))
     };
-    // Clamp control height to available space within the item area
-    let available_control_height = (area.y + area.height).saturating_sub(control_y);
-    let clamped_control_height = control_height.min(available_control_height);
-    if clamped_control_height == 0 {
-        // No space for control, skip rendering
-        layout.add_item(idx, item.path.clone(), area, ControlLayoutInfo::Complex);
-        return;
-    }
-    let control_area = Rect::new(control_x, control_y, control_width, clamped_control_height);
-    let control_layout = render_control(frame, control_area, &item.control, theme);
 
-    layout.add_item(idx, item.path.clone(), area, control_layout);
+    // Calculate available height for control
+    let available_control_height = (area.y + area.height).saturating_sub(render_y);
+    if available_control_height == 0 {
+        return ControlLayoutInfo::Complex;
+    }
+
+    let control_area = Rect::new(control_x, render_y, control_width, available_control_height);
+    render_control(frame, control_area, &item.control, control_skip, theme)
 }
 
 /// Render the appropriate control for a setting
+///
+/// # Arguments
+/// * `skip_rows` - Number of rows to skip at top of control (for partial visibility)
 fn render_control(
     frame: &mut Frame,
     area: Rect,
     control: &SettingControl,
+    skip_rows: u16,
     theme: &Theme,
 ) -> ControlLayoutInfo {
     match control {
+        // Single-row controls: only render if not skipped
         SettingControl::Toggle(state) => {
+            if skip_rows > 0 {
+                return ControlLayoutInfo::Toggle(Rect::default());
+            }
             let colors = ToggleColors::from_theme(theme);
             let toggle_layout = render_toggle(frame, area, state, &colors);
             ControlLayoutInfo::Toggle(toggle_layout.full_area)
         }
 
         SettingControl::Number(state) => {
+            if skip_rows > 0 {
+                return ControlLayoutInfo::Number {
+                    decrement: Rect::default(),
+                    increment: Rect::default(),
+                    value: Rect::default(),
+                };
+            }
             let colors = NumberInputColors::from_theme(theme);
             let num_layout = render_number_input(frame, area, state, &colors);
             ControlLayoutInfo::Number {
@@ -453,20 +430,27 @@ fn render_control(
         }
 
         SettingControl::Dropdown(state) => {
+            if skip_rows > 0 {
+                return ControlLayoutInfo::Dropdown(Rect::default());
+            }
             let colors = DropdownColors::from_theme(theme);
             let drop_layout = render_dropdown(frame, area, state, &colors);
             ControlLayoutInfo::Dropdown(drop_layout.button_area)
         }
 
         SettingControl::Text(state) => {
+            if skip_rows > 0 {
+                return ControlLayoutInfo::Text(Rect::default());
+            }
             let colors = TextInputColors::from_theme(theme);
             let text_layout = render_text_input(frame, area, state, &colors, 30);
             ControlLayoutInfo::Text(text_layout.input_area)
         }
 
+        // Multi-row controls: pass skip_rows to render partial view
         SettingControl::TextList(state) => {
             let colors = TextListColors::from_theme(theme);
-            let list_layout = render_text_list(frame, area, state, &colors, 30);
+            let list_layout = render_text_list_partial(frame, area, state, &colors, 30, skip_rows);
             ControlLayoutInfo::TextList {
                 rows: list_layout.rows.iter().map(|r| r.text_area).collect(),
             }
@@ -474,21 +458,247 @@ fn render_control(
 
         SettingControl::Map(state) => {
             let colors = MapColors::from_theme(theme);
-            let map_layout = render_map(frame, area, state, &colors, 20);
+            let map_layout = render_map_partial(frame, area, state, &colors, 20, skip_rows);
             ControlLayoutInfo::Map {
                 entry_rows: map_layout.entry_areas.iter().map(|e| e.row_area).collect(),
             }
         }
 
         SettingControl::Complex { type_name } => {
+            if skip_rows > 0 {
+                return ControlLayoutInfo::Complex;
+            }
             let style = Style::default().fg(theme.line_number_fg);
             let text = format!("<{} - edit in config.toml>", type_name);
-            frame.render_widget(
-                Paragraph::new(text).style(style),
-                area,
-            );
+            frame.render_widget(Paragraph::new(text).style(style), area);
             ControlLayoutInfo::Complex
         }
+    }
+}
+
+/// Render TextList with partial visibility (skipping top rows)
+fn render_text_list_partial(
+    frame: &mut Frame,
+    area: Rect,
+    state: &crate::view::controls::TextListState,
+    colors: &TextListColors,
+    field_width: u16,
+    skip_rows: u16,
+) -> crate::view::controls::TextListLayout {
+    use crate::view::controls::text_list::{TextListLayout, TextListRowLayout};
+    use crate::view::controls::FocusState;
+
+    let empty_layout = TextListLayout {
+        rows: Vec::new(),
+        full_area: area,
+    };
+
+    if area.height == 0 || area.width < 10 {
+        return empty_layout;
+    }
+
+    let label_color = match state.focus {
+        FocusState::Focused => colors.focused,
+        FocusState::Hovered => colors.focused,
+        FocusState::Disabled => colors.disabled,
+        FocusState::Normal => colors.label,
+    };
+
+    let mut rows = Vec::new();
+    let mut y = area.y;
+    let mut content_row = 0u16; // Which row of content we're at
+
+    // Row 0 is label
+    if skip_rows == 0 {
+        let label_line = Line::from(vec![
+            Span::styled(&state.label, Style::default().fg(label_color)),
+            Span::raw(":"),
+        ]);
+        frame.render_widget(Paragraph::new(label_line), Rect::new(area.x, y, area.width, 1));
+        y += 1;
+    }
+    content_row += 1;
+
+    let indent = 2u16;
+    let actual_field_width = field_width.min(area.width.saturating_sub(indent + 5));
+
+    // Render existing items (rows 1 to N)
+    for (idx, item) in state.items.iter().enumerate() {
+        if y >= area.y + area.height {
+            break;
+        }
+
+        // Skip rows before skip_rows
+        if content_row < skip_rows {
+            content_row += 1;
+            continue;
+        }
+
+        let is_focused = state.focused_item == Some(idx) && state.focus == FocusState::Focused;
+        let (border_color, text_color) = if is_focused {
+            (colors.focused, colors.text)
+        } else if state.focus == FocusState::Disabled {
+            (colors.disabled, colors.disabled)
+        } else {
+            (colors.border, colors.text)
+        };
+
+        let inner_width = actual_field_width.saturating_sub(2) as usize;
+        let visible: String = item.chars().take(inner_width).collect();
+        let padded = format!("{:width$}", visible, width = inner_width);
+
+        let line = Line::from(vec![
+            Span::raw(" ".repeat(indent as usize)),
+            Span::styled("[", Style::default().fg(border_color)),
+            Span::styled(padded, Style::default().fg(text_color)),
+            Span::styled("]", Style::default().fg(border_color)),
+            Span::raw(" "),
+            Span::styled("[x]", Style::default().fg(colors.remove_button)),
+        ]);
+
+        let row_area = Rect::new(area.x, y, area.width, 1);
+        frame.render_widget(Paragraph::new(line), row_area);
+
+        let text_area = Rect::new(area.x + indent, y, actual_field_width, 1);
+        let button_area = Rect::new(area.x + indent + actual_field_width + 1, y, 3, 1);
+        rows.push(TextListRowLayout {
+            text_area,
+            button_area,
+            index: Some(idx),
+        });
+
+        y += 1;
+        content_row += 1;
+    }
+
+    // Add-new row
+    if y < area.y + area.height && content_row >= skip_rows {
+        let add_line = Line::from(vec![
+            Span::raw(" ".repeat(indent as usize)),
+            Span::styled("[+] Add new", Style::default().fg(colors.add_button)),
+        ]);
+        let row_area = Rect::new(area.x, y, area.width, 1);
+        frame.render_widget(Paragraph::new(add_line), row_area);
+
+        rows.push(TextListRowLayout {
+            text_area: Rect::new(area.x + indent, y, 11, 1), // "[+] Add new"
+            button_area: Rect::new(area.x + indent, y, 11, 1),
+            index: None,
+        });
+    }
+
+    TextListLayout {
+        rows,
+        full_area: area,
+    }
+}
+
+/// Render Map with partial visibility (skipping top rows)
+fn render_map_partial(
+    frame: &mut Frame,
+    area: Rect,
+    state: &crate::view::controls::MapState,
+    colors: &MapColors,
+    key_width: u16,
+    skip_rows: u16,
+) -> crate::view::controls::MapLayout {
+    use crate::view::controls::map_input::{MapEntryLayout, MapLayout};
+    use crate::view::controls::FocusState;
+
+    let empty_layout = MapLayout {
+        entry_areas: Vec::new(),
+        add_row_area: None,
+        full_area: area,
+    };
+
+    if area.height == 0 || area.width < 15 {
+        return empty_layout;
+    }
+
+    let label_color = match state.focus {
+        FocusState::Focused => colors.focused,
+        FocusState::Hovered => colors.focused,
+        FocusState::Disabled => colors.disabled,
+        FocusState::Normal => colors.label,
+    };
+
+    let mut entry_areas = Vec::new();
+    let mut y = area.y;
+    let mut content_row = 0u16;
+
+    // Row 0 is label
+    if skip_rows == 0 {
+        let label_line = Line::from(vec![
+            Span::styled(&state.label, Style::default().fg(label_color)),
+            Span::raw(":"),
+        ]);
+        frame.render_widget(Paragraph::new(label_line), Rect::new(area.x, y, area.width, 1));
+        y += 1;
+    }
+    content_row += 1;
+
+    let indent = 2u16;
+
+    // Render entries
+    for (idx, (key, _value)) in state.entries.iter().enumerate() {
+        if y >= area.y + area.height {
+            break;
+        }
+
+        if content_row < skip_rows {
+            content_row += 1;
+            continue;
+        }
+
+        let is_focused = state.focused_entry == Some(idx) && state.focus == FocusState::Focused;
+        let key_color = if is_focused {
+            colors.focused
+        } else if state.focus == FocusState::Disabled {
+            colors.disabled
+        } else {
+            colors.key
+        };
+
+        let display_key: String = key.chars().take(key_width as usize).collect();
+        let line = Line::from(vec![
+            Span::raw(" ".repeat(indent as usize)),
+            Span::styled(format!("{:width$}", display_key, width = key_width as usize), Style::default().fg(key_color)),
+            Span::raw(" "),
+            Span::styled("[x]", Style::default().fg(colors.remove_button)),
+        ]);
+
+        let row_area = Rect::new(area.x, y, area.width, 1);
+        frame.render_widget(Paragraph::new(line), row_area);
+
+        entry_areas.push(MapEntryLayout {
+            index: idx,
+            row_area,
+            expand_area: Rect::default(), // Not rendering expand button in partial view
+            key_area: Rect::new(area.x + indent, y, key_width, 1),
+            remove_area: Rect::new(area.x + indent + key_width + 1, y, 3, 1),
+        });
+
+        y += 1;
+        content_row += 1;
+    }
+
+    // Add-new row
+    let add_row_area = if y < area.y + area.height && content_row >= skip_rows {
+        let add_line = Line::from(vec![
+            Span::raw(" ".repeat(indent as usize)),
+            Span::styled("[+] Add new", Style::default().fg(colors.add_button)),
+        ]);
+        let row_area = Rect::new(area.x, y, area.width, 1);
+        frame.render_widget(Paragraph::new(add_line), row_area);
+        Some(row_area)
+    } else {
+        None
+    };
+
+    MapLayout {
+        entry_areas,
+        add_row_area,
+        full_area: area,
     }
 }
 

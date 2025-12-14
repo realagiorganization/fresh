@@ -3947,7 +3947,8 @@ impl Editor {
                     state.category_focus = true;
                     state.selected_category = idx;
                     state.selected_item = 0;
-                    state.scroll_offset = 0;
+                    state.scroll_panel = crate::view::ui::ScrollablePanel::new();
+                    state.sub_focus = None;
                 }
             }
             SettingsHit::Item(idx) => {
