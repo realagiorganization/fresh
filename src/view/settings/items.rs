@@ -36,7 +36,9 @@ pub enum SettingControl {
     /// Map/dictionary control for key-value pairs
     Map(MapState),
     /// Complex settings that can't be edited inline
-    Complex { type_name: String },
+    Complex {
+        type_name: String,
+    },
 }
 
 impl SettingControl {
@@ -51,7 +53,7 @@ impl SettingControl {
             // Map needs: 1 label + entries + expanded content + 1 add-new row
             SettingControl::Map(state) => {
                 let base = 1 + state.entries.len() + 1; // label + entries + add-new
-                // Add extra height for expanded entries (up to 6 lines each)
+                                                        // Add extra height for expanded entries (up to 6 lines each)
                 let expanded_height: usize = state
                     .expanded
                     .iter()
@@ -283,8 +285,8 @@ fn build_item(schema: &SettingSchema, config_value: &serde_json::Value) -> Setti
             let display_names: Vec<String> = options.iter().map(|o| o.name.clone()).collect();
             let values: Vec<String> = options.iter().map(|o| o.value.clone()).collect();
             let selected = values.iter().position(|v| v == current).unwrap_or(0);
-            let state =
-                DropdownState::with_values(display_names, values, &schema.name).with_selected(selected);
+            let state = DropdownState::with_values(display_names, values, &schema.name)
+                .with_selected(selected);
             SettingControl::Dropdown(state)
         }
 
@@ -359,12 +361,10 @@ pub fn control_to_value(control: &SettingControl) -> serde_json::Value {
             serde_json::Value::Number(state.value.into())
         }
 
-        SettingControl::Dropdown(state) => {
-            state
-                .selected_value()
-                .map(|s| serde_json::Value::String(s.to_string()))
-                .unwrap_or(serde_json::Value::Null)
-        }
+        SettingControl::Dropdown(state) => state
+            .selected_value()
+            .map(|s| serde_json::Value::String(s.to_string()))
+            .unwrap_or(serde_json::Value::Null),
 
         SettingControl::Text(state) => serde_json::Value::String(state.value.clone()),
 
@@ -479,6 +479,9 @@ mod tests {
         assert_eq!(control_to_value(&number), serde_json::json!(42));
 
         let text = SettingControl::Text(TextInputState::new("Test").with_value("hello"));
-        assert_eq!(control_to_value(&text), serde_json::Value::String("hello".to_string()));
+        assert_eq!(
+            control_to_value(&text),
+            serde_json::Value::String("hello".to_string())
+        );
     }
 }

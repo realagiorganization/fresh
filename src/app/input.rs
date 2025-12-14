@@ -3884,8 +3884,8 @@ impl Editor {
         &mut self,
         mouse_event: crossterm::event::MouseEvent,
     ) -> std::io::Result<bool> {
-        use crossterm::event::{MouseButton, MouseEventKind};
         use crate::view::settings::SettingsHit;
+        use crossterm::event::{MouseButton, MouseEventKind};
 
         let col = mouse_event.column;
         let row = mouse_event.row;

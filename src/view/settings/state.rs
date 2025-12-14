@@ -166,7 +166,9 @@ impl SettingsState {
     pub fn toggle_focus(&mut self) {
         self.category_focus = !self.category_focus;
         // Reset item selection when switching to settings
-        if !self.category_focus && self.selected_item >= self.current_page().map_or(0, |p| p.items.len()) {
+        if !self.category_focus
+            && self.selected_item >= self.current_page().map_or(0, |p| p.items.len())
+        {
             self.selected_item = 0;
         }
         self.sub_focus = None;
@@ -183,11 +185,8 @@ impl SettingsState {
         let selected_item = self.selected_item;
         let sub_focus = self.sub_focus;
         if let Some(page) = self.pages.get(self.selected_category) {
-            self.scroll_panel.ensure_focused_visible(
-                &page.items,
-                selected_item,
-                sub_focus,
-            );
+            self.scroll_panel
+                .ensure_focused_visible(&page.items, selected_item, sub_focus);
         }
     }
 
@@ -231,9 +230,9 @@ impl SettingsState {
     pub fn reset_current_to_default(&mut self) {
         // Get the info we need first, then release the borrow
         let reset_info = self.current_item().and_then(|item| {
-            item.default.as_ref().map(|default| {
-                (item.path.clone(), default.clone())
-            })
+            item.default
+                .as_ref()
+                .map(|default| (item.path.clone(), default.clone()))
         });
 
         if let Some((path, default)) = reset_info {
@@ -447,8 +446,9 @@ impl SettingsState {
 
     /// Check if the current item is a TextList
     pub fn is_text_list(&self) -> bool {
-        self.current_item()
-            .map_or(false, |item| matches!(item.control, SettingControl::TextList(_)))
+        self.current_item().map_or(false, |item| {
+            matches!(item.control, SettingControl::TextList(_))
+        })
     }
 
     /// Insert a character into the current TextList
@@ -582,10 +582,7 @@ fn update_control_from_value(control: &mut SettingControl, value: &serde_json::V
         }
         SettingControl::Map(state) => {
             if let Some(obj) = value.as_object() {
-                state.entries = obj
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
+                state.entries = obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 state.entries.sort_by(|a, b| a.0.cmp(&b.0));
             }
         }

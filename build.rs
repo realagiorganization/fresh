@@ -1102,4 +1102,3 @@ fn format_method(op: &OpInfo) -> String {
     ));
     result
 }
-

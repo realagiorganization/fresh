@@ -133,7 +133,11 @@ impl SettingsLayout {
                             return Some(SettingsHit::ControlToggle(item.index));
                         }
                     }
-                    ControlLayoutInfo::Number { decrement, increment, value } => {
+                    ControlLayoutInfo::Number {
+                        decrement,
+                        increment,
+                        value,
+                    } => {
                         if self.contains(*decrement, x, y) {
                             return Some(SettingsHit::ControlDecrement(item.index));
                         }

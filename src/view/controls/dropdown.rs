@@ -240,11 +240,24 @@ pub fn render_dropdown(
 
     let (label_color, selected_color, border_color, arrow_color) = match state.focus {
         FocusState::Normal => (colors.label, colors.selected, colors.border, colors.arrow),
-        FocusState::Focused => (colors.focused, colors.selected, colors.focused, colors.focused),
-        FocusState::Hovered => (colors.focused, colors.selected, colors.focused, colors.focused),
-        FocusState::Disabled => {
-            (colors.disabled, colors.disabled, colors.disabled, colors.disabled)
-        }
+        FocusState::Focused => (
+            colors.focused,
+            colors.selected,
+            colors.focused,
+            colors.focused,
+        ),
+        FocusState::Hovered => (
+            colors.focused,
+            colors.selected,
+            colors.focused,
+            colors.focused,
+        ),
+        FocusState::Disabled => (
+            colors.disabled,
+            colors.disabled,
+            colors.disabled,
+            colors.disabled,
+        ),
     };
 
     let selected_text = state.selected_option().unwrap_or("");
@@ -361,11 +374,7 @@ mod tests {
     #[test]
     fn test_dropdown_selection() {
         let mut state = DropdownState::new(
-            vec![
-                "A".to_string(),
-                "B".to_string(),
-                "C".to_string(),
-            ],
+            vec!["A".to_string(), "B".to_string(), "C".to_string()],
             "Test",
         );
 

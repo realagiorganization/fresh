@@ -210,9 +210,12 @@ pub fn render_number_input(
         FocusState::Normal => (colors.label, colors.value, colors.border, colors.button),
         FocusState::Focused => (colors.focused, colors.value, colors.focused, colors.focused),
         FocusState::Hovered => (colors.focused, colors.value, colors.focused, colors.focused),
-        FocusState::Disabled => {
-            (colors.disabled, colors.disabled, colors.disabled, colors.disabled)
-        }
+        FocusState::Disabled => (
+            colors.disabled,
+            colors.disabled,
+            colors.disabled,
+            colors.disabled,
+        ),
     };
 
     // Format: "Label: [ value ] [-] [+]"

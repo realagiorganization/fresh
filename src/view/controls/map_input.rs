@@ -58,10 +58,7 @@ impl MapState {
     /// Set the entries from JSON value
     pub fn with_entries(mut self, value: &serde_json::Value) -> Self {
         if let Some(obj) = value.as_object() {
-            self.entries = obj
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
+            self.entries = obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             // Sort by key for consistent ordering
             self.entries.sort_by(|a, b| a.0.cmp(&b.0));
         }
@@ -363,7 +360,11 @@ pub fn render_map(
         } else {
             colors.expand_arrow
         };
-        let key_color = if is_focused { colors.focused } else { colors.key };
+        let key_color = if is_focused {
+            colors.focused
+        } else {
+            colors.key
+        };
 
         // Value preview (truncated)
         let value_preview = format_value_preview(value, 20);
@@ -390,12 +391,7 @@ pub fn render_map(
             row_area,
             expand_area: Rect::new(area.x + indent, y, 1, 1),
             key_area: Rect::new(area.x + indent + 2, y, actual_key_width, 1),
-            remove_area: Rect::new(
-                area.x + indent + 2 + actual_key_width + 22,
-                y,
-                3,
-                1,
-            ),
+            remove_area: Rect::new(area.x + indent + 2 + actual_key_width + 22, y, 3, 1),
         });
 
         y += 1;
@@ -424,7 +420,11 @@ pub fn render_map(
                 }
                 if obj.len() > 5 && y < area.y + area.height {
                     let more_line = Line::from(Span::styled(
-                        format!("{}... and {} more", " ".repeat((indent + 4) as usize), obj.len() - 5),
+                        format!(
+                            "{}... and {} more",
+                            " ".repeat((indent + 4) as usize),
+                            obj.len() - 5
+                        ),
                         Style::default()
                             .fg(colors.value_preview)
                             .add_modifier(Modifier::ITALIC),

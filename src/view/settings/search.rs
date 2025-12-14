@@ -105,7 +105,8 @@ fn fuzzy_match(text: &str, pattern: &str) -> (i32, Vec<usize>) {
             }
 
             // Word boundary bonus (start of word)
-            if text_idx == 0 || text_chars.get(text_idx.wrapping_sub(1)) == Some(&' ')
+            if text_idx == 0
+                || text_chars.get(text_idx.wrapping_sub(1)) == Some(&' ')
                 || text_chars.get(text_idx.wrapping_sub(1)) == Some(&'_')
             {
                 score += 20; // Word start bonus
@@ -225,7 +226,11 @@ mod tests {
     fn test_search_settings_empty_query() {
         let pages = vec![make_page(
             "Editor",
-            vec![make_item("Line Numbers", Some("Show line numbers"), "/line_numbers")],
+            vec![make_item(
+                "Line Numbers",
+                Some("Show line numbers"),
+                "/line_numbers",
+            )],
         )];
 
         let results = search_settings(&pages, "");
@@ -297,8 +302,8 @@ mod tests {
         let pages = vec![make_page(
             "Editor",
             vec![
-                make_item("Tab", None, "/tab"), // Exact match
-                make_item("Tab Size", None, "/tab_size"), // Prefix match
+                make_item("Tab", None, "/tab"),                 // Exact match
+                make_item("Tab Size", None, "/tab_size"),       // Prefix match
                 make_item("Default Tab", None, "/default_tab"), // Contains match
             ],
         )];

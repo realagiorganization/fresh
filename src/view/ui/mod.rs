@@ -27,7 +27,9 @@ pub mod view_pipeline;
 pub use file_browser::{FileBrowserLayout, FileBrowserRenderer};
 pub use file_explorer::FileExplorerRenderer;
 pub use menu::{context_keys, MenuContext, MenuRenderer, MenuState};
-pub use scroll_panel::{FocusRegion, RenderInfo, ScrollItem, ScrollState, ScrollablePanel, ScrollablePanelLayout};
+pub use scroll_panel::{
+    FocusRegion, RenderInfo, ScrollItem, ScrollState, ScrollablePanel, ScrollablePanelLayout,
+};
 pub use scrollbar::{render_scrollbar, ScrollbarColors, ScrollbarState};
 pub use split_rendering::SplitRenderer;
 pub use status_bar::{truncate_path, StatusBarRenderer, TruncatedPath};

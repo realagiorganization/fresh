@@ -222,11 +222,24 @@ pub fn render_text_input(
 
     let (label_color, text_color, border_color, placeholder_color) = match state.focus {
         FocusState::Normal => (colors.label, colors.text, colors.border, colors.placeholder),
-        FocusState::Focused => (colors.focused, colors.text, colors.focused, colors.placeholder),
-        FocusState::Hovered => (colors.focused, colors.text, colors.focused, colors.placeholder),
-        FocusState::Disabled => {
-            (colors.disabled, colors.disabled, colors.disabled, colors.disabled)
-        }
+        FocusState::Focused => (
+            colors.focused,
+            colors.text,
+            colors.focused,
+            colors.placeholder,
+        ),
+        FocusState::Hovered => (
+            colors.focused,
+            colors.text,
+            colors.focused,
+            colors.placeholder,
+        ),
+        FocusState::Disabled => (
+            colors.disabled,
+            colors.disabled,
+            colors.disabled,
+            colors.disabled,
+        ),
     };
 
     let label_width = state.label.len() as u16 + 2; // ": "
@@ -300,7 +313,12 @@ pub fn render_text_input(
 
     TextInputLayout {
         input_area,
-        full_area: Rect::new(area.x, area.y, input_start - area.x + actual_field_width + 2, 1),
+        full_area: Rect::new(
+            area.x,
+            area.y,
+            input_start - area.x + actual_field_width + 2,
+            1,
+        ),
         cursor_pos,
     }
 }

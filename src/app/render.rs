@@ -662,8 +662,12 @@ impl Editor {
         if let Some(ref mut settings_state) = self.settings_state {
             if settings_state.visible {
                 settings_state.update_focus_states();
-                let settings_layout =
-                    crate::view::settings::render_settings(frame, size, settings_state, &self.theme);
+                let settings_layout = crate::view::settings::render_settings(
+                    frame,
+                    size,
+                    settings_state,
+                    &self.theme,
+                );
                 self.cached_layout.settings_layout = Some(settings_layout);
             }
         }

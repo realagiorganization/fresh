@@ -76,11 +76,8 @@ pub fn render_settings(
     let _ = search_header_height; // suppress unused warning
 
     // Layout: [left panel (categories)] | [right panel (settings)]
-    let chunks = Layout::horizontal([
-        Constraint::Length(25),
-        Constraint::Min(40),
-    ])
-    .split(content_area);
+    let chunks =
+        Layout::horizontal([Constraint::Length(25), Constraint::Min(40)]).split(content_area);
 
     let categories_area = chunks[0];
     let settings_area = chunks[1];
@@ -157,9 +154,7 @@ fn render_categories(
                     .fg(theme.menu_highlight_fg)
                     .bg(theme.menu_highlight_bg)
             } else {
-                Style::default()
-                    .fg(theme.menu_fg)
-                    .bg(theme.selection_bg)
+                Style::default().fg(theme.menu_fg).bg(theme.selection_bg)
             }
         } else if is_hovered {
             // Hover highlight using menu hover colors
@@ -264,7 +259,15 @@ fn render_settings_panel(
         items_area,
         &page.items,
         |frame, info, item| {
-            render_setting_item_pure(frame, info.area, item, info.index, info.skip_top, &render_ctx, theme)
+            render_setting_item_pure(
+                frame,
+                info.area,
+                item,
+                info.index,
+                info.skip_top,
+                &render_ctx,
+                theme,
+            )
         },
         theme,
     );
@@ -331,7 +334,15 @@ fn render_setting_item_pure(
     }
 
     // All controls render their own label, so just render the control
-    render_control(frame, area, &item.control, &item.name, item.modified, skip_top, theme)
+    render_control(
+        frame,
+        area,
+        &item.control,
+        &item.name,
+        item.modified,
+        skip_top,
+        theme,
+    )
 }
 
 /// Render the appropriate control for a setting
@@ -422,7 +433,10 @@ fn render_control(
             let modified_indicator = if modified { "• " } else { "" };
 
             let label = Span::styled(format!("{}{}: ", modified_indicator, name), label_style);
-            let value = Span::styled(format!("<{} - edit in config.toml>", type_name), value_style);
+            let value = Span::styled(
+                format!("<{} - edit in config.toml>", type_name),
+                value_style,
+            );
 
             frame.render_widget(Paragraph::new(Line::from(vec![label, value])), area);
             ControlLayoutInfo::Complex
@@ -468,7 +482,10 @@ fn render_text_list_partial(
             Span::styled(&state.label, Style::default().fg(label_color)),
             Span::raw(":"),
         ]);
-        frame.render_widget(Paragraph::new(label_line), Rect::new(area.x, y, area.width, 1));
+        frame.render_widget(
+            Paragraph::new(label_line),
+            Rect::new(area.x, y, area.width, 1),
+        );
         y += 1;
     }
     content_row += 1;
@@ -586,7 +603,10 @@ fn render_map_partial(
             Span::styled(&state.label, Style::default().fg(label_color)),
             Span::raw(":"),
         ]);
-        frame.render_widget(Paragraph::new(label_line), Rect::new(area.x, y, area.width, 1));
+        frame.render_widget(
+            Paragraph::new(label_line),
+            Rect::new(area.x, y, area.width, 1),
+        );
         y += 1;
     }
     content_row += 1;
@@ -616,7 +636,10 @@ fn render_map_partial(
         let display_key: String = key.chars().take(key_width as usize).collect();
         let line = Line::from(vec![
             Span::raw(" ".repeat(indent as usize)),
-            Span::styled(format!("{:width$}", display_key, width = key_width as usize), Style::default().fg(key_color)),
+            Span::styled(
+                format!("{:width$}", display_key, width = key_width as usize),
+                Style::default().fg(key_color),
+            ),
             Span::raw(" "),
             Span::styled("[x]", Style::default().fg(colors.remove_button)),
         ]);
@@ -667,8 +690,12 @@ pub enum ControlLayoutInfo {
     },
     Dropdown(Rect),
     Text(Rect),
-    TextList { rows: Vec<Rect> },
-    Map { entry_rows: Vec<Rect> },
+    TextList {
+        rows: Vec<Rect>,
+    },
+    Map {
+        entry_rows: Vec<Rect>,
+    },
     Complex,
 }
 
@@ -692,7 +719,12 @@ fn render_footer(
     );
 
     // Draw separator line
-    let sep_area = Rect::new(modal_area.x + 1, footer_y - 1, modal_area.width.saturating_sub(2), 1);
+    let sep_area = Rect::new(
+        modal_area.x + 1,
+        footer_y - 1,
+        modal_area.width.saturating_sub(2),
+        1,
+    );
     let sep_line: String = "─".repeat(sep_area.width as usize);
     frame.render_widget(
         Paragraph::new(sep_line).style(Style::default().fg(theme.split_separator_fg)),
@@ -707,17 +739,26 @@ fn render_footer(
     let cancel_hovered = matches!(state.hover_hit, Some(SettingsHit::CancelButton));
     let reset_hovered = matches!(state.hover_hit, Some(SettingsHit::ResetButton));
 
-    let save_state = ButtonState::new("Save")
-        .with_focus(if save_hovered { FocusState::Hovered } else { FocusState::Normal });
-    let cancel_state = ButtonState::new("Cancel")
-        .with_focus(if cancel_hovered { FocusState::Hovered } else { FocusState::Normal });
-    let reset_state = ButtonState::new("Reset")
-        .with_focus(if reset_hovered { FocusState::Hovered } else { FocusState::Normal });
+    let save_state = ButtonState::new("Save").with_focus(if save_hovered {
+        FocusState::Hovered
+    } else {
+        FocusState::Normal
+    });
+    let cancel_state = ButtonState::new("Cancel").with_focus(if cancel_hovered {
+        FocusState::Hovered
+    } else {
+        FocusState::Normal
+    });
+    let reset_state = ButtonState::new("Reset").with_focus(if reset_hovered {
+        FocusState::Hovered
+    } else {
+        FocusState::Normal
+    });
 
     // Calculate button positions from right
     let cancel_width = 10; // "[ Cancel ]"
-    let save_width = 8;    // "[ Save ]"
-    let reset_width = 9;   // "[ Reset ]"
+    let save_width = 8; // "[ Save ]"
+    let reset_width = 9; // "[ Reset ]"
     let gap = 2;
 
     let cancel_x = footer_area.x + footer_area.width - cancel_width;
@@ -751,12 +792,7 @@ fn render_footer(
 }
 
 /// Render the search header with query input
-fn render_search_header(
-    frame: &mut Frame,
-    area: Rect,
-    state: &SettingsState,
-    theme: &Theme,
-) {
+fn render_search_header(frame: &mut Frame, area: Rect, state: &SettingsState, theme: &Theme) {
     // First line: Search input
     let search_style = Style::default().fg(theme.popup_text_fg);
     let cursor_style = Style::default()
@@ -769,7 +805,10 @@ fn render_search_header(
         Span::styled("█", cursor_style), // Cursor
     ];
     let line = Line::from(spans);
-    frame.render_widget(Paragraph::new(line), Rect::new(area.x, area.y, area.width, 1));
+    frame.render_widget(
+        Paragraph::new(line),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
 
     // Second line: Result count
     let result_count = state.search_results.len();
@@ -943,7 +982,9 @@ fn render_confirm_dialog(
     let dialog_width = 50.min(parent_area.width.saturating_sub(4));
     // Base height: 2 borders + 2 prompt lines + 1 separator + 1 buttons + 1 help = 7
     // Plus one line per change
-    let dialog_height = (7 + changes.len() as u16).min(20).min(parent_area.height.saturating_sub(4));
+    let dialog_height = (7 + changes.len() as u16)
+        .min(20)
+        .min(parent_area.height.saturating_sub(4));
 
     // Center the dialog
     let dialog_x = parent_area.x + (parent_area.width.saturating_sub(dialog_width)) / 2;
@@ -981,7 +1022,10 @@ fn render_confirm_dialog(
 
     // List changes
     let change_style = Style::default().fg(theme.popup_text_fg);
-    for change in changes.iter().take((dialog_height as usize).saturating_sub(7)) {
+    for change in changes
+        .iter()
+        .take((dialog_height as usize).saturating_sub(7))
+    {
         let truncated = if change.len() > inner.width as usize - 2 {
             format!("• {}...", &change[..inner.width as usize - 5])
         } else {
@@ -1045,30 +1089,35 @@ fn render_confirm_dialog(
 }
 
 /// Render the help overlay showing keyboard shortcuts
-fn render_help_overlay(
-    frame: &mut Frame,
-    parent_area: Rect,
-    theme: &Theme,
-) {
+fn render_help_overlay(frame: &mut Frame, parent_area: Rect, theme: &Theme) {
     // Define the help content
     let help_items = [
-        ("Navigation", vec![
-            ("↑ / ↓", "Move up/down"),
-            ("Tab", "Switch between categories and settings"),
-            ("Enter", "Activate/toggle setting"),
-        ]),
-        ("Search", vec![
-            ("/", "Start search"),
-            ("Esc", "Cancel search"),
-            ("↑ / ↓", "Navigate results"),
-            ("Enter", "Jump to result"),
-        ]),
-        ("Actions", vec![
-            ("Ctrl+S", "Save settings"),
-            ("Ctrl+R", "Reset to default"),
-            ("Esc", "Close settings"),
-            ("?", "Toggle this help"),
-        ]),
+        (
+            "Navigation",
+            vec![
+                ("↑ / ↓", "Move up/down"),
+                ("Tab", "Switch between categories and settings"),
+                ("Enter", "Activate/toggle setting"),
+            ],
+        ),
+        (
+            "Search",
+            vec![
+                ("/", "Start search"),
+                ("Esc", "Cancel search"),
+                ("↑ / ↓", "Navigate results"),
+                ("Enter", "Jump to result"),
+            ],
+        ),
+        (
+            "Actions",
+            vec![
+                ("Ctrl+S", "Save settings"),
+                ("Ctrl+R", "Reset to default"),
+                ("Esc", "Close settings"),
+                ("?", "Toggle this help"),
+            ],
+        ),
     ];
 
     // Calculate dialog size
@@ -1129,10 +1178,7 @@ fn render_help_overlay(
                 Span::styled(format!("  {:12}", key), key_style),
                 Span::styled(*description, desc_style),
             ]);
-            frame.render_widget(
-                Paragraph::new(line),
-                Rect::new(inner.x, y, inner.width, 1),
-            );
+            frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
             y += 1;
         }
 

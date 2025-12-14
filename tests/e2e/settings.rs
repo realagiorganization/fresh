@@ -433,9 +433,7 @@ fn test_settings_number_increment() {
     harness.assert_screen_contains("modified");
 
     // Press Left arrow to decrement back
-    harness
-        .send_key(KeyCode::Left, KeyModifiers::NONE)
-        .unwrap();
+    harness.send_key(KeyCode::Left, KeyModifiers::NONE).unwrap();
     harness.render().unwrap();
 
     // Value should be back to 500
@@ -477,9 +475,7 @@ fn test_settings_number_decrement() {
     harness.assert_screen_contains("500");
 
     // Press Left arrow to decrement
-    harness
-        .send_key(KeyCode::Left, KeyModifiers::NONE)
-        .unwrap();
+    harness.send_key(KeyCode::Left, KeyModifiers::NONE).unwrap();
     harness.render().unwrap();
 
     // Value should now be 499

@@ -328,7 +328,10 @@ pub fn render_text_list(
         Span::styled(&state.label, Style::default().fg(label_color)),
         Span::raw(":"),
     ]);
-    frame.render_widget(Paragraph::new(label_line), Rect::new(area.x, area.y, area.width, 1));
+    frame.render_widget(
+        Paragraph::new(label_line),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
 
     let mut rows = Vec::new();
     let mut y = area.y + 1;
@@ -480,8 +483,8 @@ mod tests {
     #[test]
     fn test_text_list_with_items() {
         test_frame(40, 5, |frame, area| {
-            let state = TextListState::new("Items")
-                .with_items(vec!["one".to_string(), "two".to_string()]);
+            let state =
+                TextListState::new("Items").with_items(vec!["one".to_string(), "two".to_string()]);
             let colors = TextListColors::default();
             let layout = render_text_list(frame, area, &state, &colors, 20);
 

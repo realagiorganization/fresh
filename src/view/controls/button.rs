@@ -301,8 +301,7 @@ mod tests {
             let cancel = ButtonState::new("Cancel");
             let colors = ButtonColors::default();
 
-            let layouts =
-                render_button_row(frame, area, &[(&ok, &colors), (&cancel, &colors)], 2);
+            let layouts = render_button_row(frame, area, &[(&ok, &colors), (&cancel, &colors)], 2);
 
             assert_eq!(layouts.len(), 2);
             assert!(layouts[0].button_area.x < layouts[1].button_area.x);

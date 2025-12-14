@@ -76,9 +76,15 @@ pub enum SettingType {
     /// Boolean toggle
     Boolean,
     /// Integer number with optional min/max
-    Integer { minimum: Option<i64>, maximum: Option<i64> },
+    Integer {
+        minimum: Option<i64>,
+        maximum: Option<i64>,
+    },
     /// Floating point number
-    Number { minimum: Option<f64>, maximum: Option<f64> },
+    Number {
+        minimum: Option<f64>,
+        maximum: Option<f64>,
+    },
     /// Free-form string
     String,
     /// String with enumerated options (display name, value)
@@ -227,22 +233,23 @@ pub fn parse_schema(schema_json: &str) -> Result<Vec<SettingCategory>, serde_jso
     if !top_level_settings.is_empty() {
         // Sort top-level settings alphabetically
         top_level_settings.sort_by(|a, b| a.name.cmp(&b.name));
-        categories.insert(0, SettingCategory {
-            name: "General".to_string(),
-            path: String::new(),
-            description: Some("General settings".to_string()),
-            settings: top_level_settings,
-            subcategories: Vec::new(),
-        });
+        categories.insert(
+            0,
+            SettingCategory {
+                name: "General".to_string(),
+                path: String::new(),
+                description: Some("General settings".to_string()),
+                settings: top_level_settings,
+                subcategories: Vec::new(),
+            },
+        );
     }
 
     // Sort categories alphabetically, but keep General first
-    categories.sort_by(|a, b| {
-        match (a.name.as_str(), b.name.as_str()) {
-            ("General", _) => std::cmp::Ordering::Less,
-            (_, "General") => std::cmp::Ordering::Greater,
-            (a, b) => a.cmp(b),
-        }
+    categories.sort_by(|a, b| match (a.name.as_str(), b.name.as_str()) {
+        ("General", _) => std::cmp::Ordering::Less,
+        (_, "General") => std::cmp::Ordering::Greater,
+        (a, b) => a.cmp(b),
     });
 
     Ok(categories)
@@ -263,9 +270,7 @@ fn build_enum_values_map(entries: &[EnumValueEntry]) -> EnumValuesMap {
             value: value_str,
         };
 
-        map.entry(entry.ref_path.clone())
-            .or_default()
-            .push(option);
+        map.entry(entry.ref_path.clone()).or_default().push(option);
     }
 
     map
@@ -304,7 +309,10 @@ fn parse_setting(
 
     // Get description from resolved ref if not present on schema
     let resolved = resolve_ref(schema, defs);
-    let description = schema.description.clone().or_else(|| resolved.description.clone());
+    let description = schema
+        .description
+        .clone()
+        .or_else(|| resolved.description.clone());
 
     SettingSchema {
         path: path.to_string(),
@@ -336,7 +344,10 @@ fn determine_type(
     let resolved = resolve_ref(schema, defs);
 
     // Check for inline enum values (on original schema or resolved ref)
-    let enum_values = schema.enum_values.as_ref().or(resolved.enum_values.as_ref());
+    let enum_values = schema
+        .enum_values
+        .as_ref()
+        .or(resolved.enum_values.as_ref());
     if let Some(values) = enum_values {
         let options: Vec<EnumOption> = values
             .iter()
@@ -502,10 +513,18 @@ mod tests {
         // General should have theme and check_for_updates
         assert_eq!(general.settings.len(), 2);
 
-        let theme = general.settings.iter().find(|s| s.path == "/theme").unwrap();
+        let theme = general
+            .settings
+            .iter()
+            .find(|s| s.path == "/theme")
+            .unwrap();
         assert!(matches!(theme.setting_type, SettingType::String));
 
-        let updates = general.settings.iter().find(|s| s.path == "/check_for_updates").unwrap();
+        let updates = general
+            .settings
+            .iter()
+            .find(|s| s.path == "/check_for_updates")
+            .unwrap();
         assert!(matches!(updates.setting_type, SettingType::Boolean));
     }
 
@@ -517,7 +536,11 @@ mod tests {
         assert_eq!(editor.path, "/editor");
         assert_eq!(editor.settings.len(), 2);
 
-        let tab_size = editor.settings.iter().find(|s| s.name == "Tab Size").unwrap();
+        let tab_size = editor
+            .settings
+            .iter()
+            .find(|s| s.name == "Tab Size")
+            .unwrap();
         if let SettingType::Integer { minimum, maximum } = &tab_size.setting_type {
             assert_eq!(*minimum, Some(1));
             assert_eq!(*maximum, Some(16));
