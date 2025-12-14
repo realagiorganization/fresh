@@ -1783,7 +1783,11 @@ pub fn action_to_events(
         | Action::FocusTerminal
         | Action::TerminalEscape
         | Action::ToggleKeyboardCapture
-        | Action::TerminalPaste => return None,
+        | Action::TerminalPaste
+        | Action::OpenSettings
+        | Action::CloseSettings
+        | Action::SettingsSave
+        | Action::SettingsReset => return None,
 
         // Block/rectangular selection actions
         Action::BlockSelectLeft => {

@@ -163,6 +163,8 @@ pub enum KeyContext {
     Menu,
     /// Terminal has focus
     Terminal,
+    /// Settings modal is active
+    Settings,
 }
 
 impl KeyContext {
@@ -181,6 +183,7 @@ impl KeyContext {
             "normal" => Some(KeyContext::Normal),
             "menu" => Some(KeyContext::Menu),
             "terminal" => Some(KeyContext::Terminal),
+            "settings" => Some(KeyContext::Settings),
             _ => None,
         }
     }
@@ -195,6 +198,7 @@ impl KeyContext {
             KeyContext::FileExplorer => "fileExplorer",
             KeyContext::Menu => "menu",
             KeyContext::Terminal => "terminal",
+            KeyContext::Settings => "settings",
         }
     }
 }
@@ -467,6 +471,12 @@ pub enum Action {
 
     // Plugin custom actions
     PluginAction(String),
+
+    // Settings operations
+    OpenSettings,  // Open the settings modal
+    CloseSettings, // Close the settings modal
+    SettingsSave,  // Save settings changes
+    SettingsReset, // Reset current setting to default
 
     // Terminal operations
     OpenTerminal,          // Open a new terminal in the current split
@@ -761,6 +771,12 @@ impl Action {
             "terminal_escape" => Some(Action::TerminalEscape),
             "toggle_keyboard_capture" => Some(Action::ToggleKeyboardCapture),
             "terminal_paste" => Some(Action::TerminalPaste),
+
+            // Settings actions
+            "open_settings" => Some(Action::OpenSettings),
+            "close_settings" => Some(Action::CloseSettings),
+            "settings_save" => Some(Action::SettingsSave),
+            "settings_reset" => Some(Action::SettingsReset),
 
             _ => None,
         }
@@ -1667,6 +1683,10 @@ impl KeybindingResolver {
             Action::TerminalEscape => "Exit terminal mode".to_string(),
             Action::ToggleKeyboardCapture => "Toggle keyboard capture (terminal)".to_string(),
             Action::TerminalPaste => "Paste into terminal".to_string(),
+            Action::OpenSettings => "Open settings".to_string(),
+            Action::CloseSettings => "Close settings".to_string(),
+            Action::SettingsSave => "Save settings".to_string(),
+            Action::SettingsReset => "Reset setting to default".to_string(),
             Action::None => "No action".to_string(),
         }
     }

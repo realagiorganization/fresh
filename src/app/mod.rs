@@ -445,6 +445,9 @@ pub struct Editor {
     /// Position of the previous mouse click (for double-click detection)
     /// Double-click is only detected if both clicks are at the same position
     previous_click_position: Option<(u16, u16)>,
+
+    /// Settings UI state (when settings modal is open)
+    settings_state: Option<crate::view::settings::SettingsState>,
 }
 
 impl Editor {
@@ -814,6 +817,7 @@ impl Editor {
             terminal_mode_resume: std::collections::HashSet::new(),
             previous_click_time: None,
             previous_click_position: None,
+            settings_state: None,
         })
     }
 
