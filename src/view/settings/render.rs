@@ -239,16 +239,16 @@ fn render_settings_panel(
     let total_items = page.items.len();
     let scroll_offset = state.scroll_offset;
 
-    // Calculate how many items can fit with dynamic heights (from current scroll position)
+    // Calculate how many items can fit (including partial visibility at bottom)
     let mut visible_items = 0;
     let mut cumulative_height = 0u16;
     for idx in scroll_offset..total_items {
         let item_h = page.items[idx].item_height();
-        if cumulative_height + item_h > available_height {
+        visible_items += 1;
+        cumulative_height += item_h;
+        if cumulative_height >= available_height {
             break;
         }
-        cumulative_height += item_h;
-        visible_items += 1;
     }
     visible_items = visible_items.max(1);
 
@@ -275,17 +275,21 @@ fn render_settings_panel(
     let scrollbar_width = if total_items > visible_items { 1 } else { 0 };
     let content_width = area.width.saturating_sub(scrollbar_width);
 
-    // Render visible items with dynamic heights
+    // Render visible items with dynamic heights (allow partial visibility)
     let mut current_y = items_start_y;
+    let max_y = area.y + area.height;
     for idx in scroll_offset..(scroll_offset + visible_items).min(total_items) {
         let item = &page.items[idx];
         let item_h = item.item_height();
 
-        if current_y + item_h > area.y + area.height {
+        // Stop only if we're completely past the visible area
+        if current_y >= max_y {
             break;
         }
 
-        let item_area = Rect::new(area.x, current_y, content_width, item_h);
+        // Clamp height to available space (ratatui panics on out-of-bounds)
+        let clamped_h = item_h.min(max_y.saturating_sub(current_y));
+        let item_area = Rect::new(area.x, current_y, content_width, clamped_h);
         render_setting_item(frame, item_area, item, idx, state, theme, layout);
         current_y += item_h;
     }
@@ -404,7 +408,15 @@ fn render_setting_item(
     } else {
         (area.x + 4, area.width.saturating_sub(4))
     };
-    let control_area = Rect::new(control_x, control_y, control_width, control_height);
+    // Clamp control height to available space within the item area
+    let available_control_height = (area.y + area.height).saturating_sub(control_y);
+    let clamped_control_height = control_height.min(available_control_height);
+    if clamped_control_height == 0 {
+        // No space for control, skip rendering
+        layout.add_item(idx, item.path.clone(), area, ControlLayoutInfo::Complex);
+        return;
+    }
+    let control_area = Rect::new(control_x, control_y, control_width, clamped_control_height);
     let control_layout = render_control(frame, control_area, &item.control, theme);
 
     layout.add_item(idx, item.path.clone(), area, control_layout);
