@@ -427,6 +427,8 @@ impl Editor {
                     | Action::SettingsSave
                     | Action::SettingsReset
                     | Action::SettingsHelp
+                    | Action::SettingsIncrement
+                    | Action::SettingsDecrement
                     | Action::CloseSettings => {
                         return self.handle_action(action);
                     }
@@ -1893,6 +1895,12 @@ impl Editor {
                 if let Some(ref mut state) = self.settings_state {
                     state.toggle_help();
                 }
+            }
+            Action::SettingsIncrement => {
+                self.settings_increment_current();
+            }
+            Action::SettingsDecrement => {
+                self.settings_decrement_current();
             }
             Action::PromptConfirm => {
                 // Handle prompt confirmation (same logic as in handle_key)

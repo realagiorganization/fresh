@@ -1389,6 +1389,20 @@
       "when": "settings"
     },
     {
+      "key": "Right",
+      "modifiers": [],
+      "action": "settings_increment",
+      "args": {},
+      "when": "settings"
+    },
+    {
+      "key": "Left",
+      "modifiers": [],
+      "action": "settings_decrement",
+      "args": {},
+      "when": "settings"
+    },
+    {
       "comment": "File Explorer context",
       "key": "Up",
       "modifiers": [],

@@ -43,6 +43,10 @@ pub struct SettingsState {
     pub confirm_dialog_selection: usize,
     /// Whether the help overlay is showing
     pub showing_help: bool,
+    /// Scroll offset for the settings panel (in items)
+    pub scroll_offset: usize,
+    /// Number of visible items (set during rendering)
+    pub visible_items: usize,
 }
 
 impl SettingsState {
@@ -68,6 +72,8 @@ impl SettingsState {
             showing_confirm_dialog: false,
             confirm_dialog_selection: 0,
             showing_help: false,
+            scroll_offset: 0,
+            visible_items: 10, // Will be updated during rendering
         })
     }
 
@@ -77,6 +83,7 @@ impl SettingsState {
         self.category_focus = true;
         self.selected_category = 0;
         self.selected_item = 0;
+        self.scroll_offset = 0;
     }
 
     /// Hide the settings panel
@@ -115,9 +122,11 @@ impl SettingsState {
             if self.selected_category > 0 {
                 self.selected_category -= 1;
                 self.selected_item = 0;
+                self.scroll_offset = 0;
             }
         } else if self.selected_item > 0 {
             self.selected_item -= 1;
+            self.ensure_visible();
         }
     }
 
@@ -127,10 +136,12 @@ impl SettingsState {
             if self.selected_category + 1 < self.pages.len() {
                 self.selected_category += 1;
                 self.selected_item = 0;
+                self.scroll_offset = 0;
             }
         } else if let Some(page) = self.current_page() {
             if self.selected_item + 1 < page.items.len() {
                 self.selected_item += 1;
+                self.ensure_visible();
             }
         }
     }
@@ -141,6 +152,25 @@ impl SettingsState {
         // Reset item selection when switching to settings
         if !self.category_focus && self.selected_item >= self.current_page().map_or(0, |p| p.items.len()) {
             self.selected_item = 0;
+        }
+        self.ensure_visible();
+    }
+
+    /// Ensure the selected item is visible in the viewport
+    pub fn ensure_visible(&mut self) {
+        if self.category_focus {
+            return;
+        }
+
+        // If selection is before the viewport, scroll up
+        if self.selected_item < self.scroll_offset {
+            self.scroll_offset = self.selected_item;
+        }
+
+        // If selection is after the viewport, scroll down
+        // Account for the fact that visible_items might be 0 initially
+        if self.visible_items > 0 && self.selected_item >= self.scroll_offset + self.visible_items {
+            self.scroll_offset = self.selected_item.saturating_sub(self.visible_items - 1);
         }
     }
 
@@ -306,6 +336,8 @@ impl SettingsState {
             self.selected_category = result.page_index;
             self.selected_item = result.item_index;
             self.category_focus = false;
+            self.scroll_offset = 0; // Reset scroll when jumping to new category
+            self.ensure_visible();
             self.cancel_search();
         }
     }

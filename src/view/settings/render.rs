@@ -12,6 +12,7 @@ use crate::view::controls::{
     TextListColors, ToggleColors,
 };
 use crate::view::theme::Theme;
+use crate::view::ui::{render_scrollbar, ScrollbarColors, ScrollbarState};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -22,7 +23,7 @@ use ratatui::Frame;
 pub fn render_settings(
     frame: &mut Frame,
     area: Rect,
-    state: &SettingsState,
+    state: &mut SettingsState,
     theme: &Theme,
 ) -> SettingsLayout {
     // Calculate modal size (80% of screen, max 100 wide, 40 tall)
@@ -185,7 +186,7 @@ fn render_separator(frame: &mut Frame, area: Rect, theme: &Theme) {
 fn render_settings_panel(
     frame: &mut Frame,
     area: Rect,
-    state: &SettingsState,
+    state: &mut SettingsState,
     theme: &Theme,
     layout: &mut SettingsLayout,
 ) {
@@ -196,6 +197,7 @@ fn render_settings_panel(
 
     // Render page title and description
     let mut y = area.y;
+    let header_start_y = y;
 
     // Page title
     let title_style = Style::default()
@@ -218,15 +220,54 @@ fn render_settings_panel(
 
     y += 1; // Blank line
 
-    // Render each setting item
-    for (idx, item) in page.items.iter().enumerate() {
-        if y >= area.y + area.height.saturating_sub(3) {
+    let header_height = (y - header_start_y) as usize;
+    let items_start_y = y;
+
+    // Calculate how many items can fit (each item is 3 rows tall)
+    let available_height = area.height.saturating_sub(header_height as u16 + 1); // +1 for scrollbar gutter
+    let item_height = 3u16;
+    let visible_items = (available_height / item_height) as usize;
+
+    // Update visible_items in state for scrolling calculations
+    state.visible_items = visible_items.max(1);
+
+    // Get page items and total count (need to re-borrow after updating state)
+    let page = state.current_page().unwrap();
+    let total_items = page.items.len();
+    let scroll_offset = state.scroll_offset;
+
+    // Reserve space for scrollbar if needed
+    let scrollbar_width = if total_items > visible_items { 1 } else { 0 };
+    let content_width = area.width.saturating_sub(scrollbar_width);
+
+    // Render visible items
+    for (display_idx, idx) in (scroll_offset..).take(visible_items).enumerate() {
+        if idx >= total_items {
             break;
         }
 
-        let item_area = Rect::new(area.x, y, area.width, 3);
+        let item = &page.items[idx];
+        let item_y = items_start_y + (display_idx as u16 * item_height);
+
+        if item_y + item_height > area.y + area.height {
+            break;
+        }
+
+        let item_area = Rect::new(area.x, item_y, content_width, item_height);
         render_setting_item(frame, item_area, item, idx, state, theme, layout);
-        y += 3;
+    }
+
+    // Render scrollbar if needed
+    if total_items > visible_items {
+        let scrollbar_area = Rect::new(
+            area.x + content_width,
+            items_start_y,
+            1,
+            (visible_items as u16) * item_height,
+        );
+        let scrollbar_state = ScrollbarState::new(total_items, visible_items, scroll_offset);
+        let scrollbar_colors = ScrollbarColors::from_theme(theme);
+        render_scrollbar(frame, scrollbar_area, &scrollbar_state, &scrollbar_colors);
     }
 }
 
@@ -262,9 +303,10 @@ fn render_setting_item(
         Style::default().fg(theme.popup_text_fg)
     };
 
-    let name_prefix = if item.modified { "● " } else { "  " };
+    let selection_prefix = if is_selected { "▶" } else { " " };
+    let modified_prefix = if item.modified { "●" } else { " " };
     let name_line = Line::from(Span::styled(
-        format!("{}{}", name_prefix, item.name),
+        format!("{}{} {}", selection_prefix, modified_prefix, item.name),
         name_style,
     ));
     frame.render_widget(
@@ -272,8 +314,8 @@ fn render_setting_item(
         Rect::new(area.x, area.y, area.width, 1),
     );
 
-    // Control on second line
-    let control_area = Rect::new(area.x + 2, area.y + 1, area.width.saturating_sub(2), 1);
+    // Control on second line (indented to align with name after prefix)
+    let control_area = Rect::new(area.x + 4, area.y + 1, area.width.saturating_sub(4), 1);
     let control_layout = render_control(frame, control_area, &item.control, theme);
 
     layout.add_item(idx, item.path.clone(), area, control_layout);

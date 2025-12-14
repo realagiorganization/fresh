@@ -1734,32 +1734,127 @@ impl Editor {
         use crate::view::settings::items::SettingControl;
 
         // Get the current item's control type to determine action
-        let action = {
+        let control_type = {
             if let Some(ref state) = self.settings_state {
                 state.current_item().map(|item| match &item.control {
-                    SettingControl::Toggle(toggle_state) => Some(("toggle", toggle_state.checked)),
-                    SettingControl::Number(_) => None, // Numbers need increment/decrement
-                    SettingControl::Dropdown(_) => None, // Dropdowns need popup
-                    SettingControl::Text(_) => None,   // Text needs input mode
-                    SettingControl::TextList(_) => None, // Lists need special handling
-                    SettingControl::Complex { .. } => None,
+                    SettingControl::Toggle(_) => "toggle",
+                    SettingControl::Number(_) => "number",
+                    SettingControl::Dropdown(_) => "dropdown",
+                    SettingControl::Text(_) => "text",
+                    SettingControl::TextList(_) => "textlist",
+                    SettingControl::Complex { .. } => "complex",
                 })
             } else {
                 None
             }
         };
 
-        // Perform the action
-        if let Some(Some(("toggle", checked))) = action {
-            // Toggle boolean
-            if let Some(ref mut state) = self.settings_state {
-                if let Some(item) = state.current_item_mut() {
-                    if let SettingControl::Toggle(ref mut toggle_state) = item.control {
-                        toggle_state.checked = !checked;
+        // Perform the action based on control type
+        match control_type {
+            Some("toggle") => {
+                if let Some(ref mut state) = self.settings_state {
+                    if let Some(item) = state.current_item_mut() {
+                        if let SettingControl::Toggle(ref mut toggle_state) = item.control {
+                            toggle_state.checked = !toggle_state.checked;
+                        }
                     }
+                    state.on_value_changed();
                 }
-                state.on_value_changed();
             }
+            Some("dropdown") => {
+                // Cycle to next option on Enter
+                if let Some(ref mut state) = self.settings_state {
+                    if let Some(item) = state.current_item_mut() {
+                        if let SettingControl::Dropdown(ref mut dropdown_state) = item.control {
+                            dropdown_state.select_next();
+                        }
+                    }
+                    state.on_value_changed();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Increment the current setting value (for Number and Dropdown controls)
+    pub fn settings_increment_current(&mut self) {
+        use crate::view::settings::items::SettingControl;
+
+        let control_type = {
+            if let Some(ref state) = self.settings_state {
+                state.current_item().map(|item| match &item.control {
+                    SettingControl::Number(_) => "number",
+                    SettingControl::Dropdown(_) => "dropdown",
+                    _ => "other",
+                })
+            } else {
+                None
+            }
+        };
+
+        match control_type {
+            Some("number") => {
+                if let Some(ref mut state) = self.settings_state {
+                    if let Some(item) = state.current_item_mut() {
+                        if let SettingControl::Number(ref mut num_state) = item.control {
+                            num_state.increment();
+                        }
+                    }
+                    state.on_value_changed();
+                }
+            }
+            Some("dropdown") => {
+                if let Some(ref mut state) = self.settings_state {
+                    if let Some(item) = state.current_item_mut() {
+                        if let SettingControl::Dropdown(ref mut dropdown_state) = item.control {
+                            dropdown_state.select_next();
+                        }
+                    }
+                    state.on_value_changed();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Decrement the current setting value (for Number and Dropdown controls)
+    pub fn settings_decrement_current(&mut self) {
+        use crate::view::settings::items::SettingControl;
+
+        let control_type = {
+            if let Some(ref state) = self.settings_state {
+                state.current_item().map(|item| match &item.control {
+                    SettingControl::Number(_) => "number",
+                    SettingControl::Dropdown(_) => "dropdown",
+                    _ => "other",
+                })
+            } else {
+                None
+            }
+        };
+
+        match control_type {
+            Some("number") => {
+                if let Some(ref mut state) = self.settings_state {
+                    if let Some(item) = state.current_item_mut() {
+                        if let SettingControl::Number(ref mut num_state) = item.control {
+                            num_state.decrement();
+                        }
+                    }
+                    state.on_value_changed();
+                }
+            }
+            Some("dropdown") => {
+                if let Some(ref mut state) = self.settings_state {
+                    if let Some(item) = state.current_item_mut() {
+                        if let SettingControl::Dropdown(ref mut dropdown_state) = item.control {
+                            dropdown_state.select_prev();
+                        }
+                    }
+                    state.on_value_changed();
+                }
+            }
+            _ => {}
         }
     }
 

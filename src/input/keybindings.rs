@@ -473,14 +473,16 @@ pub enum Action {
     PluginAction(String),
 
     // Settings operations
-    OpenSettings,       // Open the settings modal
-    CloseSettings,      // Close the settings modal
-    SettingsSave,       // Save settings changes
-    SettingsReset,      // Reset current setting to default
+    OpenSettings,        // Open the settings modal
+    CloseSettings,       // Close the settings modal
+    SettingsSave,        // Save settings changes
+    SettingsReset,       // Reset current setting to default
     SettingsToggleFocus, // Toggle focus between category and settings panels
-    SettingsActivate,   // Activate/toggle the current setting
-    SettingsSearch,     // Start search in settings
-    SettingsHelp,       // Show settings help overlay
+    SettingsActivate,    // Activate/toggle the current setting
+    SettingsSearch,      // Start search in settings
+    SettingsHelp,        // Show settings help overlay
+    SettingsIncrement,   // Increment number value or next dropdown option
+    SettingsDecrement,   // Decrement number value or previous dropdown option
 
     // Terminal operations
     OpenTerminal,          // Open a new terminal in the current split
@@ -785,6 +787,8 @@ impl Action {
             "settings_activate" => Some(Action::SettingsActivate),
             "settings_search" => Some(Action::SettingsSearch),
             "settings_help" => Some(Action::SettingsHelp),
+            "settings_increment" => Some(Action::SettingsIncrement),
+            "settings_decrement" => Some(Action::SettingsDecrement),
 
             _ => None,
         }
@@ -1699,6 +1703,8 @@ impl KeybindingResolver {
             Action::SettingsActivate => "Activate setting".to_string(),
             Action::SettingsSearch => "Search settings".to_string(),
             Action::SettingsHelp => "Show settings help".to_string(),
+            Action::SettingsIncrement => "Increment value".to_string(),
+            Action::SettingsDecrement => "Decrement value".to_string(),
             Action::None => "No action".to_string(),
         }
     }
