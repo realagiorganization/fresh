@@ -3959,7 +3959,7 @@ impl Editor {
         &mut self,
         mouse_event: crossterm::event::MouseEvent,
     ) -> std::io::Result<bool> {
-        use crate::view::settings::SettingsHit;
+        use crate::view::settings::{FocusPanel, SettingsHit};
         use crossterm::event::{MouseButton, MouseEventKind};
 
         let col = mouse_event.column;
@@ -4035,7 +4035,7 @@ impl Editor {
             }
             SettingsHit::Category(idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = true;
+                    state.focus_panel = FocusPanel::Categories;
                     state.selected_category = idx;
                     state.selected_item = 0;
                     state.scroll_panel = crate::view::ui::ScrollablePanel::new();
@@ -4044,55 +4044,55 @@ impl Editor {
             }
             SettingsHit::Item(idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                 }
             }
             SettingsHit::ControlToggle(idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                 }
                 self.settings_activate_current();
             }
             SettingsHit::ControlDecrement(idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                 }
                 self.settings_decrement_current();
             }
             SettingsHit::ControlIncrement(idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                 }
                 self.settings_increment_current();
             }
             SettingsHit::ControlDropdown(idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                 }
                 self.settings_activate_current();
             }
             SettingsHit::ControlText(idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                     state.start_editing();
                 }
             }
             SettingsHit::ControlTextListRow(idx, _row_idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                     state.start_editing();
                 }
             }
             SettingsHit::ControlMapRow(idx, _row_idx) => {
                 if let Some(ref mut state) = self.settings_state {
-                    state.category_focus = false;
+                    state.focus_panel = FocusPanel::Settings;
                     state.selected_item = idx;
                 }
             }

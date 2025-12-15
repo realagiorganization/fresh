@@ -37,9 +37,6 @@ pub struct SettingsState {
     pub selected_item: usize,
     /// Which panel currently has keyboard focus
     pub focus_panel: FocusPanel,
-    /// For backwards compatibility - returns true if focus is on categories
-    #[deprecated(note = "use focus_panel instead")]
-    pub category_focus: bool,
     /// Selected footer button index (0=Reset, 1=Save, 2=Cancel)
     pub footer_button_index: usize,
     /// Pending changes (path -> new value)
@@ -81,14 +78,12 @@ impl SettingsState {
         let config_value = serde_json::to_value(config)?;
         let pages = super::items::build_pages(&categories, &config_value);
 
-        #[allow(deprecated)]
         Ok(Self {
             categories,
             pages,
             selected_category: 0,
             selected_item: 0,
             focus_panel: FocusPanel::Categories,
-            category_focus: true,
             footer_button_index: 1, // Default to Save button
             pending_changes: HashMap::new(),
             original_config: config_value,
@@ -109,11 +104,9 @@ impl SettingsState {
     }
 
     /// Show the settings panel
-    #[allow(deprecated)]
     pub fn show(&mut self) {
         self.visible = true;
         self.focus_panel = FocusPanel::Categories;
-        self.category_focus = true;
         self.footer_button_index = 1; // Default to Save button
         self.selected_category = 0;
         self.selected_item = 0;
@@ -208,15 +201,12 @@ impl SettingsState {
     }
 
     /// Switch focus between panels: Categories -> Settings -> Footer -> Categories
-    #[allow(deprecated)]
     pub fn toggle_focus(&mut self) {
         self.focus_panel = match self.focus_panel {
             FocusPanel::Categories => FocusPanel::Settings,
             FocusPanel::Settings => FocusPanel::Footer,
             FocusPanel::Footer => FocusPanel::Categories,
         };
-        // Keep category_focus in sync for backwards compatibility
-        self.category_focus = self.focus_panel == FocusPanel::Categories;
 
         // Reset item selection when switching to settings
         if self.focus_panel == FocusPanel::Settings
@@ -401,13 +391,11 @@ impl SettingsState {
     }
 
     /// Jump to the currently selected search result
-    #[allow(deprecated)]
     pub fn jump_to_search_result(&mut self) {
         if let Some(result) = self.search_results.get(self.selected_search_result) {
             self.selected_category = result.page_index;
             self.selected_item = result.item_index;
             self.focus_panel = FocusPanel::Settings;
-            self.category_focus = false;
             // Reset scroll offset but preserve viewport for ensure_visible
             self.scroll_panel.scroll.offset = 0;
             // Update content height for the new category's items
@@ -943,11 +931,11 @@ mod tests {
         let mut state = SettingsState::new(TEST_SCHEMA, &config).unwrap();
 
         // Start in category focus
-        assert!(state.category_focus);
+        assert_eq!(state.focus_panel, FocusPanel::Categories);
 
         // Toggle to settings
         state.toggle_focus();
-        assert!(!state.category_focus);
+        assert_eq!(state.focus_panel, FocusPanel::Settings);
 
         // Navigate items
         state.select_next();
@@ -980,7 +968,7 @@ mod tests {
 
         state.show();
         assert!(state.visible);
-        assert!(state.category_focus);
+        assert_eq!(state.focus_panel, FocusPanel::Categories);
 
         state.hide();
         assert!(!state.visible);
