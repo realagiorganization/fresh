@@ -816,14 +816,24 @@ The current `plugins/config_editor.ts` provides similar functionality via the pl
 | Keybindings not editable | High | Open | Shows `<Complex - edit in config.toml>`. Need table UI for key/modifiers/action entries. |
 | Menus not editable | High | Open | Shows `<Complex - edit in config.toml>`. Need hierarchical tree UI for menu structure. |
 | Map entry values not editable | High | Open | Map entries show `{N fields}` but expanding/editing individual fields not implemented. |
-| Dropdown editing doesn't work | High | Open | Enter/arrows on dropdown don't open menu or change value. |
-| Number input editing not implemented | High | Open | No way to change number values (no +/- buttons active, no text entry). |
-| No settings item selection indicator | Medium | Open | Can't see which setting is selected in the settings panel. |
+| Dropdown editing doesn't work | High | ✅ Fixed | Enter/arrows on dropdown now work correctly. |
+| Number input editing not implemented | High | ✅ Fixed | Enter to edit, type value, Enter to confirm. Left/Right also increment/decrement. |
+| No settings item selection indicator | Medium | Open | Can't see which setting is selected in the settings panel. This makes navigation nearly unusable. |
 | View doesn't scroll to selection | Medium | Open | After search jump, view doesn't scroll to show the selected item. |
 | Search text input broken | High | ✅ Fixed | Settings actions weren't routed to handle_action. |
 | Confirmation dialog empty | Medium | ✅ Fixed | Dialog height calculation was off by 1, causing changes to overlap with separator. |
 | No button selection indicator | Medium | ✅ Fixed | Added ▶ indicator and bold styling for selected button. |
 | No panel focus indicator | Low | Open | Can't visually tell if categories or settings panel has focus. |
+| Terminal captures input when Settings opens | High | Open | Opening Settings from terminal mode causes keystrokes to go to terminal behind dialog. Must Ctrl+Space first. |
+| Footer buttons inaccessible via keyboard | High | Open | Tab only cycles between category/settings panels. Reset/Save/Cancel buttons cannot be reached with keyboard. |
+| Search results unrelated to query | Medium | Open | Searching "font" returns 14 results with no "font" matches. Fuzzy matching too aggressive or broken. |
+| "●" indicator unexplained | Low | Open | Some categories show ● with no explanation. Users don't know if it means unsaved changes, errors, etc. |
+| Left/Right for +/- undiscoverable | Low | Open | Arrow keys increment/decrement number fields but help text only shows "↑↓:Navigate". |
+| Cancel in Unsaved Changes dialog closes everything | Medium | Open | "Cancel" should return to Settings, but instead closes the entire dialog like Discard. |
+| [+] Add new buttons don't respond | Medium | Open | Pressing Enter on "[+] Add new" for Keybinding Maps/Languages produces no response. |
+| Empty Unsaved Changes dialog persists | Medium | Open | "You have unsaved changes" dialog appears with no changes listed, persists across Settings reopens. |
+| Dropdown options have no selection indicator | Low | Open | When dropdown is open, no visible highlight shows which option is selected (only preview updates). |
+| Escape doesn't close Settings directly | Low | Open | Help text says "Esc:Close" but Escape only triggers unsaved changes flow, doesn't close directly. |
 
 ### Phase 1: Core Controls Module ✅
 
