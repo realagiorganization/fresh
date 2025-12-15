@@ -68,14 +68,9 @@ fn test_config_schema_exists_and_valid() {
     // Verify basic schema structure
     assert!(schema.get("$schema").is_some(), "Should have $schema");
     assert!(schema.get("$defs").is_some(), "Should have $defs");
-    assert!(schema.get("$ref").is_some(), "Should have root $ref");
 
-    // Verify Config definition exists
+    // Verify $defs has expected type definitions
     let defs = schema.get("$defs").unwrap();
-    assert!(
-        defs.get("Config").is_some(),
-        "Should have Config definition"
-    );
     assert!(
         defs.get("EditorConfig").is_some(),
         "Should have EditorConfig definition"
@@ -85,9 +80,8 @@ fn test_config_schema_exists_and_valid() {
         "Should have FileExplorerConfig definition"
     );
 
-    // Verify Config has expected properties
-    let config = defs.get("Config").unwrap();
-    let properties = config.get("properties").unwrap();
+    // Config properties are now at root level (not via $ref)
+    let properties = schema.get("properties").unwrap();
     assert!(
         properties.get("theme").is_some(),
         "Config should have theme"
@@ -114,17 +108,19 @@ fn test_config_schema_enums() {
 
     let defs = schema.get("$defs").unwrap();
 
-    // Check HighlighterPreference enum
+    // Check HighlighterPreference enum (uses oneOf with const values)
     let highlighter_pref = defs.get("HighlighterPreference").unwrap();
-    assert_eq!(
-        highlighter_pref.get("type").unwrap().as_str().unwrap(),
-        "string"
-    );
+    let one_of = highlighter_pref.get("oneOf").unwrap().as_array().unwrap();
 
-    let enum_values = highlighter_pref.get("enum").unwrap().as_array().unwrap();
-    assert!(enum_values.contains(&serde_json::json!("auto")));
-    assert!(enum_values.contains(&serde_json::json!("tree-sitter")));
-    assert!(enum_values.contains(&serde_json::json!("textmate")));
+    // Extract const values from oneOf variants
+    let const_values: Vec<&str> = one_of
+        .iter()
+        .filter_map(|v| v.get("const").and_then(|c| c.as_str()))
+        .collect();
+
+    assert!(const_values.contains(&"auto"));
+    assert!(const_values.contains(&"tree-sitter"));
+    assert!(const_values.contains(&"textmate"));
 }
 
 /// Test that config files saved by the editor can be deserialized

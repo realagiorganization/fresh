@@ -963,7 +963,10 @@ mod tests {
         state.show();
         state.toggle_focus(); // Move to settings
 
-        // First item should be theme (dropdown)
+        // Items are sorted alphabetically: line_numbers, tab_size, theme
+        // Navigate to theme (dropdown) at index 2
+        state.select_next();
+        state.select_next();
         assert!(!state.is_dropdown_open());
 
         state.dropdown_toggle();
@@ -979,6 +982,11 @@ mod tests {
         let mut state = SettingsState::new(TEST_SCHEMA_CONTROLS, &config).unwrap();
         state.show();
         state.toggle_focus();
+
+        // Items are sorted alphabetically: line_numbers, tab_size, theme
+        // Navigate to theme (dropdown) at index 2
+        state.select_next();
+        state.select_next();
 
         // Open dropdown
         state.dropdown_toggle();

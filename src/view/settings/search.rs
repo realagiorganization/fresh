@@ -212,7 +212,8 @@ mod tests {
     fn test_fuzzy_match_scattered() {
         let (score, indices) = fuzzy_match("line_numbers", "lnm");
         assert!(score > 0);
-        assert_eq!(indices, vec![0, 5, 8]);
+        // 'l' at 0, 'n' at 2 (first n in "line"), 'm' at 7 (in "numbers")
+        assert_eq!(indices, vec![0, 2, 7]);
     }
 
     #[test]
