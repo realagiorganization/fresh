@@ -663,8 +663,10 @@ fn render_map_partial(
         };
 
         let display_key: String = key.chars().take(key_width as usize).collect();
+        // Show selection indicator for focused entry
+        let selection_indicator = if is_focused { "▸ " } else { "  " };
         let line = Line::from(vec![
-            Span::raw(" ".repeat(indent as usize)),
+            Span::styled(selection_indicator, Style::default().fg(key_color)),
             Span::styled(
                 format!("{:width$}", display_key, width = key_width as usize),
                 Style::default().fg(key_color),
@@ -690,9 +692,16 @@ fn render_map_partial(
 
     // Add-new row
     let add_row_area = if y < area.y + area.height && content_row >= skip_rows {
+        let add_is_focused = state.focused_entry.is_none() && state.focus == FocusState::Focused;
+        let add_indicator = if add_is_focused { "▸ " } else { "  " };
+        let add_color = if add_is_focused {
+            colors.focused
+        } else {
+            colors.add_button
+        };
         let add_line = Line::from(vec![
-            Span::raw(" ".repeat(indent as usize)),
-            Span::styled("[+] Add new", Style::default().fg(colors.add_button)),
+            Span::styled(add_indicator, Style::default().fg(add_color)),
+            Span::styled("[+] Add new", Style::default().fg(add_color)),
         ]);
         let row_area = Rect::new(area.x, y, area.width, 1);
         frame.render_widget(Paragraph::new(add_line), row_area);

@@ -834,6 +834,8 @@ The current `plugins/config_editor.ts` provides similar functionality via the pl
 | Empty Unsaved Changes dialog persists | Medium | Open | "You have unsaved changes" dialog appears with no changes listed, persists across Settings reopens. |
 | Dropdown options have no selection indicator | Low | Open | When dropdown is open, no visible highlight shows which option is selected (only preview updates). |
 | Escape doesn't close Settings directly | Low | Open | Help text says "Esc:Close" but Escape only triggers unsaved changes flow, doesn't close directly. |
+| Navigation stuck on Map section headers | Critical | ✅ Fixed | Arrow keys now navigate through Map entries. select_prev/select_next integrated with Map's focus_prev/focus_next methods. |
+| Map entries not individually selectable | High | ✅ Fixed | Map entries now show ▸ indicator for focused entry. Navigation properly enters/exits Maps and traverses all entries including "[+] Add new". |
 
 ### Phase 1: Core Controls Module ✅
 

@@ -156,9 +156,35 @@ impl SettingsState {
                 }
             }
             FocusPanel::Settings => {
-                if self.selected_item > 0 {
+                // Check if current item is a Map that we can navigate within
+                let can_navigate_within_map = self.current_item().map_or(false, |item| {
+                    if let SettingControl::Map(state) = &item.control {
+                        // Can navigate up within map if we're not at the first entry
+                        // (None means "Add new" row, Some(0) means first entry)
+                        match state.focused_entry {
+                            None if !state.entries.is_empty() => true, // Can go from Add-new to last entry
+                            Some(idx) if idx > 0 => true,              // Can go to previous entry
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                });
+
+                if can_navigate_within_map {
+                    // Navigate within the Map by calling its focus_prev method
+                    if let Some(item) = self.current_item_mut() {
+                        if let SettingControl::Map(state) = &mut item.control {
+                            state.focus_prev();
+                        }
+                    }
+                    self.ensure_visible();
+                } else if self.selected_item > 0 {
+                    // Move to previous setting item
                     self.selected_item -= 1;
                     self.sub_focus = None;
+                    // If new item is a Map, start at the last entry (bottom)
+                    self.initialize_map_focus_at_end();
                     self.ensure_visible();
                 }
             }
@@ -183,10 +209,32 @@ impl SettingsState {
                 }
             }
             FocusPanel::Settings => {
-                if let Some(page) = self.current_page() {
+                // Check if current item is a Map that we can navigate within
+                let can_navigate_within_map = self.current_item().map_or(false, |item| {
+                    if let SettingControl::Map(state) = &item.control {
+                        // Can navigate down within map if we're not at the "Add new" row
+                        // (None means "Add new" row - bottom of the map)
+                        state.focused_entry.is_some()
+                    } else {
+                        false
+                    }
+                });
+
+                if can_navigate_within_map {
+                    // Navigate within the Map by calling its focus_next method
+                    if let Some(item) = self.current_item_mut() {
+                        if let SettingControl::Map(state) = &mut item.control {
+                            state.focus_next();
+                        }
+                    }
+                    self.ensure_visible();
+                } else if let Some(page) = self.current_page() {
                     if self.selected_item + 1 < page.items.len() {
+                        // Move to next setting item
                         self.selected_item += 1;
                         self.sub_focus = None;
+                        // If new item is a Map, start at the first entry (top)
+                        self.initialize_map_focus_at_start();
                         self.ensure_visible();
                     }
                 }
@@ -196,6 +244,27 @@ impl SettingsState {
                 if self.footer_button_index < 2 {
                     self.footer_button_index += 1;
                 }
+            }
+        }
+    }
+
+    /// Initialize Map focus to first entry when entering from above
+    fn initialize_map_focus_at_start(&mut self) {
+        if let Some(item) = self.current_item_mut() {
+            if let SettingControl::Map(state) = &mut item.control {
+                if !state.entries.is_empty() {
+                    state.focused_entry = Some(0);
+                }
+            }
+        }
+    }
+
+    /// Initialize Map focus to last entry when entering from below
+    fn initialize_map_focus_at_end(&mut self) {
+        if let Some(item) = self.current_item_mut() {
+            if let SettingControl::Map(state) = &mut item.control {
+                // Position at "Add new" row (None) when coming from below
+                state.focused_entry = None;
             }
         }
     }
@@ -215,6 +284,12 @@ impl SettingsState {
             self.selected_item = 0;
         }
         self.sub_focus = None;
+
+        // Initialize Map focus when switching to Settings panel
+        if self.focus_panel == FocusPanel::Settings {
+            self.initialize_map_focus_at_start();
+        }
+
         self.ensure_visible();
     }
 
