@@ -213,6 +213,7 @@ struct RenderContext {
     selected_item: usize,
     settings_focused: bool,
     hover_hit: Option<SettingsHit>,
+    editing_text: bool,
 }
 
 /// Render the settings panel for the current category
@@ -270,6 +271,7 @@ fn render_settings_panel(
         selected_item: state.selected_item,
         settings_focused: state.focus_panel == FocusPanel::Settings,
         hover_hit: state.hover_hit.clone(),
+        editing_text: state.editing_text,
     };
 
     // Area for items (below header)
@@ -445,6 +447,7 @@ fn render_setting_item_pure(
         skip_top,
         theme,
         label_width,
+        ctx.editing_text,
     );
 
     // Render description below the control (if visible and exists)
@@ -492,6 +495,7 @@ fn render_setting_item_pure(
 /// * `modified` - Whether the setting has been modified from default
 /// * `skip_rows` - Number of rows to skip at top of control (for partial visibility)
 /// * `label_width` - Optional label width for column alignment
+/// * `editing_text` - Whether text editing mode is active
 fn render_control(
     frame: &mut Frame,
     area: Rect,
@@ -501,6 +505,7 @@ fn render_control(
     skip_rows: u16,
     theme: &Theme,
     label_width: Option<u16>,
+    editing_text: bool,
 ) -> ControlLayoutInfo {
     match control {
         // Single-row controls: only render if not skipped
@@ -560,7 +565,7 @@ fn render_control(
 
         SettingControl::Map(state) => {
             let colors = MapColors::from_theme(theme);
-            let map_layout = render_map_partial(frame, area, state, &colors, 20, skip_rows);
+            let map_layout = render_map_partial(frame, area, state, &colors, 20, skip_rows, editing_text);
             ControlLayoutInfo::Map {
                 entry_rows: map_layout.entry_areas.iter().map(|e| e.row_area).collect(),
             }
@@ -731,6 +736,7 @@ fn render_map_partial(
     colors: &MapColors,
     key_width: u16,
     skip_rows: u16,
+    editing_text: bool,
 ) -> crate::view::controls::MapLayout {
     use crate::view::controls::map_input::{MapEntryLayout, MapLayout};
     use crate::view::controls::FocusState;
@@ -820,12 +826,44 @@ fn render_map_partial(
 
     // Add-new row
     let add_row_area = if y < area.y + area.height && content_row >= skip_rows {
-        let add_line = Line::from(vec![
-            Span::raw(" ".repeat(indent as usize)),
-            Span::styled("[+] Add new", Style::default().fg(colors.add_button)),
-        ]);
         let row_area = Rect::new(area.x, y, area.width, 1);
-        frame.render_widget(Paragraph::new(add_line), row_area);
+
+        // Show text input when editing, otherwise show "[+] Add new" button
+        if editing_text && state.focused_entry.is_none() {
+            // Render text input field for new entry key
+            let field_width = key_width.min(area.width.saturating_sub(indent + 4));
+            let text = &state.new_key_text;
+            let cursor_pos = state.cursor;
+
+            // Pad or truncate text to field width
+            let display_text = if text.len() >= field_width as usize {
+                &text[..field_width as usize]
+            } else {
+                text.as_str()
+            };
+            let padding = field_width as usize - display_text.len();
+            let padded = format!("{}{}", display_text, " ".repeat(padding));
+
+            let add_line = Line::from(vec![
+                Span::raw(" ".repeat(indent as usize)),
+                Span::styled("[", Style::default().fg(colors.border)),
+                Span::styled(padded, Style::default().fg(colors.key).add_modifier(ratatui::style::Modifier::UNDERLINED)),
+                Span::styled("]", Style::default().fg(colors.border)),
+            ]);
+            frame.render_widget(Paragraph::new(add_line), row_area);
+
+            // Render cursor
+            let cursor_x = area.x + indent + 1 + cursor_pos as u16;
+            if cursor_x < area.x + area.width {
+                frame.set_cursor_position((cursor_x, y));
+            }
+        } else {
+            let add_line = Line::from(vec![
+                Span::raw(" ".repeat(indent as usize)),
+                Span::styled("[+] Add new", Style::default().fg(colors.add_button)),
+            ]);
+            frame.render_widget(Paragraph::new(add_line), row_area);
+        }
         Some(row_area)
     } else {
         None
