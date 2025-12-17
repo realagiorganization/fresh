@@ -240,6 +240,85 @@
             color: var(--accent-green);
         }
 
+        .quick-install {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .quick-install-row {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+        }
+
+        .mobile-only {
+            display: none;
+        }
+
+        .quick-install-label {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-light);
+            flex-shrink: 0;
+        }
+
+        .quick-install-cmd {
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+        }
+
+        .copied-popup {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--accent-green);
+            color: var(--bg-dark);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            z-index: 10;
+        }
+
+        .copied-popup.show {
+            opacity: 1;
+        }
+
+        .quick-install-cmd.copyable code {
+            font-size: 1.25rem;
+            overflow: hidden !important;
+            white-space: nowrap;
+        }
+
+        .quick-install-cmd:hover {
+            border-color: var(--accent-green);
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        .install-more-link {
+            color: var(--accent-green);
+            font-size: 1.25rem;
+            font-weight: 600;
+            white-space: nowrap;
+            text-decoration: underline;
+            text-underline-offset: 4px;
+            transition: all 0.2s;
+        }
+
+        .install-more-link:hover {
+            color: var(--text-light);
+        }
+
         /* Hero Screenshot */
         .hero-screenshot {
             max-width: 1000px;
@@ -698,12 +777,13 @@
             }
 
             .hero-features {
-                gap: 12px;
+                flex-direction: column;
+                gap: 8px;
                 margin-bottom: 20px;
             }
 
             .hero-feature {
-                font-size: 0.8rem;
+                font-size: 0.85rem;
             }
 
             .hero-content {
@@ -713,6 +793,29 @@
             .btn-download {
                 padding: 10px 20px;
                 font-size: 0.9rem;
+            }
+
+            .quick-install-row {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .desktop-only {
+                display: none;
+            }
+
+            .mobile-only {
+                display: inline;
+            }
+
+            .quick-install-label,
+            .quick-install-cmd.copyable code,
+            .install-more-link {
+                font-size: 1rem;
+            }
+
+            .quick-install-cmd.copyable {
+                width: 100%;
             }
         }
 
@@ -761,7 +864,7 @@
     <section class="hero">
         <div class="hero-content">
             <h1>Fresh</h1>
-            <p class="hero-tagline">A terminal text editor you can just use. Instant response, minimal footprint.</p>
+            <p class="hero-tagline">A terminal text editor you can just use.</p>
 
             <div class="hero-features">
                 <span class="hero-feature">Open source</span>
@@ -771,9 +874,19 @@
             </div>
 
             <div class="download-section">
-                <a href="#install" class="btn-download">
-                    Install Fresh
-                </a>
+                <div class="quick-install">
+                    <div class="quick-install-row">
+                        <span class="quick-install-label"><span class="desktop-only">Install:</span><span class="mobile-only">Run on desktop:</span></span>
+                        <div class="copyable quick-install-cmd" onclick="copyQuickInstall()">
+                            <code>curl .../install.sh | sh</code>
+                            <button class="copy-btn" onclick="event.stopPropagation(); copyQuickInstall()">
+                                <img src="docs/copy-icon.svg" alt="Copy">
+                            </button>
+                            <span class="copied-popup" id="copied-popup">Copied!</span>
+                        </div>
+                        <a href="#install" class="install-more-link">More options →</a>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -872,7 +985,7 @@
     <!-- Installation Section -->
     <section class="install-section" id="install">
         <div class="install-container">
-            <h2>Installation <a href="https://github.com/sinelaw/fresh?tab=readme-ov-file#installation" target="_blank" style="font-size: 0.6em; font-weight: 400;">more options →</a></h2>
+            <h2>Installation <a href="https://github.com/sinelaw/fresh?tab=readme-ov-file#installation" target="_blank" style="font-size: 0.6em; font-weight: 400; text-decoration: underline; text-underline-offset: 4px;">even more options →</a></h2>
             <div class="install-grid">
                 <div class="install-card">
                     <h3>macOS (Homebrew)</h3>
@@ -1019,6 +1132,15 @@
             navigator.clipboard.writeText(text).then(() => {
                 btn.classList.add('copied');
                 setTimeout(() => btn.classList.remove('copied'), 2000);
+            });
+        }
+
+        function copyQuickInstall() {
+            const text = 'curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh';
+            navigator.clipboard.writeText(text).then(() => {
+                const popup = document.getElementById('copied-popup');
+                popup.classList.add('show');
+                setTimeout(() => popup.classList.remove('show'), 1500);
             });
         }
 
