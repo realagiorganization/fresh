@@ -7,8 +7,9 @@ use super::layout::{SettingsHit, SettingsLayout};
 use super::search::SearchResult;
 use super::state::SettingsState;
 use crate::view::controls::{
-    render_dropdown, render_number_input, render_text_input, render_toggle, DropdownColors,
-    MapColors, NumberInputColors, TextInputColors, TextListColors, ToggleColors,
+    render_dropdown_aligned, render_number_input_aligned, render_text_input_aligned,
+    render_toggle_aligned, DropdownColors, MapColors, NumberInputColors, TextInputColors,
+    TextListColors, ToggleColors,
 };
 use crate::view::theme::Theme;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -275,6 +276,23 @@ fn render_settings_panel(
     // Get items reference for rendering
     let page = state.pages.get(state.selected_category).unwrap();
 
+    // Calculate max label width for column alignment (only for single-row controls)
+    let max_label_width = page
+        .items
+        .iter()
+        .filter_map(|item| {
+            // Only consider single-row controls for alignment
+            match &item.control {
+                SettingControl::Toggle(s) => Some(s.label.len() as u16),
+                SettingControl::Number(s) => Some(s.label.len() as u16),
+                SettingControl::Dropdown(s) => Some(s.label.len() as u16),
+                SettingControl::Text(s) => Some(s.label.len() as u16),
+                // Multi-row controls have their labels on separate lines
+                _ => None,
+            }
+        })
+        .max();
+
     // Use ScrollablePanel to render items with automatic scroll handling
     let panel_layout = state.scroll_panel.render(
         frame,
@@ -289,6 +307,7 @@ fn render_settings_panel(
                 info.skip_top,
                 &render_ctx,
                 theme,
+                max_label_width,
             )
         },
         theme,
@@ -318,6 +337,7 @@ fn render_settings_panel(
 ///
 /// # Arguments
 /// * `skip_top` - Number of rows to skip at top of item (for partial visibility when scrolling)
+/// * `label_width` - Optional label width for column alignment
 fn render_setting_item_pure(
     frame: &mut Frame,
     area: Rect,
@@ -326,6 +346,7 @@ fn render_setting_item_pure(
     skip_top: u16,
     ctx: &RenderContext,
     theme: &Theme,
+    label_width: Option<u16>,
 ) -> ControlLayoutInfo {
     let is_selected = ctx.settings_focused && idx == ctx.selected_item;
 
@@ -364,6 +385,7 @@ fn render_setting_item_pure(
         item.modified,
         skip_top,
         theme,
+        label_width,
     )
 }
 
@@ -373,6 +395,7 @@ fn render_setting_item_pure(
 /// * `name` - Setting name (for controls that render their own label)
 /// * `modified` - Whether the setting has been modified from default
 /// * `skip_rows` - Number of rows to skip at top of control (for partial visibility)
+/// * `label_width` - Optional label width for column alignment
 fn render_control(
     frame: &mut Frame,
     area: Rect,
@@ -381,6 +404,7 @@ fn render_control(
     modified: bool,
     skip_rows: u16,
     theme: &Theme,
+    label_width: Option<u16>,
 ) -> ControlLayoutInfo {
     match control {
         // Single-row controls: only render if not skipped
@@ -389,7 +413,7 @@ fn render_control(
                 return ControlLayoutInfo::Toggle(Rect::default());
             }
             let colors = ToggleColors::from_theme(theme);
-            let toggle_layout = render_toggle(frame, area, state, &colors);
+            let toggle_layout = render_toggle_aligned(frame, area, state, &colors, label_width);
             ControlLayoutInfo::Toggle(toggle_layout.full_area)
         }
 
@@ -402,7 +426,7 @@ fn render_control(
                 };
             }
             let colors = NumberInputColors::from_theme(theme);
-            let num_layout = render_number_input(frame, area, state, &colors);
+            let num_layout = render_number_input_aligned(frame, area, state, &colors, label_width);
             ControlLayoutInfo::Number {
                 decrement: num_layout.decrement_area,
                 increment: num_layout.increment_area,
@@ -415,7 +439,7 @@ fn render_control(
                 return ControlLayoutInfo::Dropdown(Rect::default());
             }
             let colors = DropdownColors::from_theme(theme);
-            let drop_layout = render_dropdown(frame, area, state, &colors);
+            let drop_layout = render_dropdown_aligned(frame, area, state, &colors, label_width);
             ControlLayoutInfo::Dropdown(drop_layout.button_area)
         }
 
@@ -424,7 +448,8 @@ fn render_control(
                 return ControlLayoutInfo::Text(Rect::default());
             }
             let colors = TextInputColors::from_theme(theme);
-            let text_layout = render_text_input(frame, area, state, &colors, 30);
+            let text_layout =
+                render_text_input_aligned(frame, area, state, &colors, 30, label_width);
             ControlLayoutInfo::Text(text_layout.input_area)
         }
 

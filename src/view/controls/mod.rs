@@ -28,17 +28,22 @@ pub mod text_list;
 pub mod toggle;
 
 pub use button::{render_button, ButtonColors, ButtonLayout, ButtonState};
-pub use dropdown::{render_dropdown, DropdownColors, DropdownLayout, DropdownState};
+pub use dropdown::{
+    render_dropdown, render_dropdown_aligned, DropdownColors, DropdownLayout, DropdownState,
+};
 pub use keybinding_list::{
     render_keybinding_list, KeybindingListColors, KeybindingListLayout, KeybindingListState,
 };
 pub use map_input::{render_map, MapColors, MapLayout, MapState};
 pub use number_input::{
-    render_number_input, NumberInputColors, NumberInputLayout, NumberInputState,
+    render_number_input, render_number_input_aligned, NumberInputColors, NumberInputLayout,
+    NumberInputState,
 };
-pub use text_input::{render_text_input, TextInputColors, TextInputLayout, TextInputState};
+pub use text_input::{
+    render_text_input, render_text_input_aligned, TextInputColors, TextInputLayout, TextInputState,
+};
 pub use text_list::{render_text_list, TextListColors, TextListLayout, TextListState};
-pub use toggle::{render_toggle, ToggleColors, ToggleLayout, ToggleState};
+pub use toggle::{render_toggle, render_toggle_aligned, ToggleColors, ToggleLayout, ToggleState};
 
 use ratatui::style::Color;
 

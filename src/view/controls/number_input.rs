@@ -254,6 +254,27 @@ pub fn render_number_input(
     state: &NumberInputState,
     colors: &NumberInputColors,
 ) -> NumberInputLayout {
+    render_number_input_aligned(frame, area, state, colors, None)
+}
+
+/// Render a number input control with optional label width alignment
+///
+/// # Arguments
+/// * `frame` - The ratatui frame to render to
+/// * `area` - Rectangle where the control should be rendered
+/// * `state` - The number input state
+/// * `colors` - Colors for rendering
+/// * `label_width` - Optional minimum label width for alignment
+///
+/// # Returns
+/// Layout information for hit testing
+pub fn render_number_input_aligned(
+    frame: &mut Frame,
+    area: Rect,
+    state: &NumberInputState,
+    colors: &NumberInputColors,
+    label_width: Option<u16>,
+) -> NumberInputLayout {
     let empty_layout = NumberInputLayout {
         value_area: Rect::default(),
         decrement_area: Rect::default(),
@@ -286,8 +307,12 @@ pub fn render_number_input(
         format!("{:^5}", value_str) // Center in 5 chars
     };
 
+    // Use provided label_width for alignment, or default to label length
+    let actual_label_width = label_width.unwrap_or(state.label.len() as u16);
+    let padded_label = format!("{:width$}", state.label, width = actual_label_width as usize);
+
     let line = Line::from(vec![
-        Span::styled(&state.label, Style::default().fg(label_color)),
+        Span::styled(padded_label, Style::default().fg(label_color)),
         Span::styled(": ", Style::default().fg(label_color)),
         Span::styled("[", Style::default().fg(border_color)),
         Span::styled(value_padded, Style::default().fg(value_color)),
@@ -302,8 +327,8 @@ pub fn render_number_input(
     frame.render_widget(paragraph, area);
 
     // Calculate layout positions
-    let label_width = state.label.len() as u16 + 2; // ": "
-    let value_start = area.x + label_width;
+    let final_label_width = actual_label_width + 2; // label + ": "
+    let value_start = area.x + final_label_width;
     let value_width = 7; // "[" + 5 chars + "]"
 
     let dec_start = value_start + value_width + 1;

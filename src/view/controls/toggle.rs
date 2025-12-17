@@ -120,6 +120,27 @@ pub fn render_toggle(
     state: &ToggleState,
     colors: &ToggleColors,
 ) -> ToggleLayout {
+    render_toggle_aligned(frame, area, state, colors, None)
+}
+
+/// Render a toggle control with optional label width alignment
+///
+/// # Arguments
+/// * `frame` - The ratatui frame to render to
+/// * `area` - Rectangle where the toggle should be rendered
+/// * `state` - The toggle state
+/// * `colors` - Colors for rendering
+/// * `label_width` - Optional minimum label width for alignment
+///
+/// # Returns
+/// Layout information for hit testing
+pub fn render_toggle_aligned(
+    frame: &mut Frame,
+    area: Rect,
+    state: &ToggleState,
+    colors: &ToggleColors,
+    label_width: Option<u16>,
+) -> ToggleLayout {
     if area.height == 0 || area.width < 4 {
         return ToggleLayout {
             checkbox_area: Rect::default(),
@@ -136,21 +157,25 @@ pub fn render_toggle(
 
     let checkbox = if state.checked { "[x]" } else { "[ ]" };
 
+    // Format: "Label: [x]" with optional padding
+    let actual_label_width = label_width.unwrap_or(state.label.len() as u16);
+    let padded_label = format!("{:width$}", state.label, width = actual_label_width as usize);
+
     let line = Line::from(vec![
+        Span::styled(padded_label, Style::default().fg(label_color)),
+        Span::styled(": ", Style::default().fg(label_color)),
         Span::styled(checkbox, Style::default().fg(bracket_color)),
-        Span::raw(" "),
-        Span::styled(&state.label, Style::default().fg(label_color)),
     ]);
 
     let paragraph = Paragraph::new(line);
     frame.render_widget(paragraph, area);
 
-    // Checkbox is the first 3 characters
-    let checkbox_area = Rect::new(area.x, area.y, 3.min(area.width), 1);
+    // Checkbox position after label
+    let checkbox_start = area.x + actual_label_width + 2; // label + ": "
+    let checkbox_area = Rect::new(checkbox_start, area.y, 3.min(area.width), 1);
 
-    // Full area is checkbox + space + label
-    let label_width = state.label.len() as u16;
-    let full_width = (4 + label_width).min(area.width);
+    // Full area is label + ": " + checkbox
+    let full_width = (actual_label_width + 2 + 3).min(area.width);
     let full_area = Rect::new(area.x, area.y, full_width, 1);
 
     ToggleLayout {
@@ -187,7 +212,7 @@ mod tests {
             let layout = render_toggle(frame, area, &state, &colors);
 
             assert_eq!(layout.checkbox_area.width, 3);
-            assert_eq!(layout.full_area.width, 10); // "[x] Enable"
+            assert_eq!(layout.full_area.width, 11); // "Enable: [x]"
         });
     }
 

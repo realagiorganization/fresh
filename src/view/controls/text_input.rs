@@ -210,6 +210,29 @@ pub fn render_text_input(
     colors: &TextInputColors,
     field_width: u16,
 ) -> TextInputLayout {
+    render_text_input_aligned(frame, area, state, colors, field_width, None)
+}
+
+/// Render a text input control with optional label width alignment
+///
+/// # Arguments
+/// * `frame` - The ratatui frame to render to
+/// * `area` - Rectangle where the control should be rendered
+/// * `state` - The text input state
+/// * `colors` - Colors for rendering
+/// * `field_width` - Width of the input field (not including label)
+/// * `label_width` - Optional minimum label width for alignment
+///
+/// # Returns
+/// Layout information for hit testing
+pub fn render_text_input_aligned(
+    frame: &mut Frame,
+    area: Rect,
+    state: &TextInputState,
+    colors: &TextInputColors,
+    field_width: u16,
+    label_width: Option<u16>,
+) -> TextInputLayout {
     let empty_layout = TextInputLayout {
         input_area: Rect::default(),
         full_area: area,
@@ -242,8 +265,10 @@ pub fn render_text_input(
         ),
     };
 
-    let label_width = state.label.len() as u16 + 2; // ": "
-    let actual_field_width = field_width.min(area.width.saturating_sub(label_width + 2)); // "[" + "]"
+    // Use provided label_width for alignment, or default to label length
+    let actual_label_width = label_width.unwrap_or(state.label.len() as u16);
+    let final_label_width = actual_label_width + 2; // label + ": "
+    let actual_field_width = field_width.min(area.width.saturating_sub(final_label_width + 2)); // "[" + "]"
 
     // Determine what text to display
     let (display_text, is_placeholder) = if state.value.is_empty() && !state.placeholder.is_empty()
@@ -275,8 +300,10 @@ pub fn render_text_input(
         Style::default().fg(text_color)
     };
 
+    let padded_label = format!("{:width$}", state.label, width = actual_label_width as usize);
+
     let line = Line::from(vec![
-        Span::styled(&state.label, Style::default().fg(label_color)),
+        Span::styled(padded_label, Style::default().fg(label_color)),
         Span::styled(": ", Style::default().fg(label_color)),
         Span::styled("[", Style::default().fg(border_color)),
         Span::styled(padded, text_style),
@@ -286,7 +313,7 @@ pub fn render_text_input(
     let paragraph = Paragraph::new(line);
     frame.render_widget(paragraph, area);
 
-    let input_start = area.x + label_width;
+    let input_start = area.x + final_label_width;
     let input_area = Rect::new(input_start, area.y, actual_field_width + 2, 1);
 
     // Calculate cursor position if focused

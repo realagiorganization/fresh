@@ -254,6 +254,27 @@ pub fn render_dropdown(
     state: &DropdownState,
     colors: &DropdownColors,
 ) -> DropdownLayout {
+    render_dropdown_aligned(frame, area, state, colors, None)
+}
+
+/// Render a dropdown control with optional label width alignment
+///
+/// # Arguments
+/// * `frame` - The ratatui frame to render to
+/// * `area` - Rectangle where the control should be rendered
+/// * `state` - The dropdown state
+/// * `colors` - Colors for rendering
+/// * `label_width` - Optional minimum label width for alignment
+///
+/// # Returns
+/// Layout information for hit testing
+pub fn render_dropdown_aligned(
+    frame: &mut Frame,
+    area: Rect,
+    state: &DropdownState,
+    colors: &DropdownColors,
+    label_width: Option<u16>,
+) -> DropdownLayout {
     let empty_layout = DropdownLayout {
         button_area: Rect::default(),
         option_areas: Vec::new(),
@@ -293,8 +314,12 @@ pub fn render_dropdown(
 
     let arrow = if state.open { "▲" } else { "▼" };
 
+    // Use provided label_width for alignment, or default to label length
+    let actual_label_width = label_width.unwrap_or(state.label.len() as u16);
+    let padded_label = format!("{:width$}", state.label, width = actual_label_width as usize);
+
     let line = Line::from(vec![
-        Span::styled(&state.label, Style::default().fg(label_color)),
+        Span::styled(padded_label, Style::default().fg(label_color)),
         Span::styled(": ", Style::default().fg(label_color)),
         Span::styled("[", Style::default().fg(border_color)),
         Span::styled(padded, Style::default().fg(selected_color)),
@@ -306,8 +331,8 @@ pub fn render_dropdown(
     let paragraph = Paragraph::new(line);
     frame.render_widget(paragraph, area);
 
-    let label_width = state.label.len() as u16 + 2; // ": "
-    let button_start = area.x + label_width;
+    let final_label_width = actual_label_width + 2; // label + ": "
+    let button_start = area.x + final_label_width;
     let button_width = display_width as u16 + 4; // "[" + text + " " + arrow + "]"
 
     let mut option_areas = Vec::new();
