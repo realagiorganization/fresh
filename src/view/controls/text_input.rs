@@ -300,7 +300,11 @@ pub fn render_text_input_aligned(
         Style::default().fg(text_color)
     };
 
-    let padded_label = format!("{:width$}", state.label, width = actual_label_width as usize);
+    let padded_label = format!(
+        "{:width$}",
+        state.label,
+        width = actual_label_width as usize
+    );
 
     let line = Line::from(vec![
         Span::styled(padded_label, Style::default().fg(label_color)),

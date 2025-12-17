@@ -415,9 +415,8 @@ impl Editor {
                     }
                     crossterm::event::KeyCode::Enter => {
                         // Check if we're on a Map entry that should open entry dialog
-                        let should_open_entry_dialog = self.settings_state.as_ref().map_or(
-                            false,
-                            |s| {
+                        let should_open_entry_dialog =
+                            self.settings_state.as_ref().map_or(false, |s| {
                                 use crate::view::settings::items::SettingControl;
                                 if let Some(item) = s.current_item() {
                                     if let SettingControl::Map(map_state) = &item.control {
@@ -431,8 +430,7 @@ impl Editor {
                                     }
                                 }
                                 false
-                            },
-                        );
+                            });
 
                         if should_open_entry_dialog {
                             if let Some(ref mut state) = self.settings_state {
@@ -4159,7 +4157,9 @@ impl Editor {
             .as_ref()
             .and_then(|s| s.entry_dialog.as_ref())
             .and_then(|d| d.current_field())
-            .map_or(false, |f| matches!(f.value, FieldValue::Dropdown { open: true, .. }));
+            .map_or(false, |f| {
+                matches!(f.value, FieldValue::Dropdown { open: true, .. })
+            });
 
         if dropdown_open {
             match code {
@@ -4205,9 +4205,9 @@ impl Editor {
                 if let Some(ref mut state) = self.settings_state {
                     if let Some(ref mut dialog) = state.entry_dialog {
                         // Check if current field is a string list for internal navigation
-                        let is_list_nav = dialog.current_field().map_or(false, |f| {
-                            matches!(f.value, FieldValue::StringList { .. })
-                        });
+                        let is_list_nav = dialog
+                            .current_field()
+                            .map_or(false, |f| matches!(f.value, FieldValue::StringList { .. }));
                         if is_list_nav && !dialog.focus_on_buttons {
                             dialog.list_prev();
                         } else {
@@ -4220,9 +4220,9 @@ impl Editor {
                 if let Some(ref mut state) = self.settings_state {
                     if let Some(ref mut dialog) = state.entry_dialog {
                         // Check if current field is a string list for internal navigation
-                        let is_list_nav = dialog.current_field().map_or(false, |f| {
-                            matches!(f.value, FieldValue::StringList { .. })
-                        });
+                        let is_list_nav = dialog
+                            .current_field()
+                            .map_or(false, |f| matches!(f.value, FieldValue::StringList { .. }));
                         if is_list_nav && !dialog.focus_on_buttons {
                             dialog.list_next();
                         } else {

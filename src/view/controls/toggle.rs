@@ -159,7 +159,11 @@ pub fn render_toggle_aligned(
 
     // Format: "Label: [x]" with optional padding
     let actual_label_width = label_width.unwrap_or(state.label.len() as u16);
-    let padded_label = format!("{:width$}", state.label, width = actual_label_width as usize);
+    let padded_label = format!(
+        "{:width$}",
+        state.label,
+        width = actual_label_width as usize
+    );
 
     let line = Line::from(vec![
         Span::styled(padded_label, Style::default().fg(label_color)),

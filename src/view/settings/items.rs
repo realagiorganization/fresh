@@ -3,12 +3,12 @@
 //! Converts schema information into renderable setting items.
 
 use super::schema::{SettingCategory, SettingSchema, SettingType};
-use std::collections::HashSet;
 use crate::view::controls::{
     DropdownState, KeybindingListState, MapState, NumberInputState, TextInputState, TextListState,
     ToggleState,
 };
 use crate::view::ui::{FocusRegion, ScrollItem};
+use std::collections::HashSet;
 
 /// A renderable setting item
 #[derive(Debug, Clone)]
@@ -155,9 +155,9 @@ pub fn clean_description(name: &str, description: Option<&str>) -> Option<String
 
     // Common filler words to ignore when checking for new info
     let filler_words: HashSet<&str> = [
-        "the", "a", "an", "to", "for", "of", "in", "on", "is", "are", "be", "and", "or",
-        "when", "whether", "if", "this", "that", "with", "from", "by", "as", "at",
-        "show", "enable", "disable", "set", "use", "allow", "default", "true", "false",
+        "the", "a", "an", "to", "for", "of", "in", "on", "is", "are", "be", "and", "or", "when",
+        "whether", "if", "this", "that", "with", "from", "by", "as", "at", "show", "enable",
+        "disable", "set", "use", "allow", "default", "true", "false",
     ]
     .into_iter()
     .collect();

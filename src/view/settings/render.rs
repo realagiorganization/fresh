@@ -435,7 +435,12 @@ fn render_setting_item_pure(
     // Calculate control height and area
     let control_height = item.control.control_height();
     let visible_control_height = control_height.saturating_sub(skip_top);
-    let control_area = Rect::new(area.x, area.y, area.width, visible_control_height.min(area.height));
+    let control_area = Rect::new(
+        area.x,
+        area.y,
+        area.width,
+        visible_control_height.min(area.height),
+    );
 
     // Render the control
     let layout = render_control(
@@ -565,7 +570,8 @@ fn render_control(
 
         SettingControl::Map(state) => {
             let colors = MapColors::from_theme(theme);
-            let map_layout = render_map_partial(frame, area, state, &colors, 20, skip_rows, editing_text);
+            let map_layout =
+                render_map_partial(frame, area, state, &colors, 20, skip_rows, editing_text);
             ControlLayoutInfo::Map {
                 entry_rows: map_layout.entry_areas.iter().map(|e| e.row_area).collect(),
             }
@@ -847,7 +853,12 @@ fn render_map_partial(
             let add_line = Line::from(vec![
                 Span::raw(" ".repeat(indent as usize)),
                 Span::styled("[", Style::default().fg(colors.border)),
-                Span::styled(padded, Style::default().fg(colors.key).add_modifier(ratatui::style::Modifier::UNDERLINED)),
+                Span::styled(
+                    padded,
+                    Style::default()
+                        .fg(colors.key)
+                        .add_modifier(ratatui::style::Modifier::UNDERLINED),
+                ),
                 Span::styled("]", Style::default().fg(colors.border)),
             ]);
             frame.render_widget(Paragraph::new(add_line), row_area);
@@ -914,7 +925,10 @@ fn render_keybinding_list_partial(
             format!("{}{}:", modified_indicator, state.label),
             Style::default().fg(colors.label_fg),
         )]);
-        frame.render_widget(Paragraph::new(label_line), Rect::new(area.x, y, area.width, 1));
+        frame.render_widget(
+            Paragraph::new(label_line),
+            Rect::new(area.x, y, area.width, 1),
+        );
         y += 1;
     }
     content_row += 1;
@@ -1448,12 +1462,7 @@ fn render_confirm_dialog(
 }
 
 /// Render the entry detail dialog for editing Language/LSP/Keybinding entries
-fn render_entry_dialog(
-    frame: &mut Frame,
-    parent_area: Rect,
-    state: &SettingsState,
-    theme: &Theme,
-) {
+fn render_entry_dialog(frame: &mut Frame, parent_area: Rect, state: &SettingsState, theme: &Theme) {
     use super::entry_dialog::FieldValue;
 
     let Some(dialog) = &state.entry_dialog else {
@@ -1521,7 +1530,11 @@ fn render_entry_dialog(
         let wrap_value = label_len > max_label_width;
 
         // Render label (full width if wrapping, or column width if inline)
-        let label_area_width = if wrap_value { inner.width } else { label_col_width };
+        let label_area_width = if wrap_value {
+            inner.width
+        } else {
+            label_col_width
+        };
         let display_label = if wrap_value {
             label.clone()
         } else {
@@ -1543,7 +1556,11 @@ fn render_entry_dialog(
             (inner.x + 2, inner.width.saturating_sub(2), y)
         } else {
             // Value inline after label column
-            (inner.x + label_col_width, inner.width.saturating_sub(label_col_width), y)
+            (
+                inner.x + label_col_width,
+                inner.width.saturating_sub(label_col_width),
+                y,
+            )
         };
         let control_area = Rect::new(control_x, control_y, control_width, 1);
 
@@ -1566,16 +1583,46 @@ fn render_entry_dialog(
                 );
             }
 
-            FieldValue::Text { value, cursor, editing } => {
-                render_dialog_text_field(frame, control_area, value, *cursor, *editing, is_focused, theme);
+            FieldValue::Text {
+                value,
+                cursor,
+                editing,
+            } => {
+                render_dialog_text_field(
+                    frame,
+                    control_area,
+                    value,
+                    *cursor,
+                    *editing,
+                    is_focused,
+                    theme,
+                );
             }
 
-            FieldValue::OptionalText { value, cursor, editing } => {
+            FieldValue::OptionalText {
+                value,
+                cursor,
+                editing,
+            } => {
                 let display = value.as_deref().unwrap_or("(none)");
-                render_dialog_text_field(frame, control_area, display, *cursor, *editing, is_focused, theme);
+                render_dialog_text_field(
+                    frame,
+                    control_area,
+                    display,
+                    *cursor,
+                    *editing,
+                    is_focused,
+                    theme,
+                );
             }
 
-            FieldValue::StringList { items, focused_index, new_text, cursor: _, editing } => {
+            FieldValue::StringList {
+                items,
+                focused_index,
+                new_text,
+                cursor: _,
+                editing,
+            } => {
                 // Render as compact inline list: [item1, item2, ...]  [+ Add]
                 let items_str = if items.is_empty() {
                     "(empty)".to_string()
@@ -1597,10 +1644,7 @@ fn render_entry_dialog(
                     items_str
                 };
 
-                frame.render_widget(
-                    Paragraph::new(display).style(style),
-                    control_area,
-                );
+                frame.render_widget(Paragraph::new(display).style(style), control_area);
 
                 // Show list items on next lines if focused
                 if is_focused && !items.is_empty() {
@@ -1642,12 +1686,33 @@ fn render_entry_dialog(
                 }
             }
 
-            FieldValue::Integer { value, editing, text, .. } => {
-                let display = if *editing { text.clone() } else { value.to_string() };
-                render_dialog_text_field(frame, control_area, &display, display.len(), *editing, is_focused, theme);
+            FieldValue::Integer {
+                value,
+                editing,
+                text,
+                ..
+            } => {
+                let display = if *editing {
+                    text.clone()
+                } else {
+                    value.to_string()
+                };
+                render_dialog_text_field(
+                    frame,
+                    control_area,
+                    &display,
+                    display.len(),
+                    *editing,
+                    is_focused,
+                    theme,
+                );
             }
 
-            FieldValue::Dropdown { options, selected, open } => {
+            FieldValue::Dropdown {
+                options,
+                selected,
+                open,
+            } => {
                 let current = options.get(*selected).map(|s| s.as_str()).unwrap_or("");
                 let style = if is_focused {
                     Style::default().fg(theme.menu_highlight_fg)
@@ -1688,10 +1753,7 @@ fn render_entry_dialog(
                     _ => "{}".to_string(),
                 };
                 let style = Style::default().fg(theme.line_number_fg);
-                frame.render_widget(
-                    Paragraph::new(preview).style(style),
-                    control_area,
-                );
+                frame.render_widget(Paragraph::new(preview).style(style), control_area);
             }
         }
 
@@ -1726,7 +1788,12 @@ fn render_entry_dialog(
     let help_style = Style::default().fg(theme.line_number_fg);
     frame.render_widget(
         Paragraph::new(help).style(help_style),
-        Rect::new(dialog_area.x + 2, button_y + 1, dialog_area.width.saturating_sub(4), 1),
+        Rect::new(
+            dialog_area.x + 2,
+            button_y + 1,
+            dialog_area.width.saturating_sub(4),
+            1,
+        ),
     );
 }
 
@@ -1756,10 +1823,7 @@ fn render_dialog_text_field(
         value.to_string()
     };
 
-    frame.render_widget(
-        Paragraph::new(format!("[{}]", display)).style(style),
-        area,
-    );
+    frame.render_widget(Paragraph::new(format!("[{}]", display)).style(style), area);
 
     // Show cursor if editing
     if editing && cursor <= display.len() && cursor < area.width.saturating_sub(1) as usize {

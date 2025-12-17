@@ -502,7 +502,8 @@ impl SettingsState {
         };
         let path = item.path.clone();
 
-        let dialog = EntryDialogState::from_schema(key, &serde_json::json!({}), schema, &path, true);
+        let dialog =
+            EntryDialogState::from_schema(key, &serde_json::json!({}), schema, &path, true);
         self.entry_dialog = Some(dialog);
     }
 
@@ -531,7 +532,9 @@ impl SettingsState {
                 {
                     entry.1 = value.clone();
                 } else {
-                    map_state.entries.push((dialog.entry_key.clone(), value.clone()));
+                    map_state
+                        .entries
+                        .push((dialog.entry_key.clone(), value.clone()));
                     map_state.entries.sort_by(|a, b| a.0.cmp(&b.0));
                 }
             }

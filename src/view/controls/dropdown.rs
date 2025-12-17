@@ -316,7 +316,11 @@ pub fn render_dropdown_aligned(
 
     // Use provided label_width for alignment, or default to label length
     let actual_label_width = label_width.unwrap_or(state.label.len() as u16);
-    let padded_label = format!("{:width$}", state.label, width = actual_label_width as usize);
+    let padded_label = format!(
+        "{:width$}",
+        state.label,
+        width = actual_label_width as usize
+    );
 
     let line = Line::from(vec![
         Span::styled(padded_label, Style::default().fg(label_color)),

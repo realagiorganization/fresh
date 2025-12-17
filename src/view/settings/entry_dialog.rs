@@ -231,11 +231,18 @@ impl EntryDialogState {
                     *editing = true;
                     *cursor = value.as_ref().map_or(0, |s| s.len());
                 }
-                FieldValue::StringList { editing, cursor, .. } => {
+                FieldValue::StringList {
+                    editing, cursor, ..
+                } => {
                     *editing = true;
                     *cursor = 0;
                 }
-                FieldValue::Integer { editing, text, value, .. } => {
+                FieldValue::Integer {
+                    editing,
+                    text,
+                    value,
+                    ..
+                } => {
                     *editing = true;
                     *text = value.to_string();
                 }
@@ -251,7 +258,12 @@ impl EntryDialogState {
                 FieldValue::Text { editing, .. } => *editing = false,
                 FieldValue::OptionalText { editing, .. } => *editing = false,
                 FieldValue::StringList { editing, .. } => *editing = false,
-                FieldValue::Integer { editing, text, value, .. } => {
+                FieldValue::Integer {
+                    editing,
+                    text,
+                    value,
+                    ..
+                } => {
                     *editing = false;
                     if let Ok(n) = text.parse::<i64>() {
                         *value = n;
@@ -369,11 +381,15 @@ impl EntryDialogState {
     pub fn cursor_left(&mut self) {
         if let Some(field) = self.current_field_mut() {
             match &mut field.value {
-                FieldValue::Text { cursor, editing, .. }
-                | FieldValue::OptionalText { cursor, editing, .. }
-                | FieldValue::StringList { cursor, editing, .. }
-                    if *editing && *cursor > 0 =>
-                {
+                FieldValue::Text {
+                    cursor, editing, ..
+                }
+                | FieldValue::OptionalText {
+                    cursor, editing, ..
+                }
+                | FieldValue::StringList {
+                    cursor, editing, ..
+                } if *editing && *cursor > 0 => {
                     *cursor -= 1;
                 }
                 _ => {}
@@ -540,9 +556,7 @@ fn field_to_value(field: &FieldValue) -> Value {
     match field {
         FieldValue::Bool(b) => Value::Bool(*b),
         FieldValue::Text { value, .. } => Value::String(value.clone()),
-        FieldValue::OptionalText { value, .. } => {
-            value.clone().map_or(Value::Null, Value::String)
-        }
+        FieldValue::OptionalText { value, .. } => value.clone().map_or(Value::Null, Value::String),
         FieldValue::StringList { items, .. } => {
             Value::Array(items.iter().map(|s| Value::String(s.clone())).collect())
         }
@@ -648,10 +662,7 @@ fn build_field_from_property(prop: &SettingSchema, value: Option<&Value>) -> Dia
                 .or_else(|| prop.default.as_ref().and_then(|d| d.as_str()))
                 .unwrap_or("");
             let option_values: Vec<String> = options.iter().map(|o| o.value.clone()).collect();
-            let selected = option_values
-                .iter()
-                .position(|v| v == current)
-                .unwrap_or(0);
+            let selected = option_values.iter().position(|v| v == current).unwrap_or(0);
             FieldValue::Dropdown {
                 options: options.iter().map(|o| o.name.clone()).collect(),
                 selected,
@@ -688,9 +699,9 @@ fn build_field_from_property(prop: &SettingSchema, value: Option<&Value>) -> Dia
 
         SettingType::Object { .. } | SettingType::Map { .. } | SettingType::Complex => {
             // For complex nested objects, store as JSON for now
-            let json = value.cloned().unwrap_or_else(|| {
-                prop.default.clone().unwrap_or(serde_json::json!({}))
-            });
+            let json = value
+                .cloned()
+                .unwrap_or_else(|| prop.default.clone().unwrap_or(serde_json::json!({})));
             FieldValue::Object {
                 json,
                 expanded: false,
@@ -816,7 +827,9 @@ mod tests {
         let field = build_field_from_property(&schema, Some(&json!(50)));
 
         match field.value {
-            FieldValue::Integer { value, min, max, .. } => {
+            FieldValue::Integer {
+                value, min, max, ..
+            } => {
                 assert_eq!(value, 50);
                 assert_eq!(min, Some(1));
                 assert_eq!(max, Some(100));
@@ -852,7 +865,10 @@ mod tests {
         let schema = prop("comment", SettingType::String);
         let field = build_field_from_property(&schema, Some(&Value::Null));
 
-        assert!(matches!(field.value, FieldValue::OptionalText { value: None, .. }));
+        assert!(matches!(
+            field.value,
+            FieldValue::OptionalText { value: None, .. }
+        ));
     }
 
     #[test]
@@ -860,7 +876,10 @@ mod tests {
         let schema = prop_with_default("comment", SettingType::String, Value::Null);
         let field = build_field_from_property(&schema, None);
 
-        assert!(matches!(field.value, FieldValue::OptionalText { value: None, .. }));
+        assert!(matches!(
+            field.value,
+            FieldValue::OptionalText { value: None, .. }
+        ));
     }
 
     #[test]
@@ -895,16 +914,27 @@ mod tests {
             "mode",
             SettingType::Enum {
                 options: vec![
-                    EnumOption { name: "Auto".to_string(), value: "auto".to_string() },
-                    EnumOption { name: "Manual".to_string(), value: "manual".to_string() },
-                    EnumOption { name: "Off".to_string(), value: "off".to_string() },
+                    EnumOption {
+                        name: "Auto".to_string(),
+                        value: "auto".to_string(),
+                    },
+                    EnumOption {
+                        name: "Manual".to_string(),
+                        value: "manual".to_string(),
+                    },
+                    EnumOption {
+                        name: "Off".to_string(),
+                        value: "off".to_string(),
+                    },
                 ],
             },
         );
         let field = build_field_from_property(&schema, Some(&json!("manual")));
 
         match field.value {
-            FieldValue::Dropdown { selected, options, .. } => {
+            FieldValue::Dropdown {
+                selected, options, ..
+            } => {
                 assert_eq!(selected, 1);
                 assert_eq!(options, vec!["Auto", "Manual", "Off"]);
             }
@@ -918,8 +948,14 @@ mod tests {
             "mode",
             SettingType::Enum {
                 options: vec![
-                    EnumOption { name: "A".to_string(), value: "a".to_string() },
-                    EnumOption { name: "B".to_string(), value: "b".to_string() },
+                    EnumOption {
+                        name: "A".to_string(),
+                        value: "a".to_string(),
+                    },
+                    EnumOption {
+                        name: "B".to_string(),
+                        value: "b".to_string(),
+                    },
                 ],
             },
         );
@@ -979,7 +1015,13 @@ mod tests {
         let schema = prop(
             "limits",
             SettingType::Object {
-                properties: vec![prop("max", SettingType::Integer { minimum: None, maximum: None })],
+                properties: vec![prop(
+                    "max",
+                    SettingType::Integer {
+                        minimum: None,
+                        maximum: None,
+                    },
+                )],
             },
         );
         let value = json!({"max": 100, "extra": "data"});
@@ -1076,13 +1118,8 @@ mod tests {
             default: None,
         };
 
-        let dialog = EntryDialogState::from_schema(
-            "python".to_string(),
-            &json!({}),
-            &schema,
-            "/lsp",
-            true,
-        );
+        let dialog =
+            EntryDialogState::from_schema("python".to_string(), &json!({}), &schema, "/lsp", true);
 
         assert_eq!(dialog.title, "New LspConfig");
         assert!(dialog.is_new);
@@ -1097,14 +1134,22 @@ mod tests {
             setting_type: SettingType::Object {
                 properties: vec![
                     prop("enabled", SettingType::Boolean),
-                    prop_with_default("count", SettingType::Integer { minimum: None, maximum: None }, json!(10)),
+                    prop_with_default(
+                        "count",
+                        SettingType::Integer {
+                            minimum: None,
+                            maximum: None,
+                        },
+                        json!(10),
+                    ),
                 ],
             },
             default: None,
         };
 
         let value = json!({"enabled": true});
-        let dialog = EntryDialogState::from_schema("test".to_string(), &value, &schema, "/test", false);
+        let dialog =
+            EntryDialogState::from_schema("test".to_string(), &value, &schema, "/test", false);
 
         assert_eq!(dialog.fields.len(), 2);
 
