@@ -878,7 +878,7 @@
                     <div class="quick-install-row">
                         <span class="quick-install-label"><span class="desktop-only">Install:</span><span class="mobile-only">Run on desktop:</span></span>
                         <div class="copyable quick-install-cmd" onclick="copyQuickInstall()">
-                            <code>curl .../install.sh | sh</code>
+                            <code id="install-cmd-display">curl .../install.sh | sh</code>
                             <button class="copy-btn" onclick="event.stopPropagation(); copyQuickInstall()">
                                 <img src="docs/copy-icon.svg" alt="Copy">
                             </button>
@@ -1135,14 +1135,50 @@
             });
         }
 
+        const installCommands = {
+            linux: {
+                display: 'curl .../install.sh | sh',
+                full: 'curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh'
+            },
+            mac: {
+                display: 'brew install sinelaw/fresh/fresh-editor',
+                full: 'brew install sinelaw/fresh/fresh-editor'
+            },
+            windows: {
+                display: 'npm i -g @fresh-editor/fresh-editor',
+                full: 'npm install -g @fresh-editor/fresh-editor'
+            }
+        };
+
+        function detectOS() {
+            const platform = navigator.platform.toLowerCase();
+            const userAgent = navigator.userAgent.toLowerCase();
+            if (platform.includes('win')) return 'windows';
+            if (platform.includes('mac') || userAgent.includes('mac')) return 'mac';
+            return 'linux';
+        }
+
+        const detectedOS = detectOS();
+
+        function updateInstallCommand() {
+            const cmd = installCommands[detectedOS];
+            const display = document.getElementById('install-cmd-display');
+            if (display && cmd) {
+                display.textContent = cmd.display;
+            }
+        }
+
         function copyQuickInstall() {
-            const text = 'curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh';
-            navigator.clipboard.writeText(text).then(() => {
+            const cmd = installCommands[detectedOS];
+            navigator.clipboard.writeText(cmd.full).then(() => {
                 const popup = document.getElementById('copied-popup');
                 popup.classList.add('show');
                 setTimeout(() => popup.classList.remove('show'), 1500);
             });
         }
+
+        // Update command on page load
+        updateInstallCommand();
 
         // Smooth scroll for anchor links
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
