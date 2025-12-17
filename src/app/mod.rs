@@ -1843,6 +1843,12 @@ impl Editor {
             return;
         }
 
+        // When Categories panel is focused, Enter does nothing to settings controls
+        // (keys should not leak to the right panel)
+        if focus_panel == FocusPanel::Categories {
+            return;
+        }
+
         // Get the current item's control type to determine action
         let control_type = {
             if let Some(ref state) = self.settings_state {
@@ -1951,6 +1957,11 @@ impl Editor {
             return;
         }
 
+        // When Categories panel is focused, Left/Right don't affect settings controls
+        if focus_panel == FocusPanel::Categories {
+            return;
+        }
+
         let control_type = {
             if let Some(ref state) = self.settings_state {
                 state.current_item().map(|item| match &item.control {
@@ -2009,6 +2020,11 @@ impl Editor {
                     state.footer_button_index - 1
                 };
             }
+            return;
+        }
+
+        // When Categories panel is focused, Left/Right don't affect settings controls
+        if focus_panel == FocusPanel::Categories {
             return;
         }
 
