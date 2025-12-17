@@ -113,18 +113,34 @@ pub fn render_settings(
     // Render footer with buttons
     render_footer(frame, modal_area, state, theme, &mut layout);
 
+    // Determine the topmost dialog layer and apply dimming to layers below
+    let has_confirm = state.showing_confirm_dialog;
+    let has_entry = state.showing_entry_dialog();
+    let has_help = state.showing_help;
+
     // Render confirmation dialog if showing
-    if state.showing_confirm_dialog {
+    if has_confirm {
+        // Dim the main settings modal if confirm is showing
+        // (but only if confirm is the topmost, otherwise entry/help dialog will dim it)
+        if !has_entry && !has_help {
+            crate::view::dimming::apply_dimming(frame, modal_area);
+        }
         render_confirm_dialog(frame, modal_area, state, theme);
     }
 
     // Render entry detail dialog if showing
-    if state.showing_entry_dialog() {
+    if has_entry {
+        // Dim everything below (including confirm dialog if visible)
+        if !has_help {
+            crate::view::dimming::apply_dimming(frame, modal_area);
+        }
         render_entry_dialog(frame, modal_area, state, theme);
     }
 
     // Render help overlay if showing
-    if state.showing_help {
+    if has_help {
+        // Help is topmost, dim everything below
+        crate::view::dimming::apply_dimming(frame, modal_area);
         render_help_overlay(frame, modal_area, theme);
     }
 

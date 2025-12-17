@@ -659,6 +659,16 @@ impl Editor {
             .set(context_keys::HAS_SELECTION, has_selection);
 
         // Render settings modal (before menu bar so menus can overlay)
+        // Check visibility first to avoid borrow conflict with dimming
+        let settings_visible = self
+            .settings_state
+            .as_ref()
+            .map(|s| s.visible)
+            .unwrap_or(false);
+        if settings_visible {
+            // Dim the editor content behind the settings modal
+            crate::view::dimming::apply_dimming(frame, size);
+        }
         if let Some(ref mut settings_state) = self.settings_state {
             if settings_state.visible {
                 settings_state.update_focus_states();
@@ -727,68 +737,8 @@ impl Editor {
         frame: &mut Frame,
         terminal_area: ratatui::layout::Rect,
     ) {
-        use ratatui::style::Color;
-
         let size = frame.area();
-        let buf = frame.buffer_mut();
-
-        // Helper to dim a color by reducing its brightness
-        let dim_color = |color: Color| -> Color {
-            match color {
-                Color::Rgb(r, g, b) => {
-                    // Reduce brightness by 60%
-                    Color::Rgb(r / 3, g / 3, b / 3)
-                }
-                Color::Indexed(idx) => {
-                    // For indexed colors, just use dark gray
-                    if idx == 0 {
-                        Color::Rgb(10, 10, 10)
-                    } else {
-                        Color::Rgb(40, 40, 40)
-                    }
-                }
-                Color::Black => Color::Rgb(10, 10, 10),
-                Color::White => Color::Rgb(85, 85, 85),
-                Color::Red => Color::Rgb(60, 20, 20),
-                Color::Green => Color::Rgb(20, 60, 20),
-                Color::Yellow => Color::Rgb(60, 60, 20),
-                Color::Blue => Color::Rgb(20, 20, 60),
-                Color::Magenta => Color::Rgb(60, 20, 60),
-                Color::Cyan => Color::Rgb(20, 60, 60),
-                Color::Gray => Color::Rgb(40, 40, 40),
-                Color::DarkGray => Color::Rgb(20, 20, 20),
-                Color::LightRed => Color::Rgb(80, 30, 30),
-                Color::LightGreen => Color::Rgb(30, 80, 30),
-                Color::LightYellow => Color::Rgb(80, 80, 30),
-                Color::LightBlue => Color::Rgb(30, 30, 80),
-                Color::LightMagenta => Color::Rgb(80, 30, 80),
-                Color::LightCyan => Color::Rgb(30, 80, 80),
-                Color::Reset => Color::Rgb(30, 30, 30),
-            }
-        };
-
-        // Dim all cells outside the active terminal's content area
-        // This includes: menu bar, status bar, other splits, file explorer, tabs
-        for y in 0..size.height {
-            for x in 0..size.width {
-                // Skip cells inside the terminal content area (preserve terminal display)
-                if x >= terminal_area.x
-                    && x < terminal_area.x + terminal_area.width
-                    && y >= terminal_area.y
-                    && y < terminal_area.y + terminal_area.height
-                {
-                    continue;
-                }
-
-                if let Some(cell) = buf.cell_mut((x, y)) {
-                    let style = cell.style();
-                    let new_fg = style.fg.map(dim_color).unwrap_or(Color::Rgb(40, 40, 40));
-                    let new_bg = style.bg.map(dim_color).unwrap_or(Color::Rgb(15, 15, 15));
-                    cell.set_fg(new_fg);
-                    cell.set_bg(new_bg);
-                }
-            }
-        }
+        crate::view::dimming::apply_dimming_excluding(frame, size, Some(terminal_area));
     }
 
     /// Render hover highlights for interactive elements (separators, scrollbars)
