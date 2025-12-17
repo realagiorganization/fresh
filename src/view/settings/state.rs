@@ -479,29 +479,30 @@ impl SettingsState {
             return;
         };
 
-        // Create the appropriate dialog
-        let dialog = if path == "/languages" {
-            EntryDialogState::new_language(key.clone(), value, false)
-        } else if path == "/lsp" {
-            EntryDialogState::new_lsp(key.clone(), value, false)
-        } else {
-            return;
+        // Get the value schema for this map
+        let Some(schema) = map_state.value_schema.as_ref() else {
+            return; // No schema available, can't create dialog
         };
 
+        // Create dialog from schema
+        let dialog = EntryDialogState::from_schema(key.clone(), value, schema, &path, false);
         self.entry_dialog = Some(dialog);
     }
 
     /// Open entry dialog for adding a new entry
-    pub fn open_new_entry_dialog(&mut self, entry_type: &str, key: String) {
-        let dialog = match entry_type {
-            "language" => {
-                EntryDialogState::new_language(key, &serde_json::json!({}), true)
-            }
-            "lsp" => {
-                EntryDialogState::new_lsp(key, &serde_json::json!({}), true)
-            }
-            _ => return,
+    pub fn open_new_entry_dialog(&mut self, key: String) {
+        let Some(item) = self.current_item() else {
+            return;
         };
+        let SettingControl::Map(map_state) = &item.control else {
+            return;
+        };
+        let Some(schema) = map_state.value_schema.as_ref() else {
+            return;
+        };
+        let path = item.path.clone();
+
+        let dialog = EntryDialogState::from_schema(key, &serde_json::json!({}), schema, &path, true);
         self.entry_dialog = Some(dialog);
     }
 

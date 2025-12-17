@@ -1279,7 +1279,7 @@ fn render_entry_dialog(
     state: &SettingsState,
     theme: &Theme,
 ) {
-    use super::entry_dialog::{EntryType, FieldValue};
+    use super::entry_dialog::FieldValue;
 
     let Some(dialog) = &state.entry_dialog else {
         return;
@@ -1296,17 +1296,7 @@ fn render_entry_dialog(
     // Clear and draw border
     frame.render_widget(Clear, dialog_area);
 
-    let title = match dialog.entry_type {
-        EntryType::Language => format!(" Edit Language: {} ", dialog.entry_key),
-        EntryType::Lsp => format!(" Edit LSP Server: {} ", dialog.entry_key),
-        EntryType::Keybinding => {
-            if dialog.is_new {
-                " New Keybinding ".to_string()
-            } else {
-                " Edit Keybinding ".to_string()
-            }
-        }
-    };
+    let title = format!(" {} ", dialog.title);
 
     let block = Block::default()
         .title(title)

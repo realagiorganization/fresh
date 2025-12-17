@@ -1890,24 +1890,15 @@ impl Editor {
                 }
             }
             Some("map") => {
-                // For Map controls: check if it's Languages or LSP to open entry dialog
-                let path = self
-                    .settings_state
-                    .as_ref()
-                    .and_then(|s| s.current_item())
-                    .map(|item| item.path.clone());
-
-                let is_editable_map = matches!(path.as_deref(), Some("/languages") | Some("/lsp"));
-
+                // For Map controls: check if map has a value schema (supports entry dialogs)
                 if let Some(ref mut state) = self.settings_state {
                     if let Some(item) = state.current_item_mut() {
                         if let SettingControl::Map(ref mut map_state) = item.control {
                             if map_state.focused_entry.is_none() {
                                 // On add-new row: start editing to add new entry
                                 state.start_editing();
-                            } else if is_editable_map {
-                                // For Languages/LSP: open entry dialog
-                                // (The open_entry_dialog doesn't use item, so we can just call it)
+                            } else if map_state.value_schema.is_some() {
+                                // Map has schema: open entry dialog
                                 state.open_entry_dialog();
                             } else {
                                 // For other maps: toggle expanded

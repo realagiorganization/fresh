@@ -1,20 +1,11 @@
-//! Entry detail dialog for editing Language, LSP, and Keybinding configurations
+//! Entry detail dialog for editing complex map entries
 //!
 //! Provides a modal dialog for editing complex map entries with proper controls.
+//! Fields are built dynamically from the JSON Schema.
 
 use crate::view::controls::FocusState;
+use crate::view::settings::schema::{SettingSchema, SettingType};
 use serde_json::Value;
-
-/// Type of entry being edited
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EntryType {
-    /// Language configuration entry
-    Language,
-    /// LSP server configuration entry
-    Lsp,
-    /// Keybinding entry
-    Keybinding,
-}
 
 /// A field in the entry dialog
 #[derive(Debug, Clone)]
@@ -97,12 +88,12 @@ impl FieldValue {
 /// State for the entry detail dialog
 #[derive(Debug, Clone)]
 pub struct EntryDialogState {
-    /// Type of entry being edited
-    pub entry_type: EntryType,
-    /// The entry key (e.g., "rust" for language, "save" for keybinding)
+    /// The entry key (e.g., "rust" for language)
     pub entry_key: String,
-    /// The map path this entry belongs to (e.g., "languages", "lsp")
+    /// The map path this entry belongs to (e.g., "/languages", "/lsp")
     pub map_path: String,
+    /// Human-readable title for the dialog
+    pub title: String,
     /// Whether this is a new entry (vs editing existing)
     pub is_new: bool,
     /// Fields in the dialog
@@ -116,317 +107,28 @@ pub struct EntryDialogState {
 }
 
 impl EntryDialogState {
-    /// Create a new dialog for editing a language config
-    pub fn new_language(key: String, value: &Value, is_new: bool) -> Self {
-        let fields = vec![
-            DialogField {
-                name: "extensions".to_string(),
-                label: "File Extensions".to_string(),
-                value: FieldValue::StringList {
-                    items: value
-                        .get("extensions")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    focused_index: None,
-                    new_text: String::new(),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("File extensions for this language (without dots)".to_string()),
-            },
-            DialogField {
-                name: "grammar".to_string(),
-                label: "Tree-sitter Grammar".to_string(),
-                value: FieldValue::Text {
-                    value: value
-                        .get("grammar")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("Tree-sitter grammar name for syntax highlighting".to_string()),
-            },
-            DialogField {
-                name: "comment_prefix".to_string(),
-                label: "Comment Prefix".to_string(),
-                value: FieldValue::OptionalText {
-                    value: value
-                        .get("comment_prefix")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("Line comment prefix (e.g., \"//\" or \"#\")".to_string()),
-            },
-            DialogField {
-                name: "auto_indent".to_string(),
-                label: "Auto Indent".to_string(),
-                value: FieldValue::Bool(
-                    value
-                        .get("auto_indent")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true),
-                ),
-                required: false,
-                description: Some("Automatically indent new lines".to_string()),
-            },
-            DialogField {
-                name: "highlighter".to_string(),
-                label: "Syntax Highlighter".to_string(),
-                value: FieldValue::Dropdown {
-                    options: vec![
-                        "auto".to_string(),
-                        "tree-sitter".to_string(),
-                        "textmate".to_string(),
-                    ],
-                    selected: match value
-                        .get("highlighter")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("auto")
-                    {
-                        "tree-sitter" => 1,
-                        "textmate" => 2,
-                        _ => 0,
-                    },
-                    open: false,
-                },
-                required: false,
-                description: Some("Which syntax highlighting backend to use".to_string()),
-            },
-            DialogField {
-                name: "textmate_grammar".to_string(),
-                label: "TextMate Grammar Path".to_string(),
-                value: FieldValue::OptionalText {
-                    value: value
-                        .get("textmate_grammar")
-                        .and_then(|v| v.as_str())
-                        .map(String::from),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("Path to custom TextMate grammar file".to_string()),
-            },
-        ];
+    /// Create a dialog from a schema definition
+    ///
+    /// This is the primary, schema-driven constructor. It builds fields
+    /// dynamically from the SettingSchema's properties.
+    pub fn from_schema(
+        key: String,
+        value: &Value,
+        schema: &SettingSchema,
+        map_path: &str,
+        is_new: bool,
+    ) -> Self {
+        let fields = build_fields_from_schema(schema, value);
+        let title = if is_new {
+            format!("New {}", schema.name)
+        } else {
+            format!("Edit {}: {}", schema.name, key)
+        };
 
         Self {
-            entry_type: EntryType::Language,
             entry_key: key,
-            map_path: "/languages".to_string(),
-            is_new,
-            fields,
-            focused_field: 0,
-            focused_button: 0,
-            focus_on_buttons: false,
-        }
-    }
-
-    /// Create a new dialog for editing an LSP server config
-    pub fn new_lsp(key: String, value: &Value, is_new: bool) -> Self {
-        let fields = vec![
-            DialogField {
-                name: "command".to_string(),
-                label: "Command".to_string(),
-                value: FieldValue::Text {
-                    value: value
-                        .get("command")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: true,
-                description: Some("Command to start the LSP server".to_string()),
-            },
-            DialogField {
-                name: "args".to_string(),
-                label: "Arguments".to_string(),
-                value: FieldValue::StringList {
-                    items: value
-                        .get("args")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                        .unwrap_or_default(),
-                    focused_index: None,
-                    new_text: String::new(),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("Command-line arguments for the server".to_string()),
-            },
-            DialogField {
-                name: "enabled".to_string(),
-                label: "Enabled".to_string(),
-                value: FieldValue::Bool(
-                    value
-                        .get("enabled")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true),
-                ),
-                required: false,
-                description: Some("Whether this LSP server is enabled".to_string()),
-            },
-            DialogField {
-                name: "auto_start".to_string(),
-                label: "Auto Start".to_string(),
-                value: FieldValue::Bool(
-                    value
-                        .get("auto_start")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                ),
-                required: false,
-                description: Some("Start automatically when opening matching files".to_string()),
-            },
-            DialogField {
-                name: "process_limits.enabled".to_string(),
-                label: "Resource Limits Enabled".to_string(),
-                value: FieldValue::Bool(
-                    value
-                        .pointer("/process_limits/enabled")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true),
-                ),
-                required: false,
-                description: Some("Enable CPU and memory limits".to_string()),
-            },
-            DialogField {
-                name: "process_limits.max_memory_percent".to_string(),
-                label: "Max Memory %".to_string(),
-                value: FieldValue::Integer {
-                    value: value
-                        .pointer("/process_limits/max_memory_percent")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(50),
-                    min: Some(1),
-                    max: Some(100),
-                    editing: false,
-                    text: String::new(),
-                },
-                required: false,
-                description: Some("Maximum memory usage as % of system RAM".to_string()),
-            },
-            DialogField {
-                name: "process_limits.max_cpu_percent".to_string(),
-                label: "Max CPU %".to_string(),
-                value: FieldValue::Integer {
-                    value: value
-                        .pointer("/process_limits/max_cpu_percent")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(90),
-                    min: Some(1),
-                    max: Some(800),
-                    editing: false,
-                    text: String::new(),
-                },
-                required: false,
-                description: Some("Maximum CPU usage (100% = 1 core)".to_string()),
-            },
-        ];
-
-        Self {
-            entry_type: EntryType::Lsp,
-            entry_key: key,
-            map_path: "/lsp".to_string(),
-            is_new,
-            fields,
-            focused_field: 0,
-            focused_button: 0,
-            focus_on_buttons: false,
-        }
-    }
-
-    /// Create a new dialog for editing a keybinding
-    pub fn new_keybinding(index: usize, value: &Value, is_new: bool) -> Self {
-        // Parse modifiers
-        let modifiers: Vec<String> = value
-            .get("modifiers")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let fields = vec![
-            DialogField {
-                name: "key".to_string(),
-                label: "Key".to_string(),
-                value: FieldValue::Text {
-                    value: value
-                        .get("key")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("Key name (e.g., \"s\", \"Enter\", \"F1\")".to_string()),
-            },
-            DialogField {
-                name: "modifiers".to_string(),
-                label: "Modifiers".to_string(),
-                value: FieldValue::StringList {
-                    items: modifiers,
-                    focused_index: None,
-                    new_text: String::new(),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("Modifier keys (ctrl, shift, alt, super)".to_string()),
-            },
-            DialogField {
-                name: "action".to_string(),
-                label: "Action".to_string(),
-                value: FieldValue::Text {
-                    value: value
-                        .get("action")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string(),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: true,
-                description: Some("Action to perform (e.g., \"save\", \"quit\")".to_string()),
-            },
-            DialogField {
-                name: "when".to_string(),
-                label: "Context".to_string(),
-                value: FieldValue::OptionalText {
-                    value: value.get("when").and_then(|v| v.as_str()).map(String::from),
-                    cursor: 0,
-                    editing: false,
-                },
-                required: false,
-                description: Some("When condition (e.g., \"mode == insert\")".to_string()),
-            },
-        ];
-
-        Self {
-            entry_type: EntryType::Keybinding,
-            entry_key: format!("{}", index),
-            map_path: "/keybindings".to_string(),
+            map_path: map_path.to_string(),
+            title,
             is_new,
             fields,
             focused_field: 0,
@@ -852,5 +554,167 @@ fn field_to_value(field: &FieldValue) -> Value {
             .map(|s| Value::String(s.clone()))
             .unwrap_or(Value::Null),
         FieldValue::Object { json, .. } => json.clone(),
+    }
+}
+
+/// Build dialog fields from a schema definition
+fn build_fields_from_schema(schema: &SettingSchema, value: &Value) -> Vec<DialogField> {
+    let mut fields = Vec::new();
+
+    // Extract properties from schema if it's an Object type
+    let properties = match &schema.setting_type {
+        SettingType::Object { properties } => properties,
+        _ => return fields, // Not an object schema, return empty
+    };
+
+    for prop in properties {
+        let field_value = value.get(&prop.path.trim_start_matches('/'));
+        let field = build_field_from_property(prop, field_value);
+        fields.push(field);
+    }
+
+    fields
+}
+
+/// Build a single dialog field from a schema property
+fn build_field_from_property(prop: &SettingSchema, value: Option<&Value>) -> DialogField {
+    let field_value = match &prop.setting_type {
+        SettingType::Boolean => {
+            let checked = value
+                .and_then(|v| v.as_bool())
+                .or_else(|| prop.default.as_ref().and_then(|d| d.as_bool()))
+                .unwrap_or(false);
+            FieldValue::Bool(checked)
+        }
+
+        SettingType::Integer { minimum, maximum } => {
+            let val = value
+                .and_then(|v| v.as_i64())
+                .or_else(|| prop.default.as_ref().and_then(|d| d.as_i64()))
+                .unwrap_or(0);
+            FieldValue::Integer {
+                value: val,
+                min: *minimum,
+                max: *maximum,
+                editing: false,
+                text: String::new(),
+            }
+        }
+
+        SettingType::Number { .. } => {
+            // Treat as integer for simplicity (could be extended)
+            let val = value
+                .and_then(|v| v.as_f64())
+                .or_else(|| prop.default.as_ref().and_then(|d| d.as_f64()))
+                .map(|f| f as i64)
+                .unwrap_or(0);
+            FieldValue::Integer {
+                value: val,
+                min: None,
+                max: None,
+                editing: false,
+                text: String::new(),
+            }
+        }
+
+        SettingType::String => {
+            // Check if the value can be null (nullable string)
+            let is_nullable = value.map_or(false, |v| v.is_null())
+                || prop.default.as_ref().map_or(false, |d| d.is_null());
+
+            if is_nullable {
+                FieldValue::OptionalText {
+                    value: value.and_then(|v| v.as_str()).map(String::from),
+                    cursor: 0,
+                    editing: false,
+                }
+            } else {
+                let text = value
+                    .and_then(|v| v.as_str())
+                    .or_else(|| prop.default.as_ref().and_then(|d| d.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+                FieldValue::Text {
+                    value: text,
+                    cursor: 0,
+                    editing: false,
+                }
+            }
+        }
+
+        SettingType::Enum { options } => {
+            let current = value
+                .and_then(|v| v.as_str())
+                .or_else(|| prop.default.as_ref().and_then(|d| d.as_str()))
+                .unwrap_or("");
+            let option_values: Vec<String> = options.iter().map(|o| o.value.clone()).collect();
+            let selected = option_values
+                .iter()
+                .position(|v| v == current)
+                .unwrap_or(0);
+            FieldValue::Dropdown {
+                options: options.iter().map(|o| o.name.clone()).collect(),
+                selected,
+                open: false,
+            }
+        }
+
+        SettingType::StringArray => {
+            let items: Vec<String> = value
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .or_else(|| {
+                    prop.default.as_ref().and_then(|d| {
+                        d.as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                    })
+                })
+                .unwrap_or_default();
+            FieldValue::StringList {
+                items,
+                focused_index: None,
+                new_text: String::new(),
+                cursor: 0,
+                editing: false,
+            }
+        }
+
+        SettingType::Object { .. } | SettingType::Map { .. } | SettingType::Complex => {
+            // For complex nested objects, store as JSON for now
+            let json = value.cloned().unwrap_or_else(|| {
+                prop.default.clone().unwrap_or(serde_json::json!({}))
+            });
+            FieldValue::Object {
+                json,
+                expanded: false,
+            }
+        }
+
+        SettingType::KeybindingArray => {
+            // Treat as a complex object for now
+            let json = value.cloned().unwrap_or_else(|| serde_json::json!([]));
+            FieldValue::Object {
+                json,
+                expanded: false,
+            }
+        }
+    };
+
+    // Extract property name from path (e.g., "/extensions" -> "extensions")
+    let name = prop.path.trim_start_matches('/').to_string();
+
+    DialogField {
+        name,
+        label: prop.name.clone(),
+        value: field_value,
+        required: false, // Could be derived from schema if we had "required" info
+        description: prop.description.clone(),
     }
 }

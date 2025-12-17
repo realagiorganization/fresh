@@ -61,6 +61,10 @@ impl MapState {
             self.entries = obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             // Sort by key for consistent ordering
             self.entries.sort_by(|a, b| a.0.cmp(&b.0));
+            // Default to first entry if any exist
+            if !self.entries.is_empty() {
+                self.focused_entry = Some(0);
+            }
         }
         self
     }

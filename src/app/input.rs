@@ -422,10 +422,11 @@ impl Editor {
                                 if let Some(item) = s.current_item() {
                                     if let SettingControl::Map(map_state) = &item.control {
                                         // If focused on an existing entry (not add-new)
-                                        // and it's an editable map
-                                        if map_state.focused_entry.is_some() {
-                                            let path = &item.path;
-                                            return path == "/languages" || path == "/lsp";
+                                        // and the map has a value schema (supports entry dialogs)
+                                        if map_state.focused_entry.is_some()
+                                            && map_state.value_schema.is_some()
+                                        {
+                                            return true;
                                         }
                                     }
                                 }
