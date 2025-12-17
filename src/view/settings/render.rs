@@ -1313,8 +1313,18 @@ fn render_entry_dialog(
         dialog_area.height.saturating_sub(3),
     );
 
-    // Render fields
-    let label_width = 24u16;
+    // Calculate optimal label column width based on actual labels
+    // Cap at half of available width to ensure space for values
+    let max_label_width = (inner.width / 2).max(20);
+    let label_col_width = dialog
+        .fields
+        .iter()
+        .map(|f| f.label.len() as u16 + 2) // +2 for ": "
+        .filter(|&w| w <= max_label_width) // Only consider labels that fit
+        .max()
+        .unwrap_or(20)
+        .min(max_label_width);
+
     let mut y = inner.y;
 
     for (idx, field) in dialog.fields.iter().enumerate() {
@@ -1329,21 +1339,38 @@ fn render_entry_dialog(
             Style::default().fg(theme.editor_fg)
         };
 
-        // Render label
         let label = format!("{}: ", field.label);
-        let label_span = Span::styled(
-            format!("{:width$}", label, width = label_width as usize),
-            label_style,
-        );
+        let label_len = label.len() as u16;
+
+        // Determine if label is too long and value should wrap to next line
+        let wrap_value = label_len > max_label_width;
+
+        // Render label (full width if wrapping, or column width if inline)
+        let label_area_width = if wrap_value { inner.width } else { label_col_width };
+        let display_label = if wrap_value {
+            label.clone()
+        } else {
+            format!("{:width$}", label, width = label_col_width as usize)
+        };
+
         frame.render_widget(
-            Paragraph::new(Line::from(label_span)),
-            Rect::new(inner.x, y, label_width, 1),
+            Paragraph::new(display_label).style(label_style),
+            Rect::new(inner.x, y, label_area_width, 1),
         );
 
-        // Render control based on field type
-        let control_x = inner.x + label_width;
-        let control_width = inner.width.saturating_sub(label_width);
-        let control_area = Rect::new(control_x, y, control_width, 1);
+        // Calculate control position
+        let (control_x, control_width, control_y) = if wrap_value {
+            // Value on next line, indented
+            y += 1;
+            if y >= inner.y + inner.height.saturating_sub(2) {
+                break;
+            }
+            (inner.x + 2, inner.width.saturating_sub(2), y)
+        } else {
+            // Value inline after label column
+            (inner.x + label_col_width, inner.width.saturating_sub(label_col_width), y)
+        };
+        let control_area = Rect::new(control_x, control_y, control_width, 1);
 
         match &field.value {
             FieldValue::Bool(checked) => {
