@@ -1143,3 +1143,90 @@ fn test_settings_consumes_global_shortcuts() {
     // Close settings
     harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
 }
+
+/// Test Map control "[+] Add new" shows text input when Enter is pressed
+#[test]
+fn test_map_control_add_new_shows_text_input() {
+    let mut harness = EditorTestHarness::new(100, 40).unwrap();
+
+    // Open settings
+    harness
+        .send_key(KeyCode::Char(','), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Search for "Keybinding Maps" which is a Map control
+    harness
+        .send_key(KeyCode::Char('/'), KeyModifiers::NONE)
+        .unwrap();
+    for c in "keybinding maps".chars() {
+        harness
+            .send_key(KeyCode::Char(c), KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness.render().unwrap();
+
+    // Jump to result
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Should show "[+] Add new" for the empty map
+    harness.assert_screen_contains("[+] Add new");
+
+    // Press Enter to start editing
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // The "[+] Add new" for Keybinding Maps should be replaced with a text input field
+    // We can't check for absence of "[+] Add new" because other Map controls still show it
+    // Instead, check that the text input field brackets appear (the underlined input area)
+    // The input field shows as "[" followed by spaces and "]"
+
+    // Type a name
+    for c in "vim".chars() {
+        harness
+            .send_key(KeyCode::Char(c), KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness.render().unwrap();
+
+    // Should see "vim" in the input field
+    harness.assert_screen_contains("vim");
+
+    // Press Enter to add the entry
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Entry should be added and "[+] Add new" should appear below it
+    harness.assert_screen_contains("vim");
+    harness.assert_screen_contains("[+] Add new");
+
+    // Should show modified indicator
+    harness.assert_screen_contains("modified");
+
+    // Exit editing mode
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    // Close settings and verify confirm dialog shows the change
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    // Confirm dialog should show the map change
+    harness.assert_screen_contains("Unsaved Changes");
+    harness.assert_screen_contains("keybinding_maps");
+
+    // Discard changes
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+}
