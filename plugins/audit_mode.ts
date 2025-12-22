@@ -49,12 +49,65 @@ const state: AuditState = {
 // --- Colors & Styles ---
 const STYLE_HUNK_HEADER: [number, number, number] = [100, 100, 255]; // Blueish
 const STYLE_FILE_BANNER: [number, number, number] = [200, 200, 100]; // Yellowish
-const STYLE_ADD: [number, number, number] = [50, 200, 50]; // Green
-const STYLE_REMOVE: [number, number, number] = [200, 50, 50]; // Red
+const STYLE_ADD_BG: [number, number, number] = [20, 60, 20]; // Dark Green BG
+const STYLE_REMOVE_BG: [number, number, number] = [60, 20, 20]; // Dark Red BG
+const STYLE_ADD_TEXT: [number, number, number] = [100, 255, 100]; // Bright Green
+const STYLE_REMOVE_TEXT: [number, number, number] = [255, 100, 100]; // Bright Red
 const STYLE_STAGED: [number, number, number] = [100, 100, 100]; // Dimmed/Grey
 const STYLE_DISCARDED: [number, number, number] = [150, 50, 50];
 
-// --- Helper Functions ---
+// --- Diff Logic ---
+
+interface DiffPart {
+    text: string;
+    type: 'added' | 'removed' | 'unchanged';
+}
+
+/**
+ * Simple character-level LCS for word diffing
+ */
+function diffStrings(oldStr: string, newStr: string): DiffPart[] {
+    const n = oldStr.length;
+    const m = newStr.length;
+    const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+
+    for (let i = 1; i <= n; i++) {
+        for (let j = 1; j <= m; j++) {
+            if (oldStr[i - 1] === newStr[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+            }
+        }
+    }
+
+    const result: DiffPart[] = [];
+    let i = n, j = m;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && oldStr[i - 1] === newStr[j - 1]) {
+            result.unshift({ text: oldStr[i - 1], type: 'unchanged' });
+            i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            result.unshift({ text: newStr[j - 1], type: 'added' });
+            j--;
+        } else {
+            result.unshift({ text: oldStr[i - 1], type: 'removed' });
+            i--;
+        }
+    }
+
+    // Coalesce same-type parts
+    const coalesced: DiffPart[] = [];
+    for (const part of result) {
+        const last = coalesced[coalesced.length - 1];
+        if (last && last.type === part.type) {
+            last.text += part.text;
+        } else {
+            coalesced.push(part);
+        }
+    }
+    return coalesced;
+}
 
 async function getGitDiff(): Promise<Hunk[]> {
     editor.debug("AuditMode: Running git diff HEAD");
@@ -103,19 +156,32 @@ async function getGitDiff(): Promise<Hunk[]> {
     return hunks;
 }
 
-function renderReviewStream(): TextPropertyEntry[] {
+interface HighlightTask {
+    range: [number, number];
+    fg: [number, number, number];
+    bg?: [number, number, number];
+    bold?: boolean;
+}
+
+/**
+ * Render the Review Stream buffer content and return highlight tasks
+ */
+function renderReviewStream(): { entries: TextPropertyEntry[], highlights: HighlightTask[] } {
   const entries: TextPropertyEntry[] = [];
+  const highlights: HighlightTask[] = [];
   let currentFile = "";
   let currentByte = 0;
 
-  state.hunks.forEach((hunk, index) => {
+  state.hunks.forEach((hunk, hunkIndex) => {
     if (hunk.file !== currentFile) {
       const bannerText = `\n📦 FILE: ${hunk.file}\n`;
+      const start = currentByte;
       entries.push({
         text: bannerText,
-        properties: { type: "banner", file: hunk.file, color: STYLE_FILE_BANNER, bold: true }
+        properties: { type: "banner", file: hunk.file }
       });
       currentByte += bannerText.length;
+      highlights.push({ range: [start, currentByte], fg: STYLE_FILE_BANNER, bold: true });
       currentFile = hunk.file;
     }
 
@@ -127,38 +193,89 @@ function renderReviewStream(): TextPropertyEntry[] {
     if (hunk.status === 'staged') hunkColor = STYLE_STAGED;
     else if (hunk.status === 'discarded') hunkColor = STYLE_DISCARDED;
 
+    const headerStart = currentByte;
     entries.push({
       text: headerText,
-      properties: { type: "header", hunkId: hunk.id, index: index, color: hunkColor }
+      properties: { type: "header", hunkId: hunk.id, index: hunkIndex }
     });
     currentByte += headerText.length;
+    highlights.push({ range: [headerStart, currentByte], fg: hunkColor });
 
-    hunk.lines.forEach((line) => {
-        let lineStyle = hunkColor;
-        if (hunk.status === 'pending') {
-            if (line.startsWith('+')) lineStyle = STYLE_ADD;
-            else if (line.startsWith('-')) lineStyle = STYLE_REMOVE;
+    // Word diff pairing logic
+    for (let i = 0; i < hunk.lines.length; i++) {
+        const line = hunk.lines[i];
+        const nextLine = hunk.lines[i + 1];
+        
+        let lineText = `    ${line}\n`;
+        let lineStart = currentByte;
+
+        if (line.startsWith('-') && nextLine && nextLine.startsWith('+') && hunk.status === 'pending') {
+            // Pair detected - do word diff
+            const oldLineContent = line.substring(1);
+            const newLineContent = nextLine.substring(1);
+            const parts = diffStrings(oldLineContent, newLineContent);
+
+            // Add removed line entry
+            entries.push({ text: `    ${line}\n`, properties: { type: "content", hunkId: hunk.id } });
+            // Add removed word highlights
+            let charOffset = lineStart + 5; // Skip "    -"
+            parts.forEach(p => {
+                if (p.type === 'removed') {
+                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_REMOVE_TEXT, bg: STYLE_REMOVE_BG, bold: true });
+                } else if (p.type === 'unchanged') {
+                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_REMOVE_TEXT });
+                }
+                charOffset += p.text.length;
+            });
+            currentByte += lineText.length;
+
+            // Add added line entry
+            const nextLineFull = `    ${nextLine}\n`;
+            entries.push({ text: nextLineFull, properties: { type: "content", hunkId: hunk.id } });
+            charOffset = currentByte + 5; // Skip "    +"
+            parts.forEach(p => {
+                if (p.type === 'added') {
+                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_ADD_TEXT, bg: STYLE_ADD_BG, bold: true });
+                } else if (p.type === 'unchanged') {
+                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_ADD_TEXT });
+                }
+                charOffset += p.text.length;
+            });
+            currentByte += nextLineFull.length;
+            i++; // Skip next line
+        } else {
+            // Normal line
+            entries.push({ text: lineText, properties: { type: "content", hunkId: hunk.id } });
+            if (hunk.status === 'pending') {
+                if (line.startsWith('+')) highlights.push({ range: [lineStart, lineStart + lineText.length], fg: STYLE_ADD_TEXT });
+                else if (line.startsWith('-')) highlights.push({ range: [lineStart, lineStart + lineText.length], fg: STYLE_REMOVE_TEXT });
+            } else {
+                highlights.push({ range: [lineStart, lineStart + lineText.length], fg: hunkColor });
+            }
+            currentByte += lineText.length;
         }
-        const lineText = `    ${line}\n`;
-        entries.push({
-            text: lineText,
-            properties: { type: "content", hunkId: hunk.id, color: lineStyle }
-        });
-        currentByte += lineText.length;
-    });
+    }
   });
 
   if (entries.length === 0) {
       entries.push({ text: "No changes to review.\n", properties: {} });
   }
 
-  return entries;
+  return { entries, highlights };
 }
 
 function refreshReviewStream() {
   if (state.reviewBufferId !== null) {
-    const content = renderReviewStream();
-    editor.setVirtualBufferContent(state.reviewBufferId, content);
+    const { entries, highlights } = renderReviewStream();
+    editor.setVirtualBufferContent(state.reviewBufferId, entries);
+    
+    // Apply highlights as overlays
+    editor.clearNamespace(state.reviewBufferId, "audit-diff");
+    highlights.forEach((h, i) => {
+        editor.addOverlay(state.reviewBufferId, "audit-diff", h.range[0], h.range[1], h.fg[0], h.fg[1], h.fg[2], false, h.bold || false, false);
+        // Note: Rust addOverlay doesn't support BG color yet in TS API, but we'll use FG for now.
+        // Actually I'll use italics for emphasis if bold isn't enough.
+    });
   }
 }
 
@@ -168,12 +285,9 @@ let isUpdating = false;
 
 async function updateHunks(): Promise<boolean> {
     const newHunks = await getGitDiff();
-    
-    // Merge status from existing hunks
     newHunks.forEach(hunk => {
         hunk.status = state.hunkStatus[hunk.id] || 'pending';
     });
-
     state.hunks = newHunks;
     return true;
 }
@@ -340,12 +454,13 @@ globalThis.start_audit_mode = async () => {
     const bufferId = await VirtualBufferFactory.create({
         name: "*Audit Stream*",
         mode: "audit-mode",
-        readOnly: true,
-        entries: renderReviewStream(),
+        read_only: true,
+        entries: renderReviewStream().entries,
         showLineNumbers: false
     });
 
     state.reviewBufferId = bufferId;
+    refreshReviewStream(); // Apply initial highlights
     editor.setStatus(`Audit Mode Active. Found ${state.hunks.length} hunks. Press 'r' to refresh.`);
 
     editor.on("buffer_activated", "on_audit_buffer_activated");
