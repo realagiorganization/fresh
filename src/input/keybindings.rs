@@ -267,6 +267,7 @@ pub enum Action {
 
     // Clipboard
     Copy,
+    CopyAsImage,
     Cut,
     Paste,
 
@@ -564,6 +565,7 @@ impl Action {
             "set_mark" => Some(Action::SetMark),
 
             "copy" => Some(Action::Copy),
+            "copy_as_image" => Some(Action::CopyAsImage),
             "cut" => Some(Action::Cut),
             "paste" => Some(Action::Paste),
 
@@ -1544,6 +1546,7 @@ impl KeybindingResolver {
             Action::Recenter => "Recenter view on cursor".to_string(),
             Action::SetMark => "Set mark (start selection)".to_string(),
             Action::Copy => "Copy".to_string(),
+            Action::CopyAsImage => "Copy as styled image".to_string(),
             Action::Cut => "Cut".to_string(),
             Action::Paste => "Paste".to_string(),
             Action::AddCursorAbove => "Add cursor above".to_string(),
