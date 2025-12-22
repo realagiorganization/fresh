@@ -4,6 +4,8 @@ A terminal-based text editor. [Official Website →](https://sinelaw.github.io/f
 
 **[📦 Installation Instructions](#installation)**
 
+**[Contributing](#contributing)**
+
 ## Why?
 
 Why another text editor? Fresh brings the intuitive, conventional UX of editors like VS Code and Sublime Text to the terminal.
@@ -216,6 +218,26 @@ cargo build --release
 - [User Guide](docs/USER_GUIDE.md)
 - [Plugin Development](docs/PLUGIN_DEVELOPMENT.md)
 - [Architecture](docs/ARCHITECTURE.md)
+
+## Contributing
+
+Thanks for contributing!
+
+1. **Reproduce Before Fixing**: Always include a test case that reproduces the bug (fails) without the fix, and passes with the fix. This ensures the issue is verified and prevents future regressions.
+
+2. **E2E Tests for New Flows**: Any new user flow or feature must include an end-to-end (e2e) test. E2E tests send keyboard/mouse events and examines the final rendered output, do not examine internal state.
+
+3. **No timeouts or time-sensitive tests**: Use "semantic waiting" (waiting for specific state changes/events) instead of fixed timers to ensure test stability. Wait indefinitely, don't put timeouts inside tests (cargo nextest will timeout externally).
+
+4. **Test isolation**: Tests should run in parallel. Use the internal clipboard mode in tests to isolate them from the host system and prevent flakiness in CI. Same for other external resources (temp files, etc. should all be isolated between tests, under a per-test temporary workdir).
+
+5. **Required Formatting**: All code must be formatted with `cargo fmt` before submission. PRs that fail formatting checks will not be merged.
+
+6. **Cross-Platform Consistency**: Avoid hard-coding newline or CRLF related logic, consider the buffer mode.
+
+7. **LSP**: Ensure LSP interactions follow the correct lifecycle (e.g., `didOpen` must always precede other requests to avoid server-side errors). Use the appropriate existing helpers for this pattern.
+
+**Tip**: You can use tmux + send-keys + render-pane to script ad-hoc tests on the UI, for example when trying to reproduce an issue.
 
 ## License
 
