@@ -4,13 +4,11 @@
 //! - Maintains an internal clipboard for in-editor copy/paste
 //! - Uses crossterm's OSC 52 escape sequences for copying to system clipboard
 //! - Uses arboard crate for reading from system clipboard
-//! - Supports copying images to the system clipboard
+//! - Supports copying HTML-formatted text for rich text editors
 //! - Gracefully falls back to internal clipboard if system clipboard is unavailable
 
-use arboard::ImageData;
 use crossterm::clipboard::CopyToClipboard;
 use crossterm::execute;
-use std::borrow::Cow;
 use std::io::{stdout, Write};
 use std::sync::Mutex;
 
@@ -71,61 +69,6 @@ impl Clipboard {
                     }
                     Err(e) => {
                         tracing::debug!("arboard HTML copy failed: {}", e);
-                    }
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Copy an image to the system clipboard
-    ///
-    /// Uses arboard to copy RGBA image data to the system clipboard.
-    /// Returns true if successful, false otherwise.
-    pub fn copy_image(&mut self, width: u32, height: u32, rgba_bytes: Vec<u8>) -> bool {
-        if let Ok(mut guard) = SYSTEM_CLIPBOARD.lock() {
-            // Create clipboard if it doesn't exist yet
-            if guard.is_none() {
-                match arboard::Clipboard::new() {
-                    Ok(cb) => *guard = Some(cb),
-                    Err(e) => {
-                        tracing::debug!("arboard clipboard init failed for image: {}", e);
-                        return false;
-                    }
-                }
-            }
-
-            // Try to set image on the clipboard
-            if let Some(clipboard) = guard.as_mut() {
-                let image_data = ImageData {
-                    width: width as usize,
-                    height: height as usize,
-                    bytes: Cow::Owned(rgba_bytes),
-                };
-
-                match clipboard.set_image(image_data) {
-                    Ok(()) => {
-                        tracing::debug!("Image copied to clipboard: {}x{}", width, height);
-                        return true;
-                    }
-                    Err(e) => {
-                        tracing::debug!("arboard image copy failed: {}", e);
-                        // Try recreating the clipboard
-                        drop(guard);
-                        if let Ok(mut guard) = SYSTEM_CLIPBOARD.lock() {
-                            if let Ok(mut new_clipboard) = arboard::Clipboard::new() {
-                                let image_data = ImageData {
-                                    width: width as usize,
-                                    height: height as usize,
-                                    bytes: Cow::Owned(vec![]), // Can't retry without the bytes
-                                };
-                                // Note: We've lost the bytes here, so this retry won't work
-                                // In practice, if the first attempt fails, retrying rarely helps
-                                let _ = new_clipboard.set_image(image_data);
-                                *guard = Some(new_clipboard);
-                            }
-                        }
                     }
                 }
             }
