@@ -205,6 +205,47 @@
                 "checkbox": null
               },
               {
+                "label": "Copy with Formatting",
+                "items": [
+                  {
+                    "label": "Dark",
+                    "action": "copy_with_theme",
+                    "args": {
+                      "theme": "dark"
+                    },
+                    "when": "has_selection",
+                    "checkbox": null
+                  },
+                  {
+                    "label": "Light",
+                    "action": "copy_with_theme",
+                    "args": {
+                      "theme": "light"
+                    },
+                    "when": "has_selection",
+                    "checkbox": null
+                  },
+                  {
+                    "label": "High Contrast",
+                    "action": "copy_with_theme",
+                    "args": {
+                      "theme": "high-contrast"
+                    },
+                    "when": "has_selection",
+                    "checkbox": null
+                  },
+                  {
+                    "label": "Nostalgia",
+                    "action": "copy_with_theme",
+                    "args": {
+                      "theme": "nostalgia"
+                    },
+                    "when": "has_selection",
+                    "checkbox": null
+                  }
+                ]
+              },
+              {
                 "label": "Paste",
                 "action": "paste",
                 "args": {},

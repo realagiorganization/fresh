@@ -5,7 +5,6 @@
 
 pub mod async_bridge;
 pub mod clipboard;
-pub mod styled_image;
 pub mod fs;
 #[cfg(target_os = "linux")]
 pub mod gpm;
@@ -15,6 +14,7 @@ pub mod process_limits;
 pub mod recovery;
 pub mod release_checker;
 pub mod signal_handler;
+pub mod styled_image;
 pub mod terminal;
 pub mod time_source;
 pub mod tracing_setup;

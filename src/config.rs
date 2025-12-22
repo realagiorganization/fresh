@@ -1288,7 +1288,10 @@ impl Config {
                                 action: "copy_with_theme".to_string(),
                                 args: {
                                     let mut map = HashMap::new();
-                                    map.insert("theme".to_string(), serde_json::json!("high-contrast"));
+                                    map.insert(
+                                        "theme".to_string(),
+                                        serde_json::json!("high-contrast"),
+                                    );
                                     map
                                 },
                                 when: Some(context_keys::HAS_SELECTION.to_string()),
