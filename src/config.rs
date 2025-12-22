@@ -1258,12 +1258,54 @@ impl Config {
                         when: None,
                         checkbox: None,
                     },
-                    MenuItem::Action {
+                    MenuItem::Submenu {
                         label: "Copy with Formatting".to_string(),
-                        action: "copy_as_image".to_string(),
-                        args: HashMap::new(),
-                        when: Some(context_keys::HAS_SELECTION.to_string()),
-                        checkbox: None,
+                        items: vec![
+                            MenuItem::Action {
+                                label: "Dark".to_string(),
+                                action: "copy_with_theme".to_string(),
+                                args: {
+                                    let mut map = HashMap::new();
+                                    map.insert("theme".to_string(), serde_json::json!("dark"));
+                                    map
+                                },
+                                when: Some(context_keys::HAS_SELECTION.to_string()),
+                                checkbox: None,
+                            },
+                            MenuItem::Action {
+                                label: "Light".to_string(),
+                                action: "copy_with_theme".to_string(),
+                                args: {
+                                    let mut map = HashMap::new();
+                                    map.insert("theme".to_string(), serde_json::json!("light"));
+                                    map
+                                },
+                                when: Some(context_keys::HAS_SELECTION.to_string()),
+                                checkbox: None,
+                            },
+                            MenuItem::Action {
+                                label: "High Contrast".to_string(),
+                                action: "copy_with_theme".to_string(),
+                                args: {
+                                    let mut map = HashMap::new();
+                                    map.insert("theme".to_string(), serde_json::json!("high-contrast"));
+                                    map
+                                },
+                                when: Some(context_keys::HAS_SELECTION.to_string()),
+                                checkbox: None,
+                            },
+                            MenuItem::Action {
+                                label: "Nostalgia".to_string(),
+                                action: "copy_with_theme".to_string(),
+                                args: {
+                                    let mut map = HashMap::new();
+                                    map.insert("theme".to_string(), serde_json::json!("nostalgia"));
+                                    map
+                                },
+                                when: Some(context_keys::HAS_SELECTION.to_string()),
+                                checkbox: None,
+                            },
+                        ],
                     },
                     MenuItem::Action {
                         label: "Paste".to_string(),

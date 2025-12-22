@@ -63,6 +63,8 @@ pub enum PromptType {
     SelectTheme,
     /// Select a keybinding map (select from list)
     SelectKeybindingMap,
+    /// Select a theme for copy with formatting
+    CopyWithFormattingTheme,
     /// Confirm reverting a modified file
     ConfirmRevert,
     /// Confirm saving over a file that changed on disk

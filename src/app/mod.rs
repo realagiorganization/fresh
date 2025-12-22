@@ -3620,12 +3620,82 @@ impl Editor {
         }
     }
 
-    /// Copy the current selection to clipboard as styled HTML with syntax highlighting
+    /// Start copy with formatting - opens theme selection prompt
     ///
-    /// This copies the selected text as HTML with inline CSS styles, allowing it to be
-    /// pasted into rich text editors (Google Docs, Word, etc.) with colors preserved.
+    /// This opens a prompt to select a theme, then copies the selected text as HTML
+    /// with inline CSS styles using that theme's colors.
     pub fn copy_selection_as_image(&mut self) {
+        // Check if there's a selection first
+        let has_selection = {
+            let state = self.active_state();
+            state
+                .cursors
+                .iter()
+                .any(|(_, cursor)| cursor.selection_range().is_some())
+        };
+
+        if !has_selection {
+            self.status_message = Some("No selection to copy".to_string());
+            return;
+        }
+
+        // Open theme selection prompt
+        self.start_copy_with_formatting_prompt();
+    }
+
+    /// Start the theme selection prompt for copy with formatting
+    fn start_copy_with_formatting_prompt(&mut self) {
+        use crate::view::prompt::PromptType;
+
+        let available_themes = crate::view::theme::Theme::available_themes();
+        let current_theme_name = &self.theme.name;
+
+        // Find the index of the current theme
+        let current_index = available_themes
+            .iter()
+            .position(|name| name == current_theme_name)
+            .unwrap_or(0);
+
+        let suggestions: Vec<crate::input::commands::Suggestion> = available_themes
+            .iter()
+            .map(|theme_name| {
+                let is_current = theme_name == current_theme_name;
+                crate::input::commands::Suggestion {
+                    text: theme_name.to_string(),
+                    description: if is_current {
+                        Some("(current)".to_string())
+                    } else {
+                        None
+                    },
+                    value: Some(theme_name.to_string()),
+                    disabled: false,
+                    keybinding: None,
+                    source: None,
+                }
+            })
+            .collect();
+
+        self.prompt = Some(crate::view::prompt::Prompt::with_suggestions(
+            "Copy with theme: ".to_string(),
+            PromptType::CopyWithFormattingTheme,
+            suggestions,
+        ));
+
+        if let Some(prompt) = self.prompt.as_mut() {
+            if !prompt.suggestions.is_empty() {
+                prompt.selected_suggestion = Some(current_index);
+                prompt.input = current_theme_name.to_string();
+                prompt.cursor_pos = prompt.input.len();
+            }
+        }
+    }
+
+    /// Copy selection with a specific theme's formatting
+    pub fn copy_selection_with_theme(&mut self, theme_name: &str) {
         use crate::services::styled_image::render_styled_html;
+
+        // Load the requested theme
+        let theme = crate::view::theme::Theme::from_name(theme_name);
 
         // Collect ranges and their byte offsets
         let ranges: Vec<_> = {
@@ -3645,9 +3715,6 @@ impl Editor {
         // Get the overall range for highlighting
         let min_offset = ranges.iter().map(|r| r.start).min().unwrap_or(0);
         let max_offset = ranges.iter().map(|r| r.end).max().unwrap_or(0);
-
-        // Clone the theme to avoid borrow conflicts
-        let theme = self.theme.clone();
 
         // Collect text and highlight spans from state
         let (text, highlight_spans) = {
@@ -3684,13 +3751,11 @@ impl Editor {
         }
 
         // Adjust highlight spans to be relative to the copied text
-        // For single contiguous selection, we need to shift byte offsets
         let adjusted_spans: Vec<_> = if ranges.len() == 1 {
             let base_offset = ranges[0].start;
             highlight_spans
                 .into_iter()
                 .filter_map(|span| {
-                    // Only include spans that overlap with our selection
                     if span.range.end <= base_offset || span.range.start >= ranges[0].end {
                         return None;
                     }
@@ -3707,8 +3772,6 @@ impl Editor {
                 })
                 .collect()
         } else {
-            // For multi-cursor selection, highlighting becomes more complex
-            // For now, just use empty spans (no highlighting)
             Vec::new()
         };
 
@@ -3717,9 +3780,8 @@ impl Editor {
 
         // Copy the HTML to clipboard (with plain text fallback)
         if self.clipboard.copy_html(&html, &text) {
-            self.status_message = Some("Copied with formatting".to_string());
+            self.status_message = Some(format!("Copied with '{}' theme", theme_name));
         } else {
-            // Fall back to plain text copy
             self.clipboard.copy(text);
             self.status_message = Some("Copied as plain text".to_string());
         }

@@ -232,6 +232,9 @@ impl Editor {
             PromptType::SelectKeybindingMap => {
                 self.apply_keybinding_map(input.trim());
             }
+            PromptType::CopyWithFormattingTheme => {
+                self.copy_selection_with_theme(input.trim());
+            }
             PromptType::SwitchToTab => {
                 if let Ok(id) = input.trim().parse::<usize>() {
                     self.switch_to_tab(BufferId(id));
