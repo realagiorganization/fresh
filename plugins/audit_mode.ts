@@ -56,6 +56,8 @@ const STYLE_REMOVE_TEXT: [number, number, number] = [255, 100, 100]; // Bright R
 const STYLE_STAGED: [number, number, number] = [100, 100, 100]; // Dimmed/Grey
 const STYLE_DISCARDED: [number, number, number] = [150, 50, 50];
 
+const encoder = new TextEncoder();
+
 // --- Diff Logic ---
 
 interface DiffPart {
@@ -96,7 +98,6 @@ function diffStrings(oldStr: string, newStr: string): DiffPart[] {
         }
     }
 
-    // Coalesce same-type parts
     const coalesced: DiffPart[] = [];
     for (const part of result) {
         const last = coalesced[coalesced.length - 1];
@@ -175,13 +176,13 @@ function renderReviewStream(): { entries: TextPropertyEntry[], highlights: Highl
   state.hunks.forEach((hunk, hunkIndex) => {
     if (hunk.file !== currentFile) {
       const bannerText = `\n📦 FILE: ${hunk.file}\n`;
-      const start = currentByte;
+      const bannerLen = encoder.encode(bannerText).length;
       entries.push({
         text: bannerText,
         properties: { type: "banner", file: hunk.file }
       });
-      currentByte += bannerText.length;
-      highlights.push({ range: [start, currentByte], fg: STYLE_FILE_BANNER, bold: true });
+      highlights.push({ range: [currentByte, currentByte + bannerLen], fg: STYLE_FILE_BANNER, bold: true });
+      currentByte += bannerLen;
       currentFile = hunk.file;
     }
 
@@ -189,74 +190,70 @@ function renderReviewStream(): { entries: TextPropertyEntry[], highlights: Highl
 
     const statusIcon = hunk.status === 'staged' ? '✓' : (hunk.status === 'discarded' ? '✗' : ' ');
     const headerText = `  ${statusIcon} @@ ${hunk.contextHeader}\n`;
+    const headerLen = encoder.encode(headerText).length;
     let hunkColor = STYLE_HUNK_HEADER;
     if (hunk.status === 'staged') hunkColor = STYLE_STAGED;
     else if (hunk.status === 'discarded') hunkColor = STYLE_DISCARDED;
 
-    const headerStart = currentByte;
     entries.push({
       text: headerText,
       properties: { type: "header", hunkId: hunk.id, index: hunkIndex }
     });
-    currentByte += headerText.length;
-    highlights.push({ range: [headerStart, currentByte], fg: hunkColor });
+    highlights.push({ range: [currentByte, currentByte + headerLen], fg: hunkColor });
+    currentByte += headerLen;
 
-    // Word diff pairing logic
     for (let i = 0; i < hunk.lines.length; i++) {
         const line = hunk.lines[i];
         const nextLine = hunk.lines[i + 1];
-        
-        let lineText = `    ${line}\n`;
-        let lineStart = currentByte;
+        const lineText = `    ${line}\n`;
+        const lineLen = encoder.encode(lineText).length;
 
         if (line.startsWith('-') && nextLine && nextLine.startsWith('+') && hunk.status === 'pending') {
-            // Pair detected - do word diff
-            const oldLineContent = line.substring(1);
-            const newLineContent = nextLine.substring(1);
-            const parts = diffStrings(oldLineContent, newLineContent);
+            const oldContent = line.substring(1);
+            const newContent = nextLine.substring(1);
+            const diffParts = diffStrings(oldContent, newContent);
 
-            // Add removed line entry
-            entries.push({ text: `    ${line}\n`, properties: { type: "content", hunkId: hunk.id } });
-            // Add removed word highlights
-            let charOffset = lineStart + 5; // Skip "    -"
-            parts.forEach(p => {
+            // Removed Line
+            entries.push({ text: lineText, properties: { type: "content", hunkId: hunk.id } });
+            let charByteOffset = currentByte + 5; // skip "    -"
+            diffParts.forEach(p => {
+                const partLen = encoder.encode(p.text).length;
                 if (p.type === 'removed') {
-                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_REMOVE_TEXT, bg: STYLE_REMOVE_BG, bold: true });
-                    charOffset += p.text.length;
+                    highlights.push({ range: [charByteOffset, charByteOffset + partLen], fg: STYLE_REMOVE_TEXT, bg: STYLE_REMOVE_BG, bold: true });
+                    charByteOffset += partLen;
                 } else if (p.type === 'unchanged') {
-                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_REMOVE_TEXT });
-                    charOffset += p.text.length;
+                    highlights.push({ range: [charByteOffset, charByteOffset + partLen], fg: STYLE_REMOVE_TEXT });
+                    charByteOffset += partLen;
                 }
-                // Skip 'added' parts for the removed line
             });
-            currentByte += lineText.length;
+            currentByte += lineLen;
 
-            // Add added line entry
-            const nextLineFull = `    ${nextLine}\n`;
-            entries.push({ text: nextLineFull, properties: { type: "content", hunkId: hunk.id } });
-            charOffset = currentByte + 5; // Skip "    +"
-            parts.forEach(p => {
+            // Added Line
+            const nextLineText = `    ${nextLine}\n`;
+            const nextLineLen = encoder.encode(nextLineText).length;
+            entries.push({ text: nextLineText, properties: { type: "content", hunkId: hunk.id } });
+            charByteOffset = currentByte + 5; // skip "    +"
+            diffParts.forEach(p => {
+                const partLen = encoder.encode(p.text).length;
                 if (p.type === 'added') {
-                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_ADD_TEXT, bg: STYLE_ADD_BG, bold: true });
-                    charOffset += p.text.length;
+                    highlights.push({ range: [charByteOffset, charByteOffset + partLen], fg: STYLE_ADD_TEXT, bg: STYLE_ADD_BG, bold: true });
+                    charByteOffset += partLen;
                 } else if (p.type === 'unchanged') {
-                    highlights.push({ range: [charOffset, charOffset + p.text.length], fg: STYLE_ADD_TEXT });
-                    charOffset += p.text.length;
+                    highlights.push({ range: [charByteOffset, charByteOffset + partLen], fg: STYLE_ADD_TEXT });
+                    charByteOffset += partLen;
                 }
-                // Skip 'removed' parts for the added line
             });
-            currentByte += nextLineFull.length;
-            i++; // Skip next line
+            currentByte += nextLineLen;
+            i++; 
         } else {
-            // Normal line
             entries.push({ text: lineText, properties: { type: "content", hunkId: hunk.id } });
             if (hunk.status === 'pending') {
-                if (line.startsWith('+')) highlights.push({ range: [lineStart, lineStart + lineText.length], fg: STYLE_ADD_TEXT });
-                else if (line.startsWith('-')) highlights.push({ range: [lineStart, lineStart + lineText.length], fg: STYLE_REMOVE_TEXT });
+                if (line.startsWith('+')) highlights.push({ range: [currentByte, currentByte + lineLen], fg: STYLE_ADD_TEXT });
+                else if (line.startsWith('-')) highlights.push({ range: [currentByte, currentByte + lineLen], fg: STYLE_REMOVE_TEXT });
             } else {
-                highlights.push({ range: [lineStart, lineStart + lineText.length], fg: hunkColor });
+                highlights.push({ range: [currentByte, currentByte + lineLen], fg: hunkColor });
             }
-            currentByte += lineText.length;
+            currentByte += lineLen;
         }
     }
   });
@@ -273,12 +270,9 @@ function refreshReviewStream() {
     const { entries, highlights } = renderReviewStream();
     editor.setVirtualBufferContent(state.reviewBufferId, entries);
     
-    // Apply highlights as overlays
     editor.clearNamespace(state.reviewBufferId, "audit-diff");
-    highlights.forEach((h, i) => {
+    highlights.forEach((h) => {
         editor.addOverlay(state.reviewBufferId, "audit-diff", h.range[0], h.range[1], h.fg[0], h.fg[1], h.fg[2], false, h.bold || false, false);
-        // Note: Rust addOverlay doesn't support BG color yet in TS API, but we'll use FG for now.
-        // Actually I'll use italics for emphasis if bold isn't enough.
     });
   }
 }
@@ -464,7 +458,7 @@ globalThis.start_audit_mode = async () => {
     });
 
     state.reviewBufferId = bufferId;
-    refreshReviewStream(); // Apply initial highlights
+    refreshReviewStream(); 
     editor.setStatus(`Audit Mode Active. Found ${state.hunks.length} hunks. Press 'r' to refresh.`);
 
     editor.on("buffer_activated", "on_audit_buffer_activated");
