@@ -105,7 +105,7 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             archive_ext: tar.xz
-          - target: x86_64-pc-windows-msvc
+          - target: x86_64-pc-windows-gnu
             os: windows-2022
             archive_ext: zip
     runs-on: ${{ matrix.os }}
@@ -126,6 +126,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Install MinGW (Windows GNU)
+        if: matrix.target == 'x86_64-pc-windows-gnu'
+        shell: pwsh
+        run: |
+          # MinGW is pre-installed on windows-2022 runners
+          # Just verify it's available
+          gcc --version
 
       - name: Build release binary
         shell: bash
@@ -292,7 +300,7 @@ jobs:
               'darwin-arm64': { target: 'aarch64-apple-darwin', ext: 'tar.xz' },
               'linux-x64': { target: 'x86_64-unknown-linux-gnu', ext: 'tar.xz' },
               'linux-arm64': { target: 'aarch64-unknown-linux-gnu', ext: 'tar.xz' },
-              'win32-x64': { target: 'x86_64-pc-windows-msvc', ext: 'zip' }
+              'win32-x64': { target: 'x86_64-pc-windows-gnu', ext: 'zip' }
             };
 
             const key = `${platform}-${arch}`;
@@ -679,7 +687,7 @@ jobs:
               'darwin-arm64': { target: 'aarch64-apple-darwin', ext: 'tar.xz' },
               'linux-x64': { target: 'x86_64-unknown-linux-gnu', ext: 'tar.xz' },
               'linux-arm64': { target: 'aarch64-unknown-linux-gnu', ext: 'tar.xz' },
-              'win32-x64': { target: 'x86_64-pc-windows-msvc', ext: 'zip' }
+              'win32-x64': { target: 'x86_64-pc-windows-gnu', ext: 'zip' }
             };
 
             const key = `${platform}-${arch}`;
