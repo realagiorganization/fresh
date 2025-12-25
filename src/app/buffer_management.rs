@@ -436,6 +436,205 @@ impl Editor {
         buffer_id
     }
 
+    /// Create a new buffer from stdin content stored in a temp file
+    ///
+    /// Uses lazy chunk loading for efficient handling of large stdin inputs.
+    /// The buffer is unnamed (no file path for save) - saving will prompt for a filename.
+    /// The temp file path is preserved internally for lazy loading to work.
+    ///
+    /// # Arguments
+    /// * `temp_path` - Path to temp file where stdin content is being written
+    /// * `thread_handle` - Optional handle to background thread streaming stdin to temp file
+    pub fn open_stdin_buffer(
+        &mut self,
+        temp_path: &Path,
+        thread_handle: Option<std::thread::JoinHandle<std::io::Result<()>>>,
+    ) -> io::Result<BufferId> {
+        // Save current position before switching to new buffer
+        self.position_history.commit_pending_movement();
+
+        // Explicitly record current position before switching
+        let current_state = self.active_state();
+        let position = current_state.cursors.primary().position;
+        let anchor = current_state.cursors.primary().anchor;
+        self.position_history
+            .record_movement(self.active_buffer(), position, anchor);
+        self.position_history.commit_pending_movement();
+
+        // If the current buffer is empty and unmodified, replace it instead of creating a new one
+        let replace_current = {
+            let current_state = self.buffers.get(&self.active_buffer()).unwrap();
+            current_state.buffer.is_empty()
+                && !current_state.buffer.is_modified()
+                && current_state.buffer.file_path().is_none()
+        };
+
+        let buffer_id = if replace_current {
+            // Reuse the current empty buffer
+            self.active_buffer()
+        } else {
+            // Create new buffer ID
+            let id = BufferId(self.next_buffer_id);
+            self.next_buffer_id += 1;
+            id
+        };
+
+        // Get file size for status message before loading
+        let file_size = std::fs::metadata(temp_path)?.len() as usize;
+
+        // Load from temp file using EditorState::from_file
+        // This enables lazy chunk loading for large inputs (>100MB by default)
+        let mut state = EditorState::from_file(
+            temp_path,
+            self.terminal_width,
+            self.terminal_height,
+            self.config.editor.large_file_threshold_bytes as usize,
+            &self.grammar_registry,
+        )?;
+
+        // Clear the file path so the buffer is "unnamed" for save purposes
+        // The Unloaded chunks still reference the temp file for lazy loading
+        state.buffer.clear_file_path();
+        // Clear modified flag - content is "fresh" from stdin (vim behavior)
+        state.buffer.clear_modified();
+
+        // Set tab size from config
+        state.tab_size = self.config.editor.tab_size;
+
+        self.buffers.insert(buffer_id, state);
+        self.event_logs
+            .insert(buffer_id, crate::model::event::EventLog::new());
+
+        // Create metadata for this buffer (no file path)
+        let metadata = super::types::BufferMetadata::new_unnamed("[stdin]".to_string());
+        self.buffer_metadata.insert(buffer_id, metadata);
+
+        // Add buffer to the active split's tabs
+        let active_split = self.split_manager.active_split();
+        if let Some(view_state) = self.split_view_states.get_mut(&active_split) {
+            view_state.add_buffer(buffer_id);
+        }
+
+        self.set_active_buffer(buffer_id);
+
+        // Set up stdin streaming state for polling
+        // If no thread handle, it means data is already complete (testing scenario)
+        let complete = thread_handle.is_none();
+        self.stdin_streaming = Some(super::StdinStreamingState {
+            temp_path: temp_path.to_path_buf(),
+            buffer_id,
+            last_known_size: file_size,
+            complete,
+            thread_handle,
+        });
+
+        // Status will be updated by poll_stdin_streaming
+        self.status_message = Some("Streaming from stdin...".to_string());
+
+        Ok(buffer_id)
+    }
+
+    /// Poll stdin streaming state and extend buffer if file grew.
+    /// Returns true if the status changed (needs render).
+    pub fn poll_stdin_streaming(&mut self) -> bool {
+        let Some(ref mut stream_state) = self.stdin_streaming else {
+            return false;
+        };
+
+        if stream_state.complete {
+            return false;
+        }
+
+        let mut changed = false;
+
+        // Check current file size
+        let current_size = std::fs::metadata(&stream_state.temp_path)
+            .map(|m| m.len() as usize)
+            .unwrap_or(stream_state.last_known_size);
+
+        // If file grew, extend the buffer
+        if current_size > stream_state.last_known_size {
+            if let Some(editor_state) = self.buffers.get_mut(&stream_state.buffer_id) {
+                editor_state
+                    .buffer
+                    .extend_streaming(&stream_state.temp_path, current_size);
+            }
+            stream_state.last_known_size = current_size;
+
+            // Update status message with current progress
+            self.status_message = Some(format!(
+                "Streaming from stdin... {} bytes received",
+                current_size
+            ));
+            changed = true;
+        }
+
+        // Check if background thread has finished
+        let thread_finished = stream_state
+            .thread_handle
+            .as_ref()
+            .map(|h| h.is_finished())
+            .unwrap_or(true);
+
+        if thread_finished {
+            // Take ownership of handle to join it
+            if let Some(handle) = stream_state.thread_handle.take() {
+                match handle.join() {
+                    Ok(Ok(())) => {
+                        tracing::info!("Stdin streaming completed successfully");
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!("Stdin streaming error: {}", e);
+                        self.status_message = Some(format!("Stdin read error: {}", e));
+                    }
+                    Err(_) => {
+                        tracing::warn!("Stdin streaming thread panicked");
+                        self.status_message = Some("Stdin read error: thread panicked".to_string());
+                    }
+                }
+            }
+            self.complete_stdin_streaming();
+            changed = true;
+        }
+
+        changed
+    }
+
+    /// Mark stdin streaming as complete.
+    /// Called when the background thread finishes.
+    pub fn complete_stdin_streaming(&mut self) {
+        if let Some(ref mut stream_state) = self.stdin_streaming {
+            stream_state.complete = true;
+
+            // Final poll to get any remaining data
+            let final_size = std::fs::metadata(&stream_state.temp_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(stream_state.last_known_size);
+
+            if final_size > stream_state.last_known_size {
+                if let Some(editor_state) = self.buffers.get_mut(&stream_state.buffer_id) {
+                    editor_state
+                        .buffer
+                        .extend_streaming(&stream_state.temp_path, final_size);
+                }
+                stream_state.last_known_size = final_size;
+            }
+
+            self.status_message = Some(format!(
+                "Read {} bytes from stdin",
+                stream_state.last_known_size
+            ));
+        }
+    }
+
+    /// Check if stdin streaming is active (not complete).
+    pub fn is_stdin_streaming(&self) -> bool {
+        self.stdin_streaming
+            .as_ref()
+            .map(|s| !s.complete)
+            .unwrap_or(false)
+    }
+
     /// Create a new virtual buffer (not backed by a file)
     ///
     /// # Arguments

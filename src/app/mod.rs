@@ -480,6 +480,23 @@ pub struct Editor {
 
     /// Terminal color capability (true color, 256, or 16 colors)
     color_capability: crate::view::color_support::ColorCapability,
+
+    /// Stdin streaming state (if reading from stdin)
+    stdin_streaming: Option<StdinStreamingState>,
+}
+
+/// State for tracking stdin streaming in background
+pub struct StdinStreamingState {
+    /// Path to temp file where stdin is being written
+    pub temp_path: PathBuf,
+    /// Buffer ID for the stdin buffer
+    pub buffer_id: BufferId,
+    /// Last known file size (for detecting growth)
+    pub last_known_size: usize,
+    /// Whether streaming is complete (background thread finished)
+    pub complete: bool,
+    /// Background thread handle (for checking completion)
+    pub thread_handle: Option<std::thread::JoinHandle<std::io::Result<()>>>,
 }
 
 impl Editor {
@@ -887,6 +904,7 @@ impl Editor {
             previous_click_position: None,
             settings_state: None,
             color_capability,
+            stdin_streaming: None,
         })
     }
 

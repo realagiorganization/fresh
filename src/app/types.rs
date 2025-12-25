@@ -157,6 +157,23 @@ impl BufferMetadata {
         }
     }
 
+    /// Create new metadata for an unnamed buffer with a custom display name
+    /// Used for buffers created from stdin or other non-file sources
+    pub fn new_unnamed(display_name: String) -> Self {
+        Self {
+            kind: BufferKind::File {
+                path: PathBuf::new(),
+                uri: None,
+            },
+            display_name,
+            lsp_enabled: false, // No file path, so no LSP
+            lsp_disabled_reason: Some("Unnamed buffer".to_string()),
+            read_only: false,
+            binary: false,
+            lsp_opened_with: HashSet::new(),
+        }
+    }
+
     /// Create metadata for a file-backed buffer
     ///
     /// # Arguments

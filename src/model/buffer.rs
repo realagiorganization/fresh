@@ -1182,6 +1182,47 @@ impl TextBuffer {
         self.file_path = Some(path);
     }
 
+    /// Clear the file path (make buffer unnamed)
+    /// Note: This does NOT affect Unloaded chunk file_paths used for lazy loading.
+    /// Those still point to the original source file for chunk loading.
+    pub fn clear_file_path(&mut self) {
+        self.file_path = None;
+    }
+
+    /// Extend buffer to include more bytes from a streaming source file.
+    /// Used for stdin streaming where the temp file grows over time.
+    /// Appends a new Unloaded chunk for the new bytes.
+    pub fn extend_streaming(&mut self, source_path: &Path, new_size: usize) {
+        let old_size = self.total_bytes();
+        if new_size <= old_size {
+            return;
+        }
+
+        let additional_bytes = new_size - old_size;
+
+        // Create new Unloaded buffer for the appended region
+        let buffer_id = self.next_buffer_id;
+        self.next_buffer_id += 1;
+
+        let new_buffer = StringBuffer::new_unloaded(
+            buffer_id,
+            source_path.to_path_buf(),
+            old_size,         // file_offset - where this chunk starts in the file
+            additional_bytes, // bytes - size of this chunk
+        );
+        self.buffers.push(new_buffer);
+
+        // Append piece at end of document (insert at offset == total_bytes)
+        self.piece_tree.insert(
+            old_size,
+            BufferLocation::Stored(buffer_id),
+            0,
+            additional_bytes,
+            None, // line_feed_cnt unknown for unloaded chunk
+            &self.buffers,
+        );
+    }
+
     /// Check if the buffer has been modified since last save
     pub fn is_modified(&self) -> bool {
         self.modified
