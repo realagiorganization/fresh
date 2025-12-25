@@ -644,6 +644,7 @@ mod tests {
                 show_whitespace_tabs: false,
                 use_tabs: false,
                 tab_size: None,
+                on_save: vec![],
             },
         );
         languages.insert(
@@ -659,6 +660,7 @@ mod tests {
                 show_whitespace_tabs: false,
                 use_tabs: false,
                 tab_size: None,
+                on_save: vec![],
             },
         );
         languages.insert(
@@ -674,6 +676,7 @@ mod tests {
                 show_whitespace_tabs: false,
                 use_tabs: false,
                 tab_size: None,
+                on_save: vec![],
             },
         );
         languages

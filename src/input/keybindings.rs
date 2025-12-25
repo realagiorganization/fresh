@@ -502,6 +502,10 @@ pub enum Action {
     ToggleKeyboardCapture, // Toggle keyboard capture mode (all keys go to terminal)
     TerminalPaste,         // Paste clipboard contents into terminal as a single batch
 
+    // Shell command operations
+    ShellCommand,        // Run shell command on buffer/selection, output to new buffer
+    ShellCommandReplace, // Run shell command on buffer/selection, replace content
+
     // No-op
     None,
 }
@@ -800,6 +804,10 @@ impl Action {
             "terminal_escape" => Some(Action::TerminalEscape),
             "toggle_keyboard_capture" => Some(Action::ToggleKeyboardCapture),
             "terminal_paste" => Some(Action::TerminalPaste),
+
+            // Shell command actions
+            "shell_command" => Some(Action::ShellCommand),
+            "shell_command_replace" => Some(Action::ShellCommandReplace),
 
             // Settings actions
             "open_settings" => Some(Action::OpenSettings),
@@ -1742,6 +1750,8 @@ impl KeybindingResolver {
             Action::SettingsHelp => "Show settings help".to_string(),
             Action::SettingsIncrement => "Increment value".to_string(),
             Action::SettingsDecrement => "Decrement value".to_string(),
+            Action::ShellCommand => "Run shell command on buffer/selection".to_string(),
+            Action::ShellCommandReplace => "Run shell command and replace".to_string(),
             Action::None => "No action".to_string(),
         }
     }

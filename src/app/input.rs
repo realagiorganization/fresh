@@ -861,6 +861,14 @@ impl Editor {
                     }
                 }
             }
+            Action::ShellCommand => {
+                // Run shell command on buffer/selection, output to new buffer
+                self.start_shell_command_prompt(false);
+            }
+            Action::ShellCommandReplace => {
+                // Run shell command on buffer/selection, replace content
+                self.start_shell_command_prompt(true);
+            }
             Action::OpenSettings => {
                 self.open_settings();
             }

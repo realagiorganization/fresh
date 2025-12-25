@@ -70,6 +70,25 @@ impl Editor {
             );
         }
 
+        // Run on-save actions (formatters, linters, etc.)
+        match self.run_on_save_actions() {
+            Ok(true) => {
+                // Actions ran successfully - if status_message was set by run_on_save_actions
+                // (e.g., for missing optional formatters), keep it. Otherwise update status.
+                if self.status_message.as_deref() == Some("Saved") {
+                    self.status_message = Some("Saved (with on-save actions)".to_string());
+                }
+                // else: keep the message set by run_on_save_actions (e.g., missing formatter)
+            }
+            Ok(false) => {
+                // No actions configured, keep original status
+            }
+            Err(e) => {
+                // Action failed, show error but don't fail the save
+                self.status_message = Some(e);
+            }
+        }
+
         Ok(())
     }
 

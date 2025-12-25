@@ -1075,6 +1075,23 @@ pub fn get_all_commands() -> Vec<Command> {
             custom_contexts: vec![],
             source: CommandSource::Builtin,
         },
+        // Shell command operations
+        Command {
+            name: "Shell Command".to_string(),
+            description: "Run shell command on buffer/selection, output to new buffer".to_string(),
+            action: Action::ShellCommand,
+            contexts: vec![KeyContext::Normal],
+            custom_contexts: vec![],
+            source: CommandSource::Builtin,
+        },
+        Command {
+            name: "Shell Command (Replace)".to_string(),
+            description: "Run shell command on buffer/selection, replace content".to_string(),
+            action: Action::ShellCommandReplace,
+            contexts: vec![KeyContext::Normal],
+            custom_contexts: vec![],
+            source: CommandSource::Builtin,
+        },
     ]
 }
 

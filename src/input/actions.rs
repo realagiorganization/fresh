@@ -2175,7 +2175,9 @@ pub fn action_to_events(
         | Action::ToggleIndentationStyle
         | Action::ToggleTabIndicators
         | Action::ToggleDebugHighlights
-        | Action::ResetBufferSettings => return None,
+        | Action::ResetBufferSettings
+        | Action::ShellCommand
+        | Action::ShellCommandReplace => return None,
 
         // Block/rectangular selection actions
         Action::BlockSelectLeft => {

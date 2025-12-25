@@ -480,6 +480,46 @@ pub struct KeymapConfig {
     pub bindings: Vec<Keybinding>,
 }
 
+/// Action to run when a file is saved
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct OnSaveAction {
+    /// The shell command to run
+    /// The file path is available as $FILE or as an argument
+    pub command: String,
+
+    /// Arguments to pass to the command
+    /// Use "$FILE" to include the file path
+    #[serde(default)]
+    pub args: Vec<String>,
+
+    /// Working directory for the command (defaults to project root)
+    #[serde(default)]
+    pub working_dir: Option<String>,
+
+    /// Whether to use the buffer content as stdin
+    #[serde(default)]
+    pub stdin: bool,
+
+    /// Whether to replace the buffer with the command's stdout
+    /// Useful for formatters
+    #[serde(default)]
+    pub replace_buffer: bool,
+
+    /// Timeout in milliseconds (default: 10000)
+    #[serde(default = "default_on_save_timeout")]
+    pub timeout_ms: u64,
+
+    /// Whether this action is optional (won't error if command not found)
+    /// Useful for default formatters that may not be installed
+    /// When true, shows a status message instead of an error if command is missing
+    #[serde(default)]
+    pub optional: bool,
+}
+
+fn default_on_save_timeout() -> u64 {
+    10000
+}
+
 /// Language-specific configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LanguageConfig {
@@ -527,6 +567,11 @@ pub struct LanguageConfig {
     /// If not specified, falls back to the global editor.tab_size setting.
     #[serde(default)]
     pub tab_size: Option<usize>,
+
+    /// Actions to run when a file of this language is saved
+    /// Actions are run in order; if any fails (non-zero exit), subsequent actions don't run
+    #[serde(default)]
+    pub on_save: Vec<OnSaveAction>,
 }
 
 /// Preference for which syntax highlighting backend to use
@@ -801,6 +846,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -817,6 +863,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -833,6 +880,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -849,6 +897,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -865,6 +914,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -888,6 +938,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -904,6 +955,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -931,6 +983,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -951,6 +1004,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: true,    // Makefiles require tabs for recipes
                 tab_size: Some(8), // Makefiles traditionally use 8-space tabs
+                on_save: Vec::new(),
             },
         );
 
@@ -967,6 +1021,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -983,6 +1038,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -999,6 +1055,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -1015,6 +1072,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -1031,6 +1089,7 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
+                on_save: Vec::new(),
             },
         );
 
@@ -1048,6 +1107,7 @@ impl Config {
                 show_whitespace_tabs: false,
                 use_tabs: true,    // Go convention is to use tabs
                 tab_size: Some(8), // Go convention is 8-space tab width
+                on_save: Vec::new(),
             },
         );
 

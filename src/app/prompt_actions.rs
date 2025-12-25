@@ -253,6 +253,9 @@ impl Editor {
             PromptType::SetLineEnding => {
                 self.handle_set_line_ending(&input);
             }
+            PromptType::ShellCommand { replace } => {
+                self.handle_shell_command(&input, replace);
+            }
         }
         PromptResult::Done
     }

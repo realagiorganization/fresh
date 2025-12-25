@@ -509,6 +509,22 @@
       "when": "normal"
     },
     {
+      "comment": "Shell command - pipe buffer/selection through shell command to new buffer",
+      "key": "|",
+      "modifiers": ["alt"],
+      "action": "shell_command",
+      "args": {},
+      "when": "normal"
+    },
+    {
+      "comment": "Shell command replace - pipe buffer/selection through shell command and replace",
+      "key": "|",
+      "modifiers": ["alt", "shift"],
+      "action": "shell_command_replace",
+      "args": {},
+      "when": "normal"
+    },
+    {
       "key": "F3",
       "modifiers": [],
       "action": "find_next",

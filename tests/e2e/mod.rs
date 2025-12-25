@@ -29,6 +29,7 @@ pub mod movement;
 pub mod multi_file_opening;
 pub mod multibyte_characters;
 pub mod multicursor;
+pub mod on_save_actions;
 pub mod open_folder;
 pub mod paste;
 #[cfg(feature = "plugins")]
@@ -47,6 +48,7 @@ pub mod search;
 pub mod selection;
 pub mod session;
 pub mod settings;
+pub mod shell_command;
 pub mod slow_filesystem;
 pub mod smart_editing;
 pub mod split_tabs;
