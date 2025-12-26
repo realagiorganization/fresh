@@ -288,6 +288,7 @@ pub enum Action {
     Quit,
     Revert,
     ToggleAutoRevert,
+    FormatBuffer,
 
     // Navigation
     GotoLine,
@@ -595,6 +596,7 @@ impl Action {
             "quit" => Some(Action::Quit),
             "revert" => Some(Action::Revert),
             "toggle_auto_revert" => Some(Action::ToggleAutoRevert),
+            "format_buffer" => Some(Action::FormatBuffer),
             "goto_line" => Some(Action::GotoLine),
             "goto_matching_bracket" => Some(Action::GoToMatchingBracket),
             "jump_to_next_error" => Some(Action::JumpToNextError),
@@ -1584,6 +1586,7 @@ impl KeybindingResolver {
             Action::Quit => "Quit editor".to_string(),
             Action::Revert => "Revert to saved file".to_string(),
             Action::ToggleAutoRevert => "Toggle auto-revert mode".to_string(),
+            Action::FormatBuffer => "Format buffer with configured formatter".to_string(),
             Action::GotoLine => "Go to line number".to_string(),
             Action::GoToMatchingBracket => "Go to matching bracket".to_string(),
             Action::JumpToNextError => "Jump to next error/diagnostic".to_string(),

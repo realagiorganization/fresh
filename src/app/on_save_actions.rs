@@ -9,15 +9,15 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use super::Editor;
-use crate::config::OnSaveAction;
+use crate::config::{FormatterConfig, OnSaveAction};
 use crate::model::event::Event;
 use crate::services::lsp::manager::detect_language;
 
-/// Result of running a single on-save action
-enum OnSaveResult {
+/// Result of running a formatter or on-save action
+enum ActionResult {
     /// Action ran successfully, contains output
     Success(String),
-    /// Command not found (for optional actions)
+    /// Command not found
     CommandNotFound(String),
     /// Action failed with error
     Error(String),
@@ -25,6 +25,7 @@ enum OnSaveResult {
 
 impl Editor {
     /// Run on-save actions for the active buffer after a successful save.
+    /// This includes format-on-save (if enabled) and any on_save actions.
     /// Returns Ok(true) if actions ran successfully, Ok(false) if no actions,
     /// or Err with an error message.
     pub fn run_on_save_actions(&mut self) -> Result<bool, String> {
@@ -39,105 +40,239 @@ impl Editor {
             None => return Ok(false),
         };
 
-        // Get on_save actions for this language
-        let on_save_actions: Vec<OnSaveAction> = self
-            .config
-            .languages
-            .get(&language)
-            .map(|lang_config| lang_config.on_save.clone())
-            .unwrap_or_default();
+        let lang_config = match self.config.languages.get(&language) {
+            Some(lc) => lc.clone(),
+            None => return Ok(false),
+        };
 
-        if on_save_actions.is_empty() {
-            return Ok(false);
+        let mut ran_any_action = false;
+
+        // Run formatter if format_on_save is enabled
+        if lang_config.format_on_save {
+            if let Some(ref formatter) = lang_config.formatter {
+                match self.run_formatter(formatter, &path) {
+                    ActionResult::Success(output) => {
+                        self.replace_buffer_with_output(&output)?;
+                        // Re-save after formatting
+                        if let Err(e) = self.active_state_mut().buffer.save() {
+                            return Err(format!("Failed to re-save after format: {}", e));
+                        }
+                        self.active_event_log_mut().mark_saved();
+                        ran_any_action = true;
+                    }
+                    ActionResult::CommandNotFound(cmd) => {
+                        self.status_message = Some(format!(
+                            "Formatter '{}' not found (install it for auto-formatting)",
+                            cmd
+                        ));
+                    }
+                    ActionResult::Error(e) => {
+                        return Err(e);
+                    }
+                }
+            }
         }
 
-        // Get project root for working directory
+        // Run on_save actions (linters, etc.)
         let project_root = std::env::current_dir()
             .unwrap_or_else(|_| path.parent().unwrap_or(Path::new(".")).to_path_buf());
 
-        // Track missing optional commands to show in status
-        let mut missing_commands: Vec<String> = Vec::new();
-        let mut ran_any_action = false;
-
-        // Run each enabled action in order
-        for action in &on_save_actions {
-            // Skip disabled actions
+        for action in &lang_config.on_save {
             if !action.enabled {
                 continue;
             }
 
-            match self.run_single_on_save_action(action, &path, &project_root) {
-                OnSaveResult::Success(output) => {
+            match self.run_on_save_action(action, &path, &project_root) {
+                ActionResult::Success(_) => {
                     ran_any_action = true;
-                    if action.replace_buffer {
-                        // Replace buffer content with the output
-                        self.replace_buffer_with_output(&output)?;
-                        // Re-save after replacement
-                        if let Err(e) = self.active_state_mut().buffer.save() {
-                            return Err(format!("Failed to re-save after format: {}", e));
-                        }
-                        // Mark event log as saved again
-                        self.active_event_log_mut().mark_saved();
-                    }
                 }
-                OnSaveResult::CommandNotFound(cmd) => {
-                    // For optional actions, just track the missing command
-                    missing_commands.push(cmd);
+                ActionResult::CommandNotFound(_) => {
+                    // Skip missing optional commands silently
                 }
-                OnSaveResult::Error(e) => {
-                    // Stop on first failure
+                ActionResult::Error(e) => {
                     return Err(e);
                 }
             }
         }
 
-        // If some optional commands were missing, show a helpful message
-        if !missing_commands.is_empty() {
-            let msg = if missing_commands.len() == 1 {
-                format!(
-                    "Formatter '{}' not found (install it for auto-formatting)",
-                    missing_commands[0]
-                )
-            } else {
-                format!(
-                    "Formatters not found: {} (install for auto-formatting)",
-                    missing_commands.join(", ")
-                )
-            };
-            self.status_message = Some(msg);
-        }
-
-        Ok(ran_any_action || !missing_commands.is_empty())
+        Ok(ran_any_action)
     }
 
-    /// Run a single on-save action.
-    fn run_single_on_save_action(
-        &mut self,
-        action: &OnSaveAction,
-        file_path: &Path,
-        project_root: &Path,
-    ) -> OnSaveResult {
+    /// Format the current buffer using the configured formatter.
+    /// Returns Ok(()) if formatting succeeded, or Err with an error message.
+    pub fn format_buffer(&mut self) -> Result<(), String> {
+        let path = match self.active_state().buffer.file_path() {
+            Some(p) => p.to_path_buf(),
+            None => {
+                return Err(
+                    "Cannot format unsaved buffer (save first to detect language)".to_string(),
+                )
+            }
+        };
+
+        // Detect language for this file
+        let language = match detect_language(&path, &self.config.languages) {
+            Some(lang) => lang,
+            None => return Err("No language detected for this file".to_string()),
+        };
+
+        // Get formatter for this language
+        let formatter = self
+            .config
+            .languages
+            .get(&language)
+            .and_then(|lc| lc.formatter.clone());
+
+        let formatter = match formatter {
+            Some(f) => f,
+            None => return Err(format!("No formatter configured for {}", language)),
+        };
+
+        match self.run_formatter(&formatter, &path) {
+            ActionResult::Success(output) => {
+                self.replace_buffer_with_output(&output)?;
+                self.set_status_message(format!("Formatted with {}", formatter.command));
+                Ok(())
+            }
+            ActionResult::CommandNotFound(cmd) => Err(format!("Formatter '{}' not found", cmd)),
+            ActionResult::Error(e) => Err(e),
+        }
+    }
+
+    /// Run a formatter on the current buffer content.
+    fn run_formatter(&mut self, formatter: &FormatterConfig, file_path: &Path) -> ActionResult {
         let file_path_str = file_path.display().to_string();
 
         // Check if command exists
-        if !command_exists(&action.command) {
-            if action.optional {
-                return OnSaveResult::CommandNotFound(action.command.clone());
-            } else {
-                return OnSaveResult::Error(format!(
-                    "On-save action '{}' failed: command not found",
-                    action.command
-                ));
-            }
+        if !command_exists(&formatter.command) {
+            return ActionResult::CommandNotFound(formatter.command.clone());
         }
 
         // Build the command
         let shell = detect_shell();
 
         // Build the full command string with arguments
+        let mut cmd_parts = vec![formatter.command.clone()];
+        for arg in &formatter.args {
+            cmd_parts.push(arg.replace("$FILE", &file_path_str));
+        }
+
+        let full_command = cmd_parts.join(" ");
+
+        // Get project root for working directory
+        let project_root = std::env::current_dir()
+            .unwrap_or_else(|_| file_path.parent().unwrap_or(Path::new(".")).to_path_buf());
+
+        // Set up the command
+        let mut cmd = Command::new(&shell);
+        cmd.args(["-c", &full_command])
+            .current_dir(&project_root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        if formatter.stdin {
+            cmd.stdin(Stdio::piped());
+        } else {
+            cmd.stdin(Stdio::null());
+        }
+
+        // Spawn the process
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                return ActionResult::Error(format!(
+                    "Failed to run '{}': {}",
+                    formatter.command, e
+                ));
+            }
+        };
+
+        // Write buffer content to stdin if configured
+        if formatter.stdin {
+            let content = self.active_state().buffer.to_string().unwrap_or_default();
+            if let Some(mut stdin) = child.stdin.take() {
+                if let Err(e) = stdin.write_all(content.as_bytes()) {
+                    return ActionResult::Error(format!("Failed to write to stdin: {}", e));
+                }
+            }
+        }
+
+        // Wait for the process with timeout
+        let timeout = Duration::from_millis(formatter.timeout_ms);
+        let start = std::time::Instant::now();
+
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let output = match child.wait_with_output() {
+                        Ok(o) => o,
+                        Err(e) => {
+                            return ActionResult::Error(format!("Failed to get output: {}", e))
+                        }
+                    };
+
+                    if status.success() {
+                        return match String::from_utf8(output.stdout) {
+                            Ok(s) => ActionResult::Success(s),
+                            Err(e) => {
+                                ActionResult::Error(format!("Invalid UTF-8 in output: {}", e))
+                            }
+                        };
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let error_output = if !stderr.is_empty() {
+                            stderr.trim().to_string()
+                        } else if !stdout.is_empty() {
+                            stdout.trim().to_string()
+                        } else {
+                            format!("exit code {:?}", status.code())
+                        };
+                        return ActionResult::Error(format!(
+                            "Formatter '{}' failed: {}",
+                            formatter.command, error_output
+                        ));
+                    }
+                }
+                Ok(None) => {
+                    if start.elapsed() > timeout {
+                        let _ = child.kill();
+                        return ActionResult::Error(format!(
+                            "Formatter '{}' timed out after {}ms",
+                            formatter.command, formatter.timeout_ms
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => {
+                    return ActionResult::Error(format!(
+                        "Failed to wait for '{}': {}",
+                        formatter.command, e
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Run a single on-save action (linter, etc.).
+    fn run_on_save_action(
+        &mut self,
+        action: &OnSaveAction,
+        file_path: &Path,
+        project_root: &Path,
+    ) -> ActionResult {
+        let file_path_str = file_path.display().to_string();
+
+        // Check if command exists
+        if !command_exists(&action.command) {
+            return ActionResult::CommandNotFound(action.command.clone());
+        }
+
+        // Build the command
+        let shell = detect_shell();
+
         let mut cmd_parts = vec![action.command.clone()];
         for arg in &action.args {
-            // Replace $FILE placeholder
             cmd_parts.push(arg.replace("$FILE", &file_path_str));
         }
 
@@ -166,7 +301,6 @@ impl Editor {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Set up stdin if needed
         if action.stdin {
             cmd.stdin(Stdio::piped());
         } else {
@@ -177,11 +311,7 @@ impl Editor {
         let mut child = match cmd.spawn() {
             Ok(c) => c,
             Err(e) => {
-                // If optional and spawn failed (likely command not found), report it
-                if action.optional {
-                    return OnSaveResult::CommandNotFound(action.command.clone());
-                }
-                return OnSaveResult::Error(format!("Failed to run '{}': {}", action.command, e));
+                return ActionResult::Error(format!("Failed to run '{}': {}", action.command, e));
             }
         };
 
@@ -190,7 +320,7 @@ impl Editor {
             let content = self.active_state().buffer.to_string().unwrap_or_default();
             if let Some(mut stdin) = child.stdin.take() {
                 if let Err(e) = stdin.write_all(content.as_bytes()) {
-                    return OnSaveResult::Error(format!("Failed to write to stdin: {}", e));
+                    return ActionResult::Error(format!("Failed to write to stdin: {}", e));
                 }
             }
         }
@@ -202,19 +332,18 @@ impl Editor {
         loop {
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    // Process finished
                     let output = match child.wait_with_output() {
                         Ok(o) => o,
                         Err(e) => {
-                            return OnSaveResult::Error(format!("Failed to get output: {}", e))
+                            return ActionResult::Error(format!("Failed to get output: {}", e))
                         }
                     };
 
                     if status.success() {
                         return match String::from_utf8(output.stdout) {
-                            Ok(s) => OnSaveResult::Success(s),
+                            Ok(s) => ActionResult::Success(s),
                             Err(e) => {
-                                OnSaveResult::Error(format!("Invalid UTF-8 in output: {}", e))
+                                ActionResult::Error(format!("Invalid UTF-8 in output: {}", e))
                             }
                         };
                     } else {
@@ -227,17 +356,16 @@ impl Editor {
                         } else {
                             format!("exit code {:?}", status.code())
                         };
-                        return OnSaveResult::Error(format!(
+                        return ActionResult::Error(format!(
                             "On-save action '{}' failed: {}",
                             action.command, error_output
                         ));
                     }
                 }
                 Ok(None) => {
-                    // Still running
                     if start.elapsed() > timeout {
                         let _ = child.kill();
-                        return OnSaveResult::Error(format!(
+                        return ActionResult::Error(format!(
                             "On-save action '{}' timed out after {}ms",
                             action.command, action.timeout_ms
                         ));
@@ -245,7 +373,7 @@ impl Editor {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 Err(e) => {
-                    return OnSaveResult::Error(format!(
+                    return ActionResult::Error(format!(
                         "Failed to wait for '{}': {}",
                         action.command, e
                     ));

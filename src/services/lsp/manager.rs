@@ -644,6 +644,8 @@ mod tests {
                 show_whitespace_tabs: false,
                 use_tabs: false,
                 tab_size: None,
+                formatter: None,
+                format_on_save: false,
                 on_save: vec![],
             },
         );
@@ -660,6 +662,8 @@ mod tests {
                 show_whitespace_tabs: false,
                 use_tabs: false,
                 tab_size: None,
+                formatter: None,
+                format_on_save: false,
                 on_save: vec![],
             },
         );
@@ -676,6 +680,8 @@ mod tests {
                 show_whitespace_tabs: false,
                 use_tabs: false,
                 tab_size: None,
+                formatter: None,
+                format_on_save: false,
                 on_save: vec![],
             },
         );

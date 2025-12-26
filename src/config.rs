@@ -121,6 +121,11 @@ impl JsonSchema for KeybindingMapName {
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Config {
+    /// Configuration version (for migration support)
+    /// Configs without this field are treated as version 0
+    #[serde(default)]
+    pub version: u32,
+
     /// Color theme name
     #[serde(default = "default_theme_name")]
     pub theme: ThemeName,
@@ -482,7 +487,29 @@ pub struct KeymapConfig {
     pub bindings: Vec<Keybinding>,
 }
 
-/// Action to run when a file is saved
+/// Formatter configuration for a language
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[schemars(extend("x-display-field" = "/command"))]
+pub struct FormatterConfig {
+    /// The formatter command to run (e.g., "rustfmt", "prettier")
+    pub command: String,
+
+    /// Arguments to pass to the formatter
+    /// Use "$FILE" to include the file path
+    #[serde(default)]
+    pub args: Vec<String>,
+
+    /// Whether to pass buffer content via stdin (default: true)
+    /// Most formatters read from stdin and write to stdout
+    #[serde(default = "default_true")]
+    pub stdin: bool,
+
+    /// Timeout in milliseconds (default: 10000)
+    #[serde(default = "default_on_save_timeout")]
+    pub timeout_ms: u64,
+}
+
+/// Action to run when a file is saved (for linters, etc.)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[schemars(extend("x-display-field" = "/command"))]
 pub struct OnSaveAction {
@@ -503,29 +530,14 @@ pub struct OnSaveAction {
     #[serde(default)]
     pub stdin: bool,
 
-    /// Whether to replace the buffer with the command's stdout
-    /// Useful for formatters
-    #[serde(default)]
-    pub replace_buffer: bool,
-
     /// Timeout in milliseconds (default: 10000)
     #[serde(default = "default_on_save_timeout")]
     pub timeout_ms: u64,
 
-    /// Whether this action is optional (won't error if command not found)
-    /// Useful for default formatters that may not be installed
-    /// When true, shows a status message instead of an error if command is missing
-    #[serde(default)]
-    pub optional: bool,
-
     /// Whether this action is enabled (default: true)
     /// Set to false to disable an action without removing it from config
-    #[serde(default = "default_enabled")]
+    #[serde(default = "default_true")]
     pub enabled: bool,
-}
-
-fn default_enabled() -> bool {
-    true
 }
 
 fn default_on_save_timeout() -> u64 {
@@ -581,8 +593,17 @@ pub struct LanguageConfig {
     #[serde(default)]
     pub tab_size: Option<usize>,
 
-    /// Actions to run when a file of this language is saved
+    /// The formatter for this language (used by format_buffer command)
+    #[serde(default)]
+    pub formatter: Option<FormatterConfig>,
+
+    /// Whether to automatically format on save (uses the formatter above)
+    #[serde(default)]
+    pub format_on_save: bool,
+
+    /// Actions to run when a file of this language is saved (linters, etc.)
     /// Actions are run in order; if any fails (non-zero exit), subsequent actions don't run
+    /// Note: Use `formatter` + `format_on_save` for formatting, not on_save
     #[serde(default)]
     pub on_save: Vec<OnSaveAction>,
 }
@@ -704,6 +725,7 @@ impl MenuItem {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            version: 0,
             theme: default_theme_name(),
             check_for_updates: true,
             editor: EditorConfig::default(),
@@ -859,16 +881,14 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "rustfmt".to_string(),
                     args: vec!["--edition".to_string(), "2021".to_string()],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -885,16 +905,14 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "prettier".to_string(),
                     args: vec!["--stdin-filepath".to_string(), "$FILE".to_string()],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -911,16 +929,14 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "prettier".to_string(),
                     args: vec!["--stdin-filepath".to_string(), "$FILE".to_string()],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -937,20 +953,18 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "ruff".to_string(),
                     args: vec![
                         "format".to_string(),
                         "--stdin-filename".to_string(),
                         "$FILE".to_string(),
                     ],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -967,16 +981,14 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "clang-format".to_string(),
                     args: vec![],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1000,16 +1012,14 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "clang-format".to_string(),
                     args: vec![],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1026,7 +1036,9 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: Vec::new(),
+                formatter: None,
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1054,7 +1066,9 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: Vec::new(),
+                formatter: None,
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1075,7 +1089,9 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: true,    // Makefiles require tabs for recipes
                 tab_size: Some(8), // Makefiles traditionally use 8-space tabs
-                on_save: Vec::new(),
+                formatter: None,
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1092,7 +1108,9 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: Vec::new(),
+                formatter: None,
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1109,16 +1127,14 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "prettier".to_string(),
                     args: vec!["--stdin-filepath".to_string(), "$FILE".to_string()],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1135,7 +1151,9 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: Vec::new(),
+                formatter: None,
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1152,16 +1170,14 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "prettier".to_string(),
                     args: vec!["--stdin-filepath".to_string(), "$FILE".to_string()],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1178,7 +1194,9 @@ impl Config {
                 show_whitespace_tabs: true,
                 use_tabs: false,
                 tab_size: None,
-                on_save: Vec::new(),
+                formatter: None,
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1196,16 +1214,14 @@ impl Config {
                 show_whitespace_tabs: false,
                 use_tabs: true,    // Go convention is to use tabs
                 tab_size: Some(8), // Go convention is 8-space tab width
-                on_save: vec![OnSaveAction {
+                formatter: Some(FormatterConfig {
                     command: "gofmt".to_string(),
                     args: vec![],
-                    working_dir: None,
                     stdin: true,
-                    replace_buffer: true,
                     timeout_ms: 10000,
-                    optional: true,
-                    enabled: true,
-                }],
+                }),
+                format_on_save: false,
+                on_save: vec![],
             },
         );
 
@@ -1533,6 +1549,13 @@ impl Config {
                     MenuItem::Action {
                         label: "Delete Line".to_string(),
                         action: "delete_line".to_string(),
+                        args: HashMap::new(),
+                        when: None,
+                        checkbox: None,
+                    },
+                    MenuItem::Action {
+                        label: "Format Buffer".to_string(),
+                        action: "format_buffer".to_string(),
                         args: HashMap::new(),
                         when: None,
                         checkbox: None,

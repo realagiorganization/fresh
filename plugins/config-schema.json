@@ -4,6 +4,13 @@
   "description": "Main configuration structure",
   "type": "object",
   "properties": {
+    "version": {
+      "description": "Configuration version (for migration support)\nConfigs without this field are treated as version 0",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 0
+    },
     "theme": {
       "description": "Color theme name",
       "$ref": "#/$defs/ThemeOptions",
@@ -456,8 +463,25 @@
           "minimum": 0,
           "default": null
         },
+        "formatter": {
+          "description": "The formatter for this language (used by format_buffer command)",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FormatterConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "format_on_save": {
+          "description": "Whether to automatically format on save (uses the formatter above)",
+          "type": "boolean",
+          "default": false
+        },
         "on_save": {
-          "description": "Actions to run when a file of this language is saved\nActions are run in order; if any fails (non-zero exit), subsequent actions don't run",
+          "description": "Actions to run when a file of this language is saved (linters, etc.)\nActions are run in order; if any fails (non-zero exit), subsequent actions don't run\nNote: Use `formatter` + `format_on_save` for formatting, not on_save",
           "type": "array",
           "items": {
             "$ref": "#/$defs/OnSaveAction"
@@ -487,8 +511,42 @@
         }
       ]
     },
+    "FormatterConfig": {
+      "description": "Formatter configuration for a language",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "The formatter command to run (e.g., \"rustfmt\", \"prettier\")",
+          "type": "string"
+        },
+        "args": {
+          "description": "Arguments to pass to the formatter\nUse \"$FILE\" to include the file path",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "stdin": {
+          "description": "Whether to pass buffer content via stdin (default: true)\nMost formatters read from stdin and write to stdout",
+          "type": "boolean",
+          "default": true
+        },
+        "timeout_ms": {
+          "description": "Timeout in milliseconds (default: 10000)",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 10000
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "x-display-field": "/command"
+    },
     "OnSaveAction": {
-      "description": "Action to run when a file is saved",
+      "description": "Action to run when a file is saved (for linters, etc.)",
       "type": "object",
       "properties": {
         "command": {
@@ -516,22 +574,12 @@
           "type": "boolean",
           "default": false
         },
-        "replace_buffer": {
-          "description": "Whether to replace the buffer with the command's stdout\nUseful for formatters",
-          "type": "boolean",
-          "default": false
-        },
         "timeout_ms": {
           "description": "Timeout in milliseconds (default: 10000)",
           "type": "integer",
           "format": "uint64",
           "minimum": 0,
           "default": 10000
-        },
-        "optional": {
-          "description": "Whether this action is optional (won't error if command not found)\nUseful for default formatters that may not be installed\nWhen true, shows a status message instead of an error if command is missing",
-          "type": "boolean",
-          "default": false
         },
         "enabled": {
           "description": "Whether this action is enabled (default: true)\nSet to false to disable an action without removing it from config",

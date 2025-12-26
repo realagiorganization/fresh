@@ -2154,6 +2154,7 @@ pub fn action_to_events(
         | Action::SelectKeybindingMap
         | Action::Revert
         | Action::ToggleAutoRevert
+        | Action::FormatBuffer
         | Action::OpenTerminal
         | Action::CloseTerminal
         | Action::FocusTerminal

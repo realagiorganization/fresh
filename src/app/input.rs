@@ -247,6 +247,11 @@ impl Editor {
             Action::ToggleAutoRevert => {
                 self.toggle_auto_revert();
             }
+            Action::FormatBuffer => {
+                if let Err(e) = self.format_buffer() {
+                    self.set_status_message(format!("Format failed: {}", e));
+                }
+            }
             Action::Copy => self.copy_selection(),
             Action::CopyWithTheme(theme) => self.copy_selection_with_theme(&theme),
             Action::Cut => {

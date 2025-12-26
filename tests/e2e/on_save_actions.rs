@@ -1,8 +1,8 @@
 //! E2E tests for on-save actions (formatters, linters, etc.)
 //!
 //! These tests verify:
-//! - On-save actions execute when files are saved
-//! - replace_buffer mode (formatters) replaces buffer content with command output
+//! - Formatters execute when format_on_save is enabled
+//! - On-save actions (linters) execute when files are saved
 //! - stdin mode passes buffer content to command stdin
 //! - $FILE placeholder substitution
 //! - Timeout handling
@@ -10,13 +10,13 @@
 
 use crate::common::harness::EditorTestHarness;
 use crossterm::event::{KeyCode, KeyModifiers};
-use fresh::config::{Config, LanguageConfig, OnSaveAction};
+use fresh::config::{Config, FormatterConfig, LanguageConfig, OnSaveAction};
 use tempfile::TempDir;
 
-/// Test on-save action with replace_buffer (formatter-style)
+/// Test format_on_save with formatter (replaces buffer content)
 #[test]
 #[cfg_attr(not(unix), ignore = "On-save actions require Unix-like environment")]
-fn test_on_save_replace_buffer_formatter() {
+fn test_format_on_save() {
     let temp_dir = TempDir::new().unwrap();
     let project_dir = temp_dir.path().join("project");
     std::fs::create_dir(&project_dir).unwrap();
@@ -24,16 +24,12 @@ fn test_on_save_replace_buffer_formatter() {
     let file_path = project_dir.join("unsorted.txt");
     std::fs::write(&file_path, "cherry\napple\nbanana\n").unwrap();
 
-    // Configure on-save action: sort the file content (stdin -> stdout)
-    let action = OnSaveAction {
+    // Configure formatter: sort the file content (stdin -> stdout)
+    let formatter = FormatterConfig {
         command: "sort".to_string(),
         args: vec![],
-        working_dir: None,
         stdin: true,
-        replace_buffer: true,
         timeout_ms: 5000,
-        optional: false,
-        enabled: true,
     };
 
     // Create config for "plaintext" language (matches .txt files)
@@ -51,7 +47,9 @@ fn test_on_save_replace_buffer_formatter() {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: None,
-            on_save: vec![action],
+            formatter: Some(formatter),
+            format_on_save: true,
+            on_save: vec![],
         },
     );
 
@@ -64,20 +62,20 @@ fn test_on_save_replace_buffer_formatter() {
     // Verify initial content
     harness.assert_buffer_content("cherry\napple\nbanana\n");
 
-    // Save the file (triggers on-save action)
+    // Save the file (triggers format_on_save)
     harness
         .send_key(KeyCode::Char('s'), KeyModifiers::CONTROL)
         .unwrap();
     harness.render().unwrap();
 
-    // Buffer content should be sorted by the on-save action
+    // Buffer content should be sorted by the formatter
     harness.assert_buffer_content("apple\nbanana\ncherry\n");
 
-    // Status should indicate save with on-save actions
+    // Status should indicate save
     harness.assert_screen_contains("Saved");
 }
 
-/// Test on-save action without replace_buffer (linter-style, just runs the command)
+/// Test on-save action (linter-style, just runs the command)
 #[test]
 #[cfg_attr(not(unix), ignore = "On-save actions require Unix-like environment")]
 fn test_on_save_linter_style() {
@@ -94,9 +92,7 @@ fn test_on_save_linter_style() {
         args: vec![],
         working_dir: None,
         stdin: false,
-        replace_buffer: false,
         timeout_ms: 5000,
-        optional: false,
         enabled: true,
     };
 
@@ -114,6 +110,8 @@ fn test_on_save_linter_style() {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: None,
+            formatter: None,
+            format_on_save: false,
             on_save: vec![action],
         },
     );
@@ -157,9 +155,7 @@ fn test_on_save_action_failure() {
         args: vec![],
         working_dir: None,
         stdin: false,
-        replace_buffer: false,
         timeout_ms: 5000,
-        optional: false,
         enabled: true,
     };
 
@@ -177,6 +173,8 @@ fn test_on_save_action_failure() {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: None,
+            formatter: None,
+            format_on_save: false,
             on_save: vec![action],
         },
     );
@@ -224,16 +222,12 @@ fn test_on_save_file_placeholder() {
     let marker_path = project_dir.join("marker.txt");
 
     // Configure on-save action that uses $FILE
-    // Note: When stdin=false and no $FILE in args, the file path is appended automatically
-    // So we use a simpler approach: cp the file to marker
     let action = OnSaveAction {
         command: "cp".to_string(),
         args: vec!["$FILE".to_string(), marker_path.display().to_string()],
         working_dir: None,
         stdin: false,
-        replace_buffer: false,
         timeout_ms: 5000,
-        optional: false,
         enabled: true,
     };
 
@@ -251,6 +245,8 @@ fn test_on_save_file_placeholder() {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: None,
+            formatter: None,
+            format_on_save: false,
             on_save: vec![action],
         },
     );
@@ -282,10 +278,10 @@ fn test_on_save_file_placeholder() {
     );
 }
 
-/// Test on-save action with stdin mode (passes buffer content as stdin)
+/// Test formatter with stdin mode (passes buffer content as stdin)
 #[test]
 #[cfg_attr(not(unix), ignore = "On-save actions require Unix-like environment")]
-fn test_on_save_stdin_mode() {
+fn test_formatter_stdin_mode() {
     let temp_dir = TempDir::new().unwrap();
     let project_dir = temp_dir.path().join("project");
     std::fs::create_dir(&project_dir).unwrap();
@@ -293,16 +289,12 @@ fn test_on_save_stdin_mode() {
     let file_path = project_dir.join("uppercase.txt");
     std::fs::write(&file_path, "hello world\n").unwrap();
 
-    // Configure on-save action: convert to uppercase via stdin
-    let action = OnSaveAction {
+    // Configure formatter: convert to uppercase via stdin
+    let formatter = FormatterConfig {
         command: "tr".to_string(),
         args: vec!["a-z".to_string(), "A-Z".to_string()],
-        working_dir: None,
         stdin: true,
-        replace_buffer: true,
         timeout_ms: 5000,
-        optional: false,
-        enabled: true,
     };
 
     let mut config = Config::default();
@@ -319,7 +311,9 @@ fn test_on_save_stdin_mode() {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: None,
-            on_save: vec![action],
+            formatter: Some(formatter),
+            format_on_save: true,
+            on_save: vec![],
         },
     );
 
@@ -332,7 +326,7 @@ fn test_on_save_stdin_mode() {
     // Verify initial content
     harness.assert_buffer_content("hello world\n");
 
-    // Save the file (triggers on-save action)
+    // Save the file (triggers formatter)
     harness
         .send_key(KeyCode::Char('s'), KeyModifiers::CONTROL)
         .unwrap();
@@ -340,76 +334,6 @@ fn test_on_save_stdin_mode() {
 
     // Buffer content should be uppercase
     harness.assert_buffer_content("HELLO WORLD\n");
-}
-
-/// Test multiple on-save actions run in sequence
-#[test]
-#[cfg_attr(not(unix), ignore = "On-save actions require Unix-like environment")]
-fn test_on_save_multiple_actions() {
-    let temp_dir = TempDir::new().unwrap();
-    let project_dir = temp_dir.path().join("project");
-    std::fs::create_dir(&project_dir).unwrap();
-
-    let file_path = project_dir.join("multi.txt");
-    std::fs::write(&file_path, "cherry\napple\nbanana\n").unwrap();
-
-    // Configure multiple on-save actions:
-    // 1. Sort lines
-    // 2. Convert to uppercase
-    let action1 = OnSaveAction {
-        command: "sort".to_string(),
-        args: vec![],
-        working_dir: None,
-        stdin: true,
-        replace_buffer: true,
-        timeout_ms: 5000,
-        optional: false,
-        enabled: true,
-    };
-
-    let action2 = OnSaveAction {
-        command: "tr".to_string(),
-        args: vec!["a-z".to_string(), "A-Z".to_string()],
-        working_dir: None,
-        stdin: true,
-        replace_buffer: true,
-        timeout_ms: 5000,
-        optional: false,
-        enabled: true,
-    };
-
-    let mut config = Config::default();
-    config.languages.insert(
-        "plaintext".to_string(),
-        LanguageConfig {
-            extensions: vec!["txt".to_string()],
-            filenames: vec![],
-            grammar: "plaintext".to_string(),
-            comment_prefix: None,
-            auto_indent: false,
-            highlighter: Default::default(),
-            textmate_grammar: None,
-            show_whitespace_tabs: true,
-            use_tabs: false,
-            tab_size: None,
-            on_save: vec![action1, action2],
-        },
-    );
-
-    let mut harness =
-        EditorTestHarness::with_config_and_working_dir(80, 24, config, project_dir).unwrap();
-
-    harness.open_file(&file_path).unwrap();
-    harness.render().unwrap();
-
-    // Save the file (triggers both on-save actions in sequence)
-    harness
-        .send_key(KeyCode::Char('s'), KeyModifiers::CONTROL)
-        .unwrap();
-    harness.render().unwrap();
-
-    // Content should be sorted then uppercased
-    harness.assert_buffer_content("APPLE\nBANANA\nCHERRY\n");
 }
 
 /// Test that on-save action failure stops subsequent actions
@@ -433,9 +357,7 @@ fn test_on_save_stops_on_failure() {
         args: vec![],
         working_dir: None,
         stdin: false,
-        replace_buffer: false,
         timeout_ms: 5000,
-        optional: false,
         enabled: true,
     };
 
@@ -444,9 +366,7 @@ fn test_on_save_stops_on_failure() {
         args: vec![marker_path.display().to_string()],
         working_dir: None,
         stdin: false,
-        replace_buffer: false,
         timeout_ms: 5000,
-        optional: false,
         enabled: true,
     };
 
@@ -464,6 +384,8 @@ fn test_on_save_stops_on_failure() {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: None,
+            formatter: None,
+            format_on_save: false,
             on_save: vec![action1, action2],
         },
     );
@@ -490,7 +412,7 @@ fn test_on_save_stops_on_failure() {
     );
 }
 
-/// Test on-save action with no actions configured (should just save normally)
+/// Test with no actions configured (should just save normally)
 #[test]
 fn test_on_save_no_actions_configured() {
     let temp_dir = TempDir::new().unwrap();
@@ -500,7 +422,7 @@ fn test_on_save_no_actions_configured() {
     let file_path = project_dir.join("test.rs");
     std::fs::write(&file_path, "fn main() {}\n").unwrap();
 
-    // Use default config (no on-save actions)
+    // Use default config (format_on_save is disabled by default)
     let config = Config::default();
 
     let mut harness =
@@ -523,11 +445,10 @@ fn test_on_save_no_actions_configured() {
     harness.assert_screen_contains("Saved");
 }
 
-/// Test optional on-save action when command is not found
-/// Should show a helpful message instead of error
+/// Test formatter not found shows helpful message
 #[test]
 #[cfg_attr(not(unix), ignore = "On-save actions require Unix-like environment")]
-fn test_on_save_optional_command_not_found() {
+fn test_formatter_not_found_shows_message() {
     let temp_dir = TempDir::new().unwrap();
     let project_dir = temp_dir.path().join("project");
     std::fs::create_dir(&project_dir).unwrap();
@@ -535,16 +456,12 @@ fn test_on_save_optional_command_not_found() {
     let file_path = project_dir.join("test.txt");
     std::fs::write(&file_path, "content\n").unwrap();
 
-    // Configure an optional on-save action with a non-existent command
-    let action = OnSaveAction {
+    // Configure a formatter with a non-existent command
+    let formatter = FormatterConfig {
         command: "nonexistent_formatter_xyz_12345".to_string(),
         args: vec![],
-        working_dir: None,
         stdin: true,
-        replace_buffer: true,
         timeout_ms: 5000,
-        optional: true, // This is optional, so missing command should not error
-        enabled: true,
     };
 
     let mut config = Config::default();
@@ -561,7 +478,9 @@ fn test_on_save_optional_command_not_found() {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: None,
-            on_save: vec![action],
+            formatter: Some(formatter),
+            format_on_save: true,
+            on_save: vec![],
         },
     );
 
@@ -575,7 +494,7 @@ fn test_on_save_optional_command_not_found() {
     harness.type_text("x").unwrap();
     harness.render().unwrap();
 
-    // Save the file - should NOT error, just show a status message
+    // Save the file - should show a message about missing formatter
     harness
         .send_key(KeyCode::Char('s'), KeyModifiers::CONTROL)
         .unwrap();
@@ -584,68 +503,6 @@ fn test_on_save_optional_command_not_found() {
     // Content should be unchanged (formatter didn't run)
     harness.assert_buffer_content("xcontent\n");
 
-    // Should show a message about missing formatter (not an error)
-    // Note: The status bar may truncate the message, so check for "Formatter"
+    // Should show a message about missing formatter
     harness.assert_screen_contains("Formatter");
-}
-
-/// Test that non-optional command not found produces an error
-#[test]
-#[cfg_attr(not(unix), ignore = "On-save actions require Unix-like environment")]
-fn test_on_save_required_command_not_found() {
-    let temp_dir = TempDir::new().unwrap();
-    let project_dir = temp_dir.path().join("project");
-    std::fs::create_dir(&project_dir).unwrap();
-
-    let file_path = project_dir.join("test.txt");
-    std::fs::write(&file_path, "content\n").unwrap();
-
-    // Configure a required (non-optional) on-save action with a non-existent command
-    let action = OnSaveAction {
-        command: "nonexistent_required_tool_xyz_99999".to_string(),
-        args: vec![],
-        working_dir: None,
-        stdin: true,
-        replace_buffer: true,
-        timeout_ms: 5000,
-        optional: false, // This is NOT optional, so missing command should error
-        enabled: true,
-    };
-
-    let mut config = Config::default();
-    config.languages.insert(
-        "plaintext".to_string(),
-        LanguageConfig {
-            extensions: vec!["txt".to_string()],
-            filenames: vec![],
-            grammar: "plaintext".to_string(),
-            comment_prefix: None,
-            auto_indent: false,
-            highlighter: Default::default(),
-            textmate_grammar: None,
-            show_whitespace_tabs: true,
-            use_tabs: false,
-            tab_size: None,
-            on_save: vec![action],
-        },
-    );
-
-    let mut harness =
-        EditorTestHarness::with_config_and_working_dir(80, 24, config, project_dir).unwrap();
-
-    harness.open_file(&file_path).unwrap();
-    harness.render().unwrap();
-
-    // Modify buffer
-    harness.type_text("x").unwrap();
-    harness.render().unwrap();
-
-    // Save the file - should produce an error
-    harness
-        .send_key(KeyCode::Char('s'), KeyModifiers::CONTROL)
-        .unwrap();
-    harness.render().unwrap();
-
-    // Should show an error message about the on-save action failing
-    harness.assert_screen_contains("On-save action");
 }
