@@ -4239,7 +4239,10 @@ mod tests {
             .collect();
 
         assert_eq!(text_tokens.len(), 1, "Should have exactly one Text token");
-        assert_eq!(text_tokens[0], short_text, "Text content should be unchanged");
+        assert_eq!(
+            text_tokens[0], short_text,
+            "Text content should be unchanged"
+        );
     }
 
     /// End-to-end test: verify large single-line content with sequential markers
@@ -4252,9 +4255,7 @@ mod tests {
         // Create content with sequential markers that span multiple chunks
         // Format: "[00001][00002]..." - each marker is 7 chars
         let num_markers = 5_000; // ~35KB, enough to test chunking at 10K char intervals
-        let content: String = (1..=num_markers)
-            .map(|i| format!("[{:05}]", i))
-            .collect();
+        let content: String = (1..=num_markers).map(|i| format!("[{:05}]", i)).collect();
 
         // Create tokens simulating what build_base_tokens would produce
         let tokens = vec![
