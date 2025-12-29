@@ -22,6 +22,11 @@ use crate::model::buffer::TextBuffer;
 ///
 /// The `estimated_line_length` parameter is still used for forward scanning to estimate
 /// initial chunk sizes, but line boundaries are always accurate after data is loaded.
+/// Maximum bytes to return per "line" to prevent memory exhaustion from huge single-line files.
+/// Lines longer than this are split into multiple chunks, each treated as a separate "line".
+/// This is generous enough for any practical line while preventing OOM from 10MB+ lines.
+const MAX_LINE_BYTES: usize = 100_000;
+
 pub struct LineIterator<'a> {
     buffer: &'a mut TextBuffer,
     /// Current byte position in the document (points to start of current line)
@@ -155,12 +160,17 @@ impl<'a> LineIterator<'a> {
 
         // If we didn't find a newline and didn't reach EOF, the line is longer than our estimate
         // Load more data iteratively (rare case for very long lines)
+        // BUT: limit to MAX_LINE_BYTES to prevent memory exhaustion from huge lines
         if !found_newline && self.current_pos + line_len < self.buffer_len {
-            // Line is longer than expected, keep loading until we find newline or EOF
+            // Line is longer than expected, keep loading until we find newline, EOF, or hit limit
             let mut extended_chunk = chunk;
-            while !found_newline && self.current_pos + extended_chunk.len() < self.buffer_len {
+            while !found_newline
+                && self.current_pos + extended_chunk.len() < self.buffer_len
+                && extended_chunk.len() < MAX_LINE_BYTES
+            {
                 let additional_bytes = estimated_max_line_length
-                    .min(self.buffer_len - self.current_pos - extended_chunk.len());
+                    .min(self.buffer_len - self.current_pos - extended_chunk.len())
+                    .min(MAX_LINE_BYTES - extended_chunk.len()); // Don't exceed limit
                 match self
                     .buffer
                     .get_text_range_mut(self.current_pos + extended_chunk.len(), additional_bytes)
@@ -176,6 +186,10 @@ impl<'a> LineIterator<'a> {
                                 found_newline = true;
                                 break;
                             }
+                            // Also stop if we've hit the limit
+                            if line_len >= MAX_LINE_BYTES {
+                                break;
+                            }
                         }
                     }
                     Err(e) => {
@@ -184,6 +198,9 @@ impl<'a> LineIterator<'a> {
                     }
                 }
             }
+
+            // Clamp line_len to MAX_LINE_BYTES (safety limit for huge single-line files)
+            line_len = line_len.min(MAX_LINE_BYTES).min(extended_chunk.len());
 
             // Use the extended chunk
             let line_bytes = &extended_chunk[..line_len];
