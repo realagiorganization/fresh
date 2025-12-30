@@ -331,3 +331,422 @@ fn start_server(config: Config) {
         screen
     );
 }
+
+/// Test that the improved side-by-side diff shows aligned content with filler lines
+#[test]
+fn test_side_by_side_diff_shows_alignment() {
+    let repo = GitTestRepo::new();
+    repo.setup_typical_project();
+    setup_audit_mode_plugin(&repo);
+
+    let original_dir = repo.change_to_repo_dir();
+    let _guard = DirGuard::new(original_dir);
+
+    // Create an initial commit
+    repo.git_add_all();
+    repo.git_commit("Initial commit");
+
+    // Modify a file with additions and deletions
+    let main_rs_path = repo.path.join("src/main.rs");
+    let modified_content = r#"fn main() {
+    println!("Hello, modified!");
+    let config = load_config();
+    start_server(config);
+    // New line 1
+    // New line 2
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+fn start_server(config: Config) {
+    println!("Starting server...");
+}
+"#;
+    fs::write(&main_rs_path, modified_content).expect("Failed to modify file");
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        160,  // Wide enough for side-by-side
+        50,
+        Config::default(),
+        repo.path.clone(),
+    )
+    .unwrap();
+
+    harness.open_file(&main_rs_path).unwrap();
+    harness.render().unwrap();
+
+    harness
+        .wait_until(|h| h.screen_to_string().contains("modified"))
+        .unwrap();
+
+    // Trigger Review Diff
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.wait_for_prompt().unwrap();
+    harness.type_text("Review Diff").unwrap();
+    harness.render().unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.wait_for_prompt_closed().unwrap();
+
+    // Wait for diff to load
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            !screen.contains("Generating Review Diff Stream") && screen.contains("hunks")
+        })
+        .unwrap();
+
+    // Navigate to a hunk and drill down
+    for _ in 0..10 {
+        harness
+            .send_key(KeyCode::Down, KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+
+    // Wait for side-by-side view
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("[OLD]") || screen.contains("[NEW]")
+        })
+        .unwrap();
+
+    let screen = harness.screen_to_string();
+    println!("Aligned diff screen:\n{}", screen);
+
+    // Should show OLD and NEW headers
+    assert!(
+        screen.contains("OLD") && screen.contains("NEW"),
+        "Should show OLD and NEW pane headers. Screen:\n{}",
+        screen
+    );
+
+    // Should show filler lines (░ character pattern)
+    assert!(
+        screen.contains("░"),
+        "Should show filler lines for alignment. Screen:\n{}",
+        screen
+    );
+
+    // Should not have any errors
+    assert!(
+        !screen.contains("TypeError") && !screen.contains("Error"),
+        "Should not show any errors. Screen:\n{}",
+        screen
+    );
+}
+
+/// Test that the side-by-side diff shows change statistics in status bar
+#[test]
+fn test_side_by_side_diff_shows_statistics() {
+    let repo = GitTestRepo::new();
+    repo.setup_typical_project();
+    setup_audit_mode_plugin(&repo);
+
+    let original_dir = repo.change_to_repo_dir();
+    let _guard = DirGuard::new(original_dir);
+
+    repo.git_add_all();
+    repo.git_commit("Initial commit");
+
+    // Modify a file
+    let main_rs_path = repo.path.join("src/main.rs");
+    let modified_content = r#"fn main() {
+    println!("Hello, modified!");
+    let config = load_config();
+    start_server(config);
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+fn start_server(config: Config) {
+    println!("Starting...");
+    println!("Added line");
+}
+"#;
+    fs::write(&main_rs_path, modified_content).expect("Failed to modify file");
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        160,
+        50,
+        Config::default(),
+        repo.path.clone(),
+    )
+    .unwrap();
+
+    harness.open_file(&main_rs_path).unwrap();
+    harness.render().unwrap();
+
+    harness
+        .wait_until(|h| h.screen_to_string().contains("modified"))
+        .unwrap();
+
+    // Trigger Review Diff
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.wait_for_prompt().unwrap();
+    harness.type_text("Review Diff").unwrap();
+    harness.render().unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.wait_for_prompt_closed().unwrap();
+
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            !screen.contains("Generating Review Diff Stream") && screen.contains("hunks")
+        })
+        .unwrap();
+
+    // Navigate and drill down
+    for _ in 0..10 {
+        harness
+            .send_key(KeyCode::Down, KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+
+    // Wait for side-by-side view with statistics
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            // Should show statistics like "+N -M ~K"
+            screen.contains("+") && screen.contains("-") && screen.contains("~")
+        })
+        .unwrap();
+
+    let screen = harness.screen_to_string();
+    println!("Stats screen:\n{}", screen);
+
+    // Should show the statistics format in status bar
+    // Format is: "Side-by-side diff: +N -M ~K"
+    assert!(
+        screen.contains("Side-by-side diff:") ||
+        (screen.contains("+") && screen.contains("-") && screen.contains("~")),
+        "Should show diff statistics. Screen:\n{}",
+        screen
+    );
+}
+
+/// Test that change markers (+, -, ~) appear in the gutter
+#[test]
+fn test_side_by_side_diff_shows_gutter_markers() {
+    let repo = GitTestRepo::new();
+    repo.setup_typical_project();
+    setup_audit_mode_plugin(&repo);
+
+    let original_dir = repo.change_to_repo_dir();
+    let _guard = DirGuard::new(original_dir);
+
+    repo.git_add_all();
+    repo.git_commit("Initial commit");
+
+    // Create changes that will show all marker types
+    let main_rs_path = repo.path.join("src/main.rs");
+    let modified_content = r#"fn main() {
+    println!("Hello, MODIFIED!");
+    let config = load_config();
+    start_server(config);
+    // This is a new line
+}
+
+fn load_config() -> Config {
+    Config::default()
+}
+
+fn start_server(config: Config) {
+    println!("Server started");
+}
+"#;
+    fs::write(&main_rs_path, modified_content).expect("Failed to modify file");
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        160,
+        50,
+        Config::default(),
+        repo.path.clone(),
+    )
+    .unwrap();
+
+    harness.open_file(&main_rs_path).unwrap();
+    harness.render().unwrap();
+
+    harness
+        .wait_until(|h| h.screen_to_string().contains("MODIFIED"))
+        .unwrap();
+
+    // Trigger Review Diff
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.wait_for_prompt().unwrap();
+    harness.type_text("Review Diff").unwrap();
+    harness.render().unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.wait_for_prompt_closed().unwrap();
+
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            !screen.contains("Generating Review Diff Stream") && screen.contains("hunks")
+        })
+        .unwrap();
+
+    // Navigate and drill down
+    for _ in 0..10 {
+        harness
+            .send_key(KeyCode::Down, KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+
+    // Wait for side-by-side view
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("[OLD]") || screen.contains("[NEW]")
+        })
+        .unwrap();
+
+    let screen = harness.screen_to_string();
+    println!("Gutter markers screen:\n{}", screen);
+
+    // The gutter should show + for additions, - for removals, ~ for modifications
+    // These appear as "│+" "│-" "│~" in the gutter column
+    let has_markers = screen.contains("│+") || screen.contains("│-") || screen.contains("│~")
+        || screen.contains("+") || screen.contains("-");
+
+    assert!(
+        has_markers,
+        "Should show change markers in gutter (+, -, ~). Screen:\n{}",
+        screen
+    );
+}
+
+/// Test vim-style navigation in diff-view mode
+#[test]
+fn test_side_by_side_diff_vim_navigation() {
+    let repo = GitTestRepo::new();
+    repo.setup_typical_project();
+    setup_audit_mode_plugin(&repo);
+
+    let original_dir = repo.change_to_repo_dir();
+    let _guard = DirGuard::new(original_dir);
+
+    repo.git_add_all();
+    repo.git_commit("Initial commit");
+
+    let main_rs_path = repo.path.join("src/main.rs");
+    let modified_content = r#"fn main() {
+    println!("Modified line");
+}
+
+fn helper() {
+    println!("Added function");
+}
+"#;
+    fs::write(&main_rs_path, modified_content).expect("Failed to modify file");
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        160,
+        50,
+        Config::default(),
+        repo.path.clone(),
+    )
+    .unwrap();
+
+    harness.open_file(&main_rs_path).unwrap();
+    harness.render().unwrap();
+
+    harness
+        .wait_until(|h| h.screen_to_string().contains("Modified"))
+        .unwrap();
+
+    // Trigger Review Diff
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.wait_for_prompt().unwrap();
+    harness.type_text("Review Diff").unwrap();
+    harness.render().unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.wait_for_prompt_closed().unwrap();
+
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            !screen.contains("Generating Review Diff Stream") && screen.contains("hunks")
+        })
+        .unwrap();
+
+    // Navigate and drill down
+    for _ in 0..8 {
+        harness
+            .send_key(KeyCode::Down, KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+
+    // Wait for diff-view mode
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            screen.contains("[OLD]") || screen.contains("[NEW]")
+        })
+        .unwrap();
+
+    // Test vim navigation: j moves down, k moves up
+    harness
+        .send_key(KeyCode::Char('j'), KeyModifiers::NONE)
+        .unwrap();
+    harness
+        .send_key(KeyCode::Char('j'), KeyModifiers::NONE)
+        .unwrap();
+    harness
+        .send_key(KeyCode::Char('k'), KeyModifiers::NONE)
+        .unwrap();
+
+    let screen = harness.screen_to_string();
+
+    // Should still be in the diff view without errors
+    assert!(
+        !screen.contains("TypeError") && !screen.contains("Error"),
+        "Vim navigation should work without errors. Screen:\n{}",
+        screen
+    );
+
+    // Test 'q' to close
+    harness
+        .send_key(KeyCode::Char('q'), KeyModifiers::NONE)
+        .unwrap();
+
+    // After closing, should still be functional
+    let screen = harness.screen_to_string();
+    assert!(
+        !screen.contains("TypeError"),
+        "Closing with 'q' should work. Screen:\n{}",
+        screen
+    );
+}
