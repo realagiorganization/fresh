@@ -210,6 +210,7 @@ interface HighlightTask {
     bg?: [number, number, number];
     bold?: boolean;
     italic?: boolean;
+    extend_to_line_end?: boolean;
 }
 
 /**
@@ -900,27 +901,30 @@ function generateDiffPaneContent(
         });
 
         if (isFiller) {
-            // Filler styling
+            // Filler styling - extend to full line width
             highlights.push({
                 range: [currentByte + prefixLen, currentByte + lineLen - 1],
                 fg: [60, 60, 60],
-                bg: [30, 30, 30]
+                bg: [30, 30, 30],
+                extend_to_line_end: true
             });
         } else if (line.changeType === 'added' && side === 'new') {
-            // Added line (green)
+            // Added line (green) - extend to full line width
             highlights.push({ range: [currentByte + 1, currentByte + 2], fg: STYLE_ADD_TEXT, bold: true }); // gutter marker
             highlights.push({
                 range: [currentByte + prefixLen, currentByte + lineLen - 1],
                 fg: STYLE_ADD_TEXT,
-                bg: [30, 50, 30]
+                bg: [30, 50, 30],
+                extend_to_line_end: true
             });
         } else if (line.changeType === 'removed' && side === 'old') {
-            // Removed line (red)
+            // Removed line (red) - extend to full line width
             highlights.push({ range: [currentByte + 1, currentByte + 2], fg: STYLE_REMOVE_TEXT, bold: true }); // gutter marker
             highlights.push({
                 range: [currentByte + prefixLen, currentByte + lineLen - 1],
                 fg: STYLE_REMOVE_TEXT,
-                bg: [50, 30, 30]
+                bg: [50, 30, 30],
+                extend_to_line_end: true
             });
         } else if (line.changeType === 'modified') {
             // Modified line - show word-level diff
@@ -1072,7 +1076,8 @@ globalThis.review_drill_down = async () => {
                 hl.range[0], hl.range[1],
                 hl.fg[0], hl.fg[1], hl.fg[2],
                 false, hl.bold || false, false,
-                bg[0], bg[1], bg[2]
+                bg[0], bg[1], bg[2],
+                hl.extend_to_line_end || false
             );
         }
 
@@ -1100,7 +1105,8 @@ globalThis.review_drill_down = async () => {
                 hl.range[0], hl.range[1],
                 hl.fg[0], hl.fg[1], hl.fg[2],
                 false, hl.bold || false, false,
-                bg[0], bg[1], bg[2]
+                bg[0], bg[1], bg[2],
+                hl.extend_to_line_end || false
             );
         }
 
