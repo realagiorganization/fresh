@@ -2706,6 +2706,62 @@ impl SplitRenderer {
                 }
             }
 
+            // Fill remaining width for overlays with extend_to_line_end
+            // Only when line wrapping is disabled (side-by-side diff typically disables wrapping)
+            if !line_wrap {
+                // Calculate the content area width (total width minus gutter)
+                let content_width = render_area.width.saturating_sub(gutter_width as u16) as usize;
+                let remaining_cols = content_width.saturating_sub(visible_char_count);
+
+                if remaining_cols > 0 {
+                    // Find overlays with extend_to_line_end that overlap with this line
+                    // We use the first byte position of the line content (if available)
+                    // or check if any overlay with extend_to_line_end overlaps the line's byte range
+                    let line_start_byte = line_char_source_bytes.first().copied().flatten();
+                    let line_end_byte = line_char_source_bytes.last().copied().flatten();
+
+                    // Find the highest priority background color from overlays with extend_to_line_end
+                    let fill_style: Option<Style> = if let (Some(start), Some(end)) = (line_start_byte, line_end_byte) {
+                        viewport_overlays
+                            .iter()
+                            .filter(|(overlay, range)| {
+                                overlay.extend_to_line_end &&
+                                range.start <= end && range.end >= start
+                            })
+                            .max_by_key(|(o, _)| o.priority)
+                            .and_then(|(overlay, _)| {
+                                match &overlay.face {
+                                    crate::view::overlay::OverlayFace::Background { color } => {
+                                        Some(Style::default().bg(*color))
+                                    }
+                                    crate::view::overlay::OverlayFace::Style { style } => {
+                                        // Extract background from style if present
+                                        if style.bg.is_some() {
+                                            Some(Style::default().bg(style.bg.unwrap()))
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    _ => None,
+                                }
+                            })
+                    } else {
+                        None
+                    };
+
+                    if let Some(fill_bg) = fill_style {
+                        let fill_text = " ".repeat(remaining_cols);
+                        push_span_with_map(
+                            &mut line_spans,
+                            &mut line_view_map,
+                            fill_text,
+                            fill_bg,
+                            None,
+                        );
+                    }
+                }
+            }
+
             // Track if line was empty before moving line_spans
             let line_was_empty = line_spans.is_empty();
             lines.push(Line::from(line_spans));

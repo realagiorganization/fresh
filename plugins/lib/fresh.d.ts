@@ -834,9 +834,10 @@ interface EditorAPI {
    * @param underline - Add underline decoration
    * @param bold - Use bold text
    * @param italic - Use italic text
+   * @param extend_to_line_end - Extend background to end of visual line
    * @returns true if overlay was added
    */
-  addOverlay(buffer_id: number, namespace: string, start: number, end: number, r: number, g: number, b: number, bg_r: i16, bg_g: i16, bg_b: i16, underline: boolean, bold: boolean, italic: boolean): boolean;
+  addOverlay(buffer_id: number, namespace: string, start: number, end: number, r: number, g: number, b: number, bg_r: i16, bg_g: i16, bg_b: i16, underline: boolean, bold: boolean, italic: boolean, extend_to_line_end: boolean): boolean;
   /**
    * Remove a specific overlay by its handle
    * @param buffer_id - The buffer ID

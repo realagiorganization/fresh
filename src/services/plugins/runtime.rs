@@ -446,6 +446,7 @@ fn op_fresh_delete_range(state: &mut OpState, buffer_id: u32, start: u32, end: u
 /// @param underline - Add underline decoration
 /// @param bold - Use bold text
 /// @param italic - Use italic text
+/// @param extend_to_line_end - Extend background to end of visual line
 /// @returns true if overlay was added
 #[op2(fast)]
 #[allow(clippy::too_many_arguments)]
@@ -464,6 +465,7 @@ fn op_fresh_add_overlay(
     underline: bool,
     bold: bool,
     italic: bool,
+    extend_to_line_end: bool,
 ) -> bool {
     if let Some(runtime_state) = state.try_borrow::<Rc<RefCell<TsRuntimeState>>>() {
         let runtime_state = runtime_state.borrow();
@@ -492,6 +494,7 @@ fn op_fresh_add_overlay(
                 underline,
                 bold,
                 italic,
+                extend_to_line_end,
             });
         return result.is_ok();
     }
@@ -3543,8 +3546,9 @@ impl TypeScriptRuntime {
                     // namespace: group overlays together for efficient batch removal
                     // Use empty string for no namespace
                     // bg_r, bg_g, bg_b: background color (-1 for no background)
-                    addOverlay(bufferId, namespace, start, end, r, g, b, underline, bold = false, italic = false, bg_r = -1, bg_g = -1, bg_b = -1) {
-                        return core.ops.op_fresh_add_overlay(bufferId, namespace, start, end, r, g, b, bg_r, bg_g, bg_b, underline, bold, italic);
+                    // extend_to_line_end: extend background to end of visual line
+                    addOverlay(bufferId, namespace, start, end, r, g, b, underline, bold = false, italic = false, bg_r = -1, bg_g = -1, bg_b = -1, extend_to_line_end = false) {
+                        return core.ops.op_fresh_add_overlay(bufferId, namespace, start, end, r, g, b, bg_r, bg_g, bg_b, underline, bold, italic, extend_to_line_end);
                     },
                     removeOverlay(bufferId, handle) {
                         return core.ops.op_fresh_remove_overlay(bufferId, handle);
@@ -4661,6 +4665,7 @@ mod tests {
                 underline,
                 bold,
                 italic,
+                extend_to_line_end,
             } => {
                 assert_eq!(buffer_id.0, 42);
                 assert_eq!(namespace.as_ref().map(|n| n.as_str()), Some("test-overlay"));
@@ -4671,6 +4676,7 @@ mod tests {
                 assert!(*underline);
                 assert!(!*bold);
                 assert!(!*italic);
+                assert!(!*extend_to_line_end);
             }
             _ => panic!("Expected AddOverlay command"),
         }

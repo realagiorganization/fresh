@@ -911,6 +911,7 @@ impl Editor {
             face,
             priority,
             message,
+            extend_to_line_end: false,
         };
         self.apply_event_to_active_buffer(&event);
         // Return the handle of the last added overlay

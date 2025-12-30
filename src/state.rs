@@ -431,6 +431,7 @@ impl EditorState {
                 face,
                 priority,
                 message,
+                extend_to_line_end,
             } => {
                 tracing::debug!(
                     "AddOverlay: namespace={:?}, range={:?}, face={:?}, priority={}",
@@ -451,6 +452,7 @@ impl EditorState {
                 );
                 overlay.namespace = namespace.clone();
                 overlay.message = message.clone();
+                overlay.extend_to_line_end = *extend_to_line_end;
 
                 let actual_range = overlay.range(&self.marker_list);
                 tracing::debug!(

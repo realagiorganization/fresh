@@ -1301,7 +1301,7 @@ Use namespaces for easy batch removal (e.g., "spell", "todo").
 Multiple overlays can apply to the same range; colors blend.
 
 ```typescript
-addOverlay(buffer_id: number, namespace: string, start: number, end: number, r: number, g: number, b: number, bg_r: i16, bg_g: i16, bg_b: i16, underline: boolean, bold: boolean, italic: boolean): boolean
+addOverlay(buffer_id: number, namespace: string, start: number, end: number, r: number, g: number, b: number, bg_r: i16, bg_g: i16, bg_b: i16, underline: boolean, bold: boolean, italic: boolean, extend_to_line_end: boolean): boolean
 ```
 
 **Parameters:**
@@ -1321,6 +1321,7 @@ addOverlay(buffer_id: number, namespace: string, start: number, end: number, r: 
 | `underline` | `boolean` | Add underline decoration |
 | `bold` | `boolean` | Use bold text |
 | `italic` | `boolean` | Use italic text |
+| `extend_to_line_end` | `boolean` | Extend background to end of visual line |
 
 #### `removeOverlay`
 
