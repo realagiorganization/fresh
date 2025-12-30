@@ -2404,6 +2404,8 @@ struct CreateVirtualBufferOptions {
     show_cursors: Option<bool>,
     /// Disable all editing commands (default: false)
     editing_disabled: Option<bool>,
+    /// Enable/disable line wrapping (None = use global setting)
+    line_wrap: Option<bool>,
 }
 
 /// Create a virtual buffer in a new horizontal split below current pane
@@ -2489,6 +2491,7 @@ async fn op_fresh_create_virtual_buffer_in_split(
                 show_line_numbers: options.show_line_numbers.unwrap_or(true),
                 show_cursors: options.show_cursors.unwrap_or(true),
                 editing_disabled: options.editing_disabled.unwrap_or(false),
+                line_wrap: options.line_wrap,
                 request_id: Some(request_id),
             })
             .map_err(|_| JsErrorBox::generic("Failed to send command"))?;
@@ -2537,6 +2540,8 @@ struct CreateVirtualBufferInExistingSplitOptions {
     show_cursors: Option<bool>,
     /// Whether editing is disabled for this buffer (default false)
     editing_disabled: Option<bool>,
+    /// Enable/disable line wrapping (None = use global setting)
+    line_wrap: Option<bool>,
 }
 
 /// Create a virtual buffer in an existing split
@@ -2594,6 +2599,7 @@ async fn op_fresh_create_virtual_buffer_in_existing_split(
                 show_line_numbers: options.show_line_numbers.unwrap_or(true),
                 show_cursors: options.show_cursors.unwrap_or(true),
                 editing_disabled: options.editing_disabled.unwrap_or(false),
+                line_wrap: options.line_wrap,
                 request_id: Some(request_id),
             })
             .map_err(|_| JsErrorBox::generic("Failed to send command"))?;

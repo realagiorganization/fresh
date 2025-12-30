@@ -295,6 +295,7 @@ interface CreateVirtualBufferOptions {
   show_line_numbers?: boolean | null;
   show_cursors?: boolean | null;
   editing_disabled?: boolean | null;
+  line_wrap?: boolean | null;
 }
 ```
 
@@ -310,6 +311,7 @@ interface CreateVirtualBufferOptions {
 | `show_line_numbers` | Show line numbers gutter (default: true) |
 | `show_cursors` | Show cursor in buffer (default: true) |
 | `editing_disabled` | Disable all editing commands (default: false) |
+| `line_wrap` | Enable/disable line wrapping (None = use global setting) |
 
 ### CreateVirtualBufferInExistingSplitOptions
 
@@ -325,6 +327,7 @@ interface CreateVirtualBufferInExistingSplitOptions {
   show_line_numbers?: boolean | null;
   show_cursors?: boolean | null;
   editing_disabled?: boolean | null;
+  line_wrap?: boolean | null;
 }
 ```
 
@@ -338,6 +341,7 @@ interface CreateVirtualBufferInExistingSplitOptions {
 | `show_line_numbers` | Whether to show line numbers in the buffer (default true) |
 | `show_cursors` | Whether to show cursors in the buffer (default true) |
 | `editing_disabled` | Whether editing is disabled for this buffer (default false) |
+| `line_wrap` | Enable/disable line wrapping (None = use global setting) |
 
 ### CreateVirtualBufferInCurrentSplitOptions
 

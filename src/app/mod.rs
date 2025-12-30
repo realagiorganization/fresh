@@ -3474,6 +3474,7 @@ impl Editor {
                 show_line_numbers,
                 show_cursors,
                 editing_disabled,
+                line_wrap,
                 request_id,
             } => {
                 // Check if this panel already exists (for idempotent operations)
@@ -3580,7 +3581,7 @@ impl Editor {
                                 self.terminal_height,
                                 buffer_id,
                             );
-                            view_state.viewport.line_wrap_enabled = self.config.editor.line_wrap;
+                            view_state.viewport.line_wrap_enabled = line_wrap.unwrap_or(self.config.editor.line_wrap);
                             self.split_view_states.insert(new_split_id, view_state);
 
                             // Focus the new split (the diagnostics panel)
@@ -3646,6 +3647,7 @@ impl Editor {
                 show_line_numbers,
                 show_cursors,
                 editing_disabled,
+                line_wrap,
                 request_id,
             } => {
                 // Create the virtual buffer
@@ -3680,6 +3682,14 @@ impl Editor {
                     // Focus the target split and set its buffer
                     self.split_manager.set_active_split(split_id);
                     self.split_manager.set_active_buffer_id(buffer_id);
+
+                    // Apply line_wrap setting if provided
+                    if let Some(wrap) = line_wrap {
+                        if let Some(view_state) = self.split_view_states.get_mut(&split_id) {
+                            view_state.viewport.line_wrap_enabled = wrap;
+                        }
+                    }
+
                     tracing::info!(
                         "Displayed virtual buffer {:?} in split {:?}",
                         buffer_id,

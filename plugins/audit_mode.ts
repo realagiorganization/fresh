@@ -817,15 +817,6 @@ function generateDiffPaneContent(
     const highlights: HighlightTask[] = [];
     let currentByte = 0;
 
-    // Add header
-    const header = side === 'old'
-        ? "════════════════════════════════ OLD (HEAD) ════════════════════════════════\n"
-        : "════════════════════════════════ NEW (Working) ═════════════════════════════\n";
-    const headerLen = getByteLength(header);
-    entries.push({ text: header, properties: { type: 'header' } });
-    highlights.push({ range: [currentByte, currentByte + headerLen], fg: [100, 100, 180] });
-    currentByte += headerLen;
-
     for (const line of alignedLines) {
         const content = side === 'old' ? line.oldLine : line.newLine;
         const lineNum = side === 'old' ? line.oldLineNum : line.newLineNum;
@@ -1031,7 +1022,8 @@ globalThis.review_drill_down = async () => {
             editing_disabled: true,
             entries: oldPane.entries,
             split_id: currentSplitId,
-            show_line_numbers: false
+            show_line_numbers: false,
+            line_wrap: false
         });
         const oldSplitId = currentSplitId;
 
@@ -1060,7 +1052,8 @@ globalThis.review_drill_down = async () => {
             entries: newPane.entries,
             ratio: 0.5,
             direction: "vertical",
-            show_line_numbers: false
+            show_line_numbers: false,
+            line_wrap: false
         });
         const newBufferId = newRes.buffer_id;
         const newSplitId = newRes.split_id!;

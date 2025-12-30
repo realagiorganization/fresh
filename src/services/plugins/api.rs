@@ -538,6 +538,8 @@ pub enum PluginCommand {
         show_cursors: bool,
         /// Whether editing is disabled for this buffer (default false)
         editing_disabled: bool,
+        /// Whether line wrapping is enabled for this split (None = use global setting)
+        line_wrap: Option<bool>,
         /// Optional request ID for async response (if set, editor will send back buffer ID)
         request_id: Option<u64>,
     },
@@ -581,6 +583,8 @@ pub enum PluginCommand {
         show_cursors: bool,
         /// Whether editing is disabled for this buffer (default false)
         editing_disabled: bool,
+        /// Whether line wrapping is enabled for this split (None = use global setting)
+        line_wrap: Option<bool>,
         /// Optional request ID for async response
         request_id: Option<u64>,
     },

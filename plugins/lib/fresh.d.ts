@@ -254,6 +254,8 @@ interface CreateVirtualBufferOptions {
   show_cursors?: boolean | null;
   /** Disable all editing commands (default: false) */
   editing_disabled?: boolean | null;
+  /** Enable/disable line wrapping (None = use global setting) */
+  line_wrap?: boolean | null;
 }
 
 /** Options for creating a virtual buffer in an existing split */
@@ -274,6 +276,8 @@ interface CreateVirtualBufferInExistingSplitOptions {
   show_cursors?: boolean | null;
   /** Whether editing is disabled for this buffer (default false) */
   editing_disabled?: boolean | null;
+  /** Enable/disable line wrapping (None = use global setting) */
+  line_wrap?: boolean | null;
 }
 
 /** Options for creating a virtual buffer in the current split as a new tab */
