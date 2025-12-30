@@ -659,113 +659,147 @@ interface AlignedLine {
 }
 
 /**
- * Parse git diff output and compute aligned line pairs for side-by-side display.
- * Uses LCS-based alignment to pair up corresponding lines.
+ * Parse git diff and compute fully aligned line pairs for side-by-side display.
+ * Shows the complete files with proper alignment through all hunks.
  */
-function computeAlignedDiff(oldContent: string, newContent: string, hunk: Hunk): AlignedLine[] {
+function computeFullFileAlignedDiff(oldContent: string, newContent: string, hunks: Hunk[]): AlignedLine[] {
     const oldLines = oldContent.split('\n');
     const newLines = newContent.split('\n');
     const aligned: AlignedLine[] = [];
 
-    // Parse hunk lines to understand what changed
-    const hunkChanges: { type: 'add' | 'remove' | 'context', content: string }[] = [];
-    for (const line of hunk.lines) {
-        if (line.startsWith('+')) {
-            hunkChanges.push({ type: 'add', content: line.substring(1) });
-        } else if (line.startsWith('-')) {
-            hunkChanges.push({ type: 'remove', content: line.substring(1) });
-        } else if (line.startsWith(' ')) {
-            hunkChanges.push({ type: 'context', content: line.substring(1) });
-        }
+    // Build a map of changes from all hunks for this file
+    // Key: old line number (1-based), Value: { type, newLineNum, content }
+    interface ChangeInfo {
+        type: 'removed' | 'added' | 'modified' | 'context';
+        oldContent?: string;
+        newContent?: string;
+        newLineNum?: number;
     }
 
-    // Build aligned view focusing on the hunk region
-    // Show context before hunk
-    const contextBefore = 3;
-    const startOld = Math.max(0, hunk.oldRange.start - 1 - contextBefore);
-    const startNew = Math.max(0, hunk.range.start - 1 - contextBefore);
-
-    // Add lines before the hunk
-    for (let i = startOld; i < hunk.oldRange.start - 1 && i < oldLines.length; i++) {
-        const newIdx = startNew + (i - startOld);
-        aligned.push({
-            oldLine: oldLines[i],
-            newLine: newIdx < newLines.length ? newLines[newIdx] : null,
-            oldLineNum: i + 1,
-            newLineNum: newIdx < newLines.length ? newIdx + 1 : null,
-            changeType: 'unchanged'
+    // Parse all hunks for this file
+    const allHunkChanges: { oldStart: number, newStart: number, changes: { type: 'add' | 'remove' | 'context', content: string }[] }[] = [];
+    for (const hunk of hunks) {
+        const changes: { type: 'add' | 'remove' | 'context', content: string }[] = [];
+        for (const line of hunk.lines) {
+            if (line.startsWith('+')) {
+                changes.push({ type: 'add', content: line.substring(1) });
+            } else if (line.startsWith('-')) {
+                changes.push({ type: 'remove', content: line.substring(1) });
+            } else if (line.startsWith(' ')) {
+                changes.push({ type: 'context', content: line.substring(1) });
+            }
+        }
+        allHunkChanges.push({
+            oldStart: hunk.oldRange.start,
+            newStart: hunk.range.start,
+            changes
         });
     }
 
-    // Process hunk changes with proper alignment
-    let oldIdx = hunk.oldRange.start - 1;
-    let newIdx = hunk.range.start - 1;
-    let i = 0;
+    // Sort hunks by old line start
+    allHunkChanges.sort((a, b) => a.oldStart - b.oldStart);
 
-    while (i < hunkChanges.length) {
-        const change = hunkChanges[i];
+    // Process the file line by line
+    let oldIdx = 0;  // 0-based index into oldLines
+    let newIdx = 0;  // 0-based index into newLines
+    let hunkIdx = 0;
 
-        if (change.type === 'context') {
-            // Context line - appears on both sides
+    while (oldIdx < oldLines.length || newIdx < newLines.length || hunkIdx < allHunkChanges.length) {
+        // Check if we're at a hunk boundary
+        const currentHunk = hunkIdx < allHunkChanges.length ? allHunkChanges[hunkIdx] : null;
+
+        if (currentHunk && oldIdx + 1 === currentHunk.oldStart) {
+            // Process this hunk
+            let changeIdx = 0;
+            while (changeIdx < currentHunk.changes.length) {
+                const change = currentHunk.changes[changeIdx];
+
+                if (change.type === 'context') {
+                    aligned.push({
+                        oldLine: oldLines[oldIdx],
+                        newLine: newLines[newIdx],
+                        oldLineNum: oldIdx + 1,
+                        newLineNum: newIdx + 1,
+                        changeType: 'unchanged'
+                    });
+                    oldIdx++;
+                    newIdx++;
+                    changeIdx++;
+                } else if (change.type === 'remove') {
+                    // Look ahead to see if next is an 'add' (modification)
+                    if (changeIdx + 1 < currentHunk.changes.length &&
+                        currentHunk.changes[changeIdx + 1].type === 'add') {
+                        // Modified line
+                        aligned.push({
+                            oldLine: oldLines[oldIdx],
+                            newLine: newLines[newIdx],
+                            oldLineNum: oldIdx + 1,
+                            newLineNum: newIdx + 1,
+                            changeType: 'modified'
+                        });
+                        oldIdx++;
+                        newIdx++;
+                        changeIdx += 2;
+                    } else {
+                        // Pure removal
+                        aligned.push({
+                            oldLine: oldLines[oldIdx],
+                            newLine: null,
+                            oldLineNum: oldIdx + 1,
+                            newLineNum: null,
+                            changeType: 'removed'
+                        });
+                        oldIdx++;
+                        changeIdx++;
+                    }
+                } else if (change.type === 'add') {
+                    // Pure addition
+                    aligned.push({
+                        oldLine: null,
+                        newLine: newLines[newIdx],
+                        oldLineNum: null,
+                        newLineNum: newIdx + 1,
+                        changeType: 'added'
+                    });
+                    newIdx++;
+                    changeIdx++;
+                }
+            }
+            hunkIdx++;
+        } else if (oldIdx < oldLines.length && newIdx < newLines.length) {
+            // Not in a hunk - add unchanged line
             aligned.push({
-                oldLine: oldLines[oldIdx] || change.content,
-                newLine: newLines[newIdx] || change.content,
+                oldLine: oldLines[oldIdx],
+                newLine: newLines[newIdx],
                 oldLineNum: oldIdx + 1,
                 newLineNum: newIdx + 1,
                 changeType: 'unchanged'
             });
             oldIdx++;
             newIdx++;
-            i++;
-        } else if (change.type === 'remove' && i + 1 < hunkChanges.length && hunkChanges[i + 1].type === 'add') {
-            // Modified line: old removed, new added - show side by side
+        } else if (oldIdx < oldLines.length) {
+            // Only old lines left (shouldn't happen normally)
             aligned.push({
-                oldLine: oldLines[oldIdx] || change.content,
-                newLine: newLines[newIdx] || hunkChanges[i + 1].content,
-                oldLineNum: oldIdx + 1,
-                newLineNum: newIdx + 1,
-                changeType: 'modified'
-            });
-            oldIdx++;
-            newIdx++;
-            i += 2;
-        } else if (change.type === 'remove') {
-            // Pure deletion - filler on new side
-            aligned.push({
-                oldLine: oldLines[oldIdx] || change.content,
+                oldLine: oldLines[oldIdx],
                 newLine: null,
                 oldLineNum: oldIdx + 1,
                 newLineNum: null,
                 changeType: 'removed'
             });
             oldIdx++;
-            i++;
-        } else if (change.type === 'add') {
-            // Pure addition - filler on old side
+        } else if (newIdx < newLines.length) {
+            // Only new lines left
             aligned.push({
                 oldLine: null,
-                newLine: newLines[newIdx] || change.content,
+                newLine: newLines[newIdx],
                 oldLineNum: null,
                 newLineNum: newIdx + 1,
                 changeType: 'added'
             });
             newIdx++;
-            i++;
+        } else {
+            break;
         }
-    }
-
-    // Add context after hunk
-    const contextAfter = 3;
-    for (let j = 0; j < contextAfter && oldIdx < oldLines.length; j++) {
-        aligned.push({
-            oldLine: oldLines[oldIdx],
-            newLine: newIdx < newLines.length ? newLines[newIdx] : null,
-            oldLineNum: oldIdx + 1,
-            newLineNum: newIdx < newLines.length ? newIdx + 1 : null,
-            changeType: 'unchanged'
-        });
-        oldIdx++;
-        newIdx++;
     }
 
     return aligned;
@@ -947,6 +981,9 @@ globalThis.review_drill_down = async () => {
 
         editor.setStatus("Loading side-by-side diff...");
 
+        // Get all hunks for this file
+        const fileHunks = state.hunks.filter(hunk => hunk.file === h.file);
+
         // Get old (HEAD) and new (working) file content
         const gitShow = await editor.spawnProcess("git", ["show", `HEAD:${h.file}`]);
         if (gitShow.exit_code !== 0) {
@@ -963,32 +1000,43 @@ globalThis.review_drill_down = async () => {
         }
         const newContent = newFileResult.stdout;
 
-        // Compute aligned diff
-        const alignedLines = computeAlignedDiff(oldContent, newContent, h);
+        // Close the Review Diff buffer to make room for side-by-side view
+        // Store the review buffer ID so we can restore it later
+        const reviewBufferId = bid;
+
+        // Compute aligned diff for the FULL file with all hunks
+        const alignedLines = computeFullFileAlignedDiff(oldContent, newContent, fileHunks);
 
         // Generate content for both panes
         const oldPane = generateDiffPaneContent(alignedLines, 'old');
         const newPane = generateDiffPaneContent(alignedLines, 'new');
 
-        // Create OLD pane first (will be on LEFT after we create NEW on right)
-        // Actually, createVirtualBufferInSplit creates to the RIGHT of current
-        // So we create NEW first, then OLD will appear to its right
-        // Then we focus OLD and create NEW to its right
-        // This way: OLD (left) | NEW (right)
+        // Close any existing side-by-side views
+        if (activeSideBySideState) {
+            try {
+                editor.closeBuffer(activeSideBySideState.oldBufferId);
+                editor.closeBuffer(activeSideBySideState.newBufferId);
+            } catch {}
+            activeSideBySideState = null;
+        }
 
-        // Step 1: Create OLD pane in current split (becomes LEFT)
-        const oldRes = await editor.createVirtualBufferInSplit({
+        // Get the current split ID before closing the Review Diff buffer
+        const currentSplitId = (editor as any).getActiveSplitId();
+
+        // Create OLD buffer in the CURRENT split (replaces Review Diff)
+        const oldBufferId = await editor.createVirtualBufferInExistingSplit({
             name: `[OLD] ${h.file}`,
             mode: "diff-view",
             read_only: true,
             editing_disabled: true,
             entries: oldPane.entries,
-            ratio: 0.5,
-            direction: "vertical",
-            show_line_numbers: false  // We have our own line numbers
+            split_id: currentSplitId,
+            show_line_numbers: false
         });
-        const oldBufferId = oldRes.buffer_id;
-        const oldSplitId = oldRes.split_id!;
+        const oldSplitId = currentSplitId;
+
+        // Close the Review Diff buffer after showing OLD
+        editor.closeBuffer(reviewBufferId);
 
         // Apply highlights to old pane
         editor.clearNamespace(oldBufferId, "diff-view");
@@ -1003,7 +1051,7 @@ globalThis.review_drill_down = async () => {
             );
         }
 
-        // Step 2: Create NEW pane (will be on RIGHT of OLD)
+        // Step 2: Create NEW pane in a vertical split (RIGHT of OLD)
         const newRes = await editor.createVirtualBufferInSplit({
             name: `[NEW] ${h.file}`,
             mode: "diff-view",
@@ -1047,7 +1095,7 @@ globalThis.review_drill_down = async () => {
         const addedLines = alignedLines.filter(l => l.changeType === 'added').length;
         const removedLines = alignedLines.filter(l => l.changeType === 'removed').length;
         const modifiedLines = alignedLines.filter(l => l.changeType === 'modified').length;
-        editor.setStatus(`Side-by-side diff: +${addedLines} -${removedLines} ~${modifiedLines} | Press 'q' to close`);
+        editor.setStatus(`Side-by-side diff: +${addedLines} -${removedLines} ~${modifiedLines} | 'q' to return`);
     }
 };
 
