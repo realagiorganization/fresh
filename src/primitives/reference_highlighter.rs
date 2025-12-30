@@ -221,6 +221,7 @@ impl ReferenceHighlighter {
             Language::HTML => tree_sitter_html::LANGUAGE.into(),
             Language::CSS => tree_sitter_css::LANGUAGE.into(),
             Language::CSharp => tree_sitter_c_sharp::LANGUAGE.into(),
+            Language::Odin => tree_sitter_odin::LANGUAGE.into(),
         };
 
         // Create parser

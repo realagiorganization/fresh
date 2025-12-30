@@ -2330,6 +2330,25 @@ impl Config {
             },
         );
 
+        languages.insert(
+            "odin".to_string(),
+            LanguageConfig {
+                extensions: vec!["odin".to_string()],
+                filenames: vec![],
+                grammar: "odin".to_string(),
+                comment_prefix: Some("//".to_string()),
+                auto_indent: true,
+                highlighter: HighlighterPreference::Auto,
+                textmate_grammar: None,
+                show_whitespace_tabs: false,
+                use_tabs: true,
+                tab_size: Some(8),
+                formatter: None,
+                format_on_save: false,
+                on_save: vec![],
+            },
+        );
+
         languages
     }
 
