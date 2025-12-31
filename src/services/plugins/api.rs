@@ -39,6 +39,11 @@ pub enum PluginResponse {
         request_id: u64,
         text: Result<String, String>,
     },
+    /// Response to CreateCompositeBuffer with the created buffer ID
+    CompositeBufferCreated {
+        request_id: u64,
+        buffer_id: BufferId,
+    },
 }
 
 /// Information about a cursor in the editor

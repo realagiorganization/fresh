@@ -258,7 +258,15 @@ impl Editor {
             buffer_id
         );
 
-        // TODO: Send response with buffer_id if request_id is provided
+        // Send response with buffer_id if request_id is provided
+        if let Some(req_id) = _request_id {
+            self.send_plugin_response(
+                crate::services::plugins::api::PluginResponse::CompositeBufferCreated {
+                    request_id: req_id,
+                    buffer_id,
+                },
+            );
+        }
     }
 
     /// Handle the UpdateCompositeAlignment plugin command
