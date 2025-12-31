@@ -1186,9 +1186,11 @@ globalThis.review_drill_down = async () => {
 
 // Define the diff-view mode with navigation keys
 editor.defineMode("diff-view", "special", [
-    ["q", "close_buffer"],
+    ["q", "close"],
     ["j", "move_down"],
     ["k", "move_up"],
+    ["h", "move_left"],
+    ["l", "move_right"],
     ["g", "move_document_start"],
     ["G", "move_document_end"],
     ["C-d", "move_page_down"],
@@ -1791,7 +1793,7 @@ editor.defineMode("review-mode", "normal", [
     ["s", "review_stage_hunk"], ["d", "review_discard_hunk"],
     // Navigation
     ["n", "review_next_hunk"], ["p", "review_prev_hunk"], ["r", "review_refresh"],
-    ["Enter", "review_drill_down"], ["q", "close_buffer"],
+    ["Enter", "review_drill_down"], ["q", "close"],
     // Review actions
     ["c", "review_add_comment"],
     ["a", "review_approve_hunk"],

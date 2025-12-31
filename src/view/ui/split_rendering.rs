@@ -641,6 +641,10 @@ impl SplitRenderer {
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
         event_logs: &mut HashMap<BufferId, EventLog>,
         composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
+        composite_view_states: &mut HashMap<
+            (crate::model::event::SplitId, BufferId),
+            crate::view::composite_view::CompositeViewState,
+        >,
         theme: &crate::view::theme::Theme,
         ansi_background: Option<&AnsiBackground>,
         background_fade: f32,
@@ -777,6 +781,18 @@ impl SplitRenderer {
                 // Check if this is a composite buffer - render differently
                 if state.is_composite_buffer {
                     if let Some(composite) = composite_buffers.get(&buffer_id) {
+                        // Get or create composite view state
+                        let pane_count = composite.pane_count();
+                        let view_state = composite_view_states
+                            .entry((split_id, buffer_id))
+                            .or_insert_with(|| {
+                                crate::view::composite_view::CompositeViewState::new(
+                                    buffer_id, pane_count,
+                                )
+                            });
+                        let scroll_row = view_state.scroll_row;
+                        let cursor_row = view_state.cursor_row;
+
                         // Render composite buffer with side-by-side panes
                         Self::render_composite_buffer(
                             frame,
@@ -785,6 +801,8 @@ impl SplitRenderer {
                             buffers,
                             theme,
                             is_active,
+                            scroll_row,
+                            cursor_row,
                         );
                     }
                     view_line_mappings.insert(split_id, Vec::new());
@@ -954,6 +972,8 @@ impl SplitRenderer {
         buffers: &HashMap<BufferId, EditorState>,
         theme: &crate::view::theme::Theme,
         _is_active: bool,
+        scroll_row: usize,
+        cursor_row: usize,
     ) {
         use crate::model::composite_buffer::CompositeLayout;
         use ratatui::widgets::Clear;
@@ -1009,6 +1029,8 @@ impl SplitRenderer {
                     &source.label,
                     theme,
                     idx == composite.active_pane,
+                    scroll_row,
+                    cursor_row,
                 );
             } else {
                 // Source buffer not found - render placeholder
@@ -1039,6 +1061,8 @@ impl SplitRenderer {
         label: &str,
         theme: &crate::view::theme::Theme,
         is_focused: bool,
+        scroll_row: usize,
+        cursor_row: usize,
     ) {
         // Render header with label
         let header_height = 1u16;
@@ -1072,7 +1096,11 @@ impl SplitRenderer {
             let visible_lines = content_area.height as usize;
             let mut lines_text = Vec::new();
 
-            for line_idx in 0..visible_lines.min(line_count) {
+            // Start from scroll_row, clamp to valid range
+            let start_line = scroll_row.min(line_count.saturating_sub(1));
+            let end_line = (start_line + visible_lines).min(line_count);
+
+            for line_idx in start_line..end_line {
                 if let Some(line) = buffer.get_line(line_idx) {
                     // Truncate line to fit pane width (leave room for line numbers)
                     let gutter_width = 4;
@@ -1081,11 +1109,28 @@ impl SplitRenderer {
                     let line_str = String::from_utf8_lossy(&line);
                     let line_content: String = line_str.chars().take(max_line_width).collect();
 
-                    // Create line with line number
+                    // Highlight cursor line
+                    let is_cursor_line = line_idx == cursor_row;
+                    let line_style = if is_cursor_line {
+                        Style::default().bg(theme.current_line_bg)
+                    } else {
+                        Style::default()
+                    };
+
+                    // Create line with line number (1-based)
                     let line_num = format!("{:>3} ", line_idx + 1);
                     let line_text = Line::from(vec![
-                        Span::styled(line_num, Style::default().fg(theme.line_number_fg)),
-                        Span::raw(line_content),
+                        Span::styled(
+                            line_num,
+                            Style::default().fg(theme.line_number_fg).bg(
+                                if is_cursor_line {
+                                    theme.current_line_bg
+                                } else {
+                                    theme.editor_bg
+                                },
+                            ),
+                        ),
+                        Span::styled(line_content, line_style),
                     ]);
                     lines_text.push(line_text);
                 }

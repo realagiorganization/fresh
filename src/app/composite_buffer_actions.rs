@@ -93,6 +93,10 @@ impl Editor {
         state.mode = mode;
         self.buffers.insert(buffer_id, state);
 
+        // Create an event log entry (required for many editor operations)
+        self.event_logs
+            .insert(buffer_id, crate::model::event::EventLog::new());
+
         // Register with the active split so it appears in tabs
         let split_id = self.split_manager.active_split();
         if let Some(view_state) = self.split_view_states.get_mut(&split_id) {
@@ -183,6 +187,100 @@ impl Editor {
         ) {
             let max_row = composite.row_count().saturating_sub(1);
             view_state.set_scroll_row(row, max_row);
+        }
+    }
+
+    // =========================================================================
+    // Action Handling for Composite Buffers
+    // =========================================================================
+
+    /// Handle an action for a composite buffer.
+    /// Returns Some(true) if handled, Some(false) if handled but with error, None if not applicable.
+    pub fn handle_composite_action(
+        &mut self,
+        buffer_id: BufferId,
+        action: &crate::input::keybindings::Action,
+    ) -> Option<bool> {
+        use crate::input::keybindings::Action;
+
+        let split_id = self.split_manager.active_split();
+
+        // Get viewport height for page up/down (use a reasonable default)
+        let viewport_height = self
+            .split_view_states
+            .get(&split_id)
+            .map(|vs| vs.viewport.height as usize)
+            .unwrap_or(24);
+
+        match action {
+            Action::MoveDown => {
+                if let (Some(composite), Some(view_state)) = (
+                    self.composite_buffers.get(&buffer_id),
+                    self.composite_view_states.get_mut(&(split_id, buffer_id)),
+                ) {
+                    let max_row = composite.row_count().saturating_sub(1);
+                    view_state.move_cursor_down(max_row, viewport_height);
+                }
+                Some(true)
+            }
+            Action::MoveUp => {
+                if let Some(view_state) =
+                    self.composite_view_states.get_mut(&(split_id, buffer_id))
+                {
+                    view_state.move_cursor_up();
+                }
+                Some(true)
+            }
+            Action::ScrollDown => {
+                self.composite_scroll(split_id, buffer_id, 1);
+                Some(true)
+            }
+            Action::ScrollUp => {
+                self.composite_scroll(split_id, buffer_id, -1);
+                Some(true)
+            }
+            Action::MovePageDown => {
+                if let (Some(composite), Some(view_state)) = (
+                    self.composite_buffers.get(&buffer_id),
+                    self.composite_view_states.get_mut(&(split_id, buffer_id)),
+                ) {
+                    let max_row = composite.row_count().saturating_sub(1);
+                    view_state.page_down(viewport_height, max_row);
+                    // Move cursor to follow scroll
+                    view_state.cursor_row = view_state.scroll_row;
+                }
+                Some(true)
+            }
+            Action::MovePageUp => {
+                if let Some(view_state) =
+                    self.composite_view_states.get_mut(&(split_id, buffer_id))
+                {
+                    view_state.page_up(viewport_height);
+                    // Move cursor to follow scroll
+                    view_state.cursor_row = view_state.scroll_row;
+                }
+                Some(true)
+            }
+            Action::MoveDocumentStart => {
+                if let Some(view_state) =
+                    self.composite_view_states.get_mut(&(split_id, buffer_id))
+                {
+                    view_state.move_cursor_to_top();
+                }
+                Some(true)
+            }
+            Action::MoveDocumentEnd => {
+                if let (Some(composite), Some(view_state)) = (
+                    self.composite_buffers.get(&buffer_id),
+                    self.composite_view_states.get_mut(&(split_id, buffer_id)),
+                ) {
+                    let max_row = composite.row_count().saturating_sub(1);
+                    view_state.move_cursor_to_bottom(max_row, viewport_height);
+                }
+                Some(true)
+            }
+            // For other actions, return None to fall through to normal handling
+            _ => None,
         }
     }
 

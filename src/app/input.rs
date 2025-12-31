@@ -2488,6 +2488,14 @@ impl Editor {
     /// (cursor movements, text edits, etc.). It handles batching for multi-cursor,
     /// position history tracking, and editing permission checks.
     fn apply_action_as_events(&mut self, action: Action) -> std::io::Result<()> {
+        // Check if active buffer is a composite buffer - handle scroll/movement specially
+        let buffer_id = self.active_buffer();
+        if self.is_composite_buffer(buffer_id) {
+            if let Some(handled) = self.handle_composite_action(buffer_id, &action) {
+                return if handled { Ok(()) } else { Ok(()) };
+            }
+        }
+
         // Get description before moving action
         let action_description = format!("{:?}", action);
 

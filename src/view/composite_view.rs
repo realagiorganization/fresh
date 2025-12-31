@@ -22,6 +22,9 @@ pub struct CompositeViewState {
     /// All panes scroll together via alignment
     pub scroll_row: usize,
 
+    /// Current cursor row (for navigation highlighting)
+    pub cursor_row: usize,
+
     /// Cursor positions per pane (for editing)
     pub pane_cursors: Vec<Cursors>,
 
@@ -37,9 +40,44 @@ impl CompositeViewState {
             pane_viewports: (0..pane_count).map(|_| PaneViewport::default()).collect(),
             focused_pane: 0,
             scroll_row: 0,
+            cursor_row: 0,
             pane_cursors: (0..pane_count).map(|_| Cursors::new()).collect(),
             pane_widths: vec![0; pane_count],
         }
+    }
+
+    /// Move cursor down, auto-scrolling if needed
+    pub fn move_cursor_down(&mut self, max_row: usize, viewport_height: usize) {
+        if self.cursor_row < max_row {
+            self.cursor_row += 1;
+            // Auto-scroll if cursor goes below viewport
+            if self.cursor_row >= self.scroll_row + viewport_height {
+                self.scroll_row = self.cursor_row.saturating_sub(viewport_height - 1);
+            }
+        }
+    }
+
+    /// Move cursor up, auto-scrolling if needed
+    pub fn move_cursor_up(&mut self) {
+        if self.cursor_row > 0 {
+            self.cursor_row -= 1;
+            // Auto-scroll if cursor goes above viewport
+            if self.cursor_row < self.scroll_row {
+                self.scroll_row = self.cursor_row;
+            }
+        }
+    }
+
+    /// Move cursor to top
+    pub fn move_cursor_to_top(&mut self) {
+        self.cursor_row = 0;
+        self.scroll_row = 0;
+    }
+
+    /// Move cursor to bottom
+    pub fn move_cursor_to_bottom(&mut self, max_row: usize, viewport_height: usize) {
+        self.cursor_row = max_row;
+        self.scroll_row = max_row.saturating_sub(viewport_height - 1);
     }
 
     /// Scroll all panes together by delta lines
