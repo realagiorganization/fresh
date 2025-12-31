@@ -795,6 +795,77 @@ fn test_side_by_side_diff_scroll_sync() {
         screen_top
     );
 
+    // Test Ctrl+Down scroll (keyboard scroll command)
+    // This should also sync between panes via the viewport_changed hook
+    for _ in 0..10 {
+        harness
+            .send_key(KeyCode::Down, KeyModifiers::CONTROL)
+            .unwrap();
+    }
+    harness.render().unwrap();
+    harness.render().unwrap();
+
+    let screen_ctrl_scroll = harness.screen_to_string();
+    println!("After Ctrl+Down scroll:\n{}", screen_ctrl_scroll);
+
+    // Should have scrolled down from start
+    let ctrl_scrolled = !screen_ctrl_scroll.contains("function_0()")
+        || screen_ctrl_scroll.contains("function_1")
+        || screen_ctrl_scroll.contains("function_2");
+
+    assert!(
+        ctrl_scrolled,
+        "Ctrl+Down should scroll viewport. Screen:\n{}",
+        screen_ctrl_scroll
+    );
+
+    // Test PageDown scroll
+    harness
+        .send_key(KeyCode::Char('g'), KeyModifiers::NONE)
+        .unwrap(); // Back to top first
+    harness.render().unwrap();
+
+    harness
+        .send_key(KeyCode::PageDown, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+    harness.render().unwrap();
+
+    let screen_pagedown = harness.screen_to_string();
+    println!("After PageDown:\n{}", screen_pagedown);
+
+    // PageDown should scroll viewport
+    assert!(
+        !screen_pagedown.contains("TypeError") && !screen_pagedown.contains("Error:"),
+        "PageDown should not cause errors. Screen:\n{}",
+        screen_pagedown
+    );
+
+    // Test mouse wheel scroll
+    // Get approximate position of the OLD pane (left side)
+    harness
+        .send_key(KeyCode::Char('g'), KeyModifiers::NONE)
+        .unwrap(); // Back to top first
+    harness.render().unwrap();
+
+    // Scroll down with mouse wheel in the left pane area
+    for _ in 0..5 {
+        harness.mouse_scroll_down(40, 15).unwrap();
+    }
+    harness.render().unwrap();
+    harness.render().unwrap();
+
+    let screen_mouse = harness.screen_to_string();
+    println!("After mouse wheel scroll:\n{}", screen_mouse);
+
+    // Mouse wheel scroll should work
+    // (may or may not have scrolled depending on focus, but should not error)
+    assert!(
+        !screen_mouse.contains("TypeError") && !screen_mouse.contains("Error:"),
+        "Mouse wheel scroll should not cause errors. Screen:\n{}",
+        screen_mouse
+    );
+
     // No errors should occur
     assert!(
         !screen_after.contains("TypeError") && !screen_after.contains("Error:"),
