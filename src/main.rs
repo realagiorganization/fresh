@@ -60,6 +60,10 @@ struct Args {
     /// Print the effective configuration as JSON and exit
     #[arg(long)]
     dump_config: bool,
+
+    /// Print the directories used by Fresh and exit
+    #[arg(long)]
+    show_paths: bool,
 }
 
 /// Parsed file location from CLI argument in file:line:col format
@@ -579,6 +583,12 @@ fn run_editor_iteration(
 fn main() -> io::Result<()> {
     // Parse command-line arguments
     let args = Args::parse();
+
+    // Handle --show-paths early (no terminal setup needed)
+    if args.show_paths {
+        fresh::services::log_dirs::print_all_paths();
+        return Ok(());
+    }
 
     // Handle --dump-config early (no terminal setup needed)
     if args.dump_config {

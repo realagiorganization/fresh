@@ -268,6 +268,46 @@ fn is_process_running(pid: u32) -> bool {
     }
 }
 
+/// Print all directories used by Fresh to stdout
+pub fn print_all_paths() {
+    use std::io::Write;
+
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+
+    // Config directory (~/.config/fresh)
+    let config_dir = dirs::config_dir()
+        .map(|d| d.join("fresh"))
+        .unwrap_or_else(|| PathBuf::from("<unavailable>"));
+
+    // Data directory (~/.local/share/fresh)
+    let data_dir = dirs::data_dir()
+        .map(|d| d.join("fresh"))
+        .unwrap_or_else(|| PathBuf::from("<unavailable>"));
+
+    // State/logs directory
+    let logs_dir = log_dir().clone();
+
+    writeln!(handle, "Fresh directories:").ok();
+    writeln!(handle).ok();
+
+    writeln!(handle, "Config:     {}", config_dir.display()).ok();
+    writeln!(handle, "  config.json:  {}", config_dir.join("config.json").display()).ok();
+    writeln!(handle, "  themes/:      {}", config_dir.join("themes").display()).ok();
+    writeln!(handle, "  grammars/:    {}", config_dir.join("grammars").display()).ok();
+    writeln!(handle, "  plugins/:     {}", config_dir.join("plugins").display()).ok();
+    writeln!(handle).ok();
+
+    writeln!(handle, "Data:       {}", data_dir.display()).ok();
+    writeln!(handle, "  sessions/:    {}", data_dir.join("sessions").display()).ok();
+    writeln!(handle, "  recovery/:    {}", data_dir.join("recovery").display()).ok();
+    writeln!(handle, "  terminals/:   {}", data_dir.join("terminals").display()).ok();
+    writeln!(handle).ok();
+
+    writeln!(handle, "Logs:       {}", logs_dir.display()).ok();
+    writeln!(handle, "  lsp/:         {}", logs_dir.join("lsp").display()).ok();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
