@@ -95,9 +95,7 @@ pub struct WarningLogHandle {
 ///
 /// Returns the layer (to add to tracing subscriber) and a handle (to pass to editor)
 pub fn create() -> std::io::Result<(WarningLogLayer, WarningLogHandle)> {
-    create_with_path(
-        std::env::temp_dir().join(format!("fresh-warnings-{}.log", std::process::id())),
-    )
+    create_with_path(super::log_dirs::warnings_log_path())
 }
 
 /// Create a warning log layer with a specific path (for testing)

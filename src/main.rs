@@ -393,8 +393,11 @@ fn initialize_app(args: &Args) -> io::Result<SetupState> {
     let log_file = args
         .log_file
         .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join("fresh.log"));
+        .unwrap_or_else(fresh::services::log_dirs::main_log_path);
     let warning_log_handle = tracing_setup::init_global(&log_file);
+
+    // Clean up stale log files from dead processes on startup
+    fresh::services::log_dirs::cleanup_stale_logs();
 
     tracing::info!("Editor starting");
 
