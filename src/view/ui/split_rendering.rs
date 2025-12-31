@@ -2338,6 +2338,10 @@ impl SplitRenderer {
                 None
             };
 
+            // Track byte positions for extend_to_line_end feature
+            let mut first_line_byte_pos: Option<usize> = None;
+            let mut last_line_byte_pos: Option<usize> = None;
+
             let mut chars_iterator = line_content.chars().peekable();
             while let Some(ch) = chars_iterator.next() {
                 // Get source byte for this character using character index
@@ -2346,6 +2350,14 @@ impl SplitRenderer {
                     .get(display_char_idx)
                     .copied()
                     .flatten();
+
+                // Track byte positions for extend_to_line_end
+                if let Some(bp) = byte_pos {
+                    if first_line_byte_pos.is_none() {
+                        first_line_byte_pos = Some(bp);
+                    }
+                    last_line_byte_pos = Some(bp);
+                }
 
                 // Process character through ANSI parser first (if line has ANSI)
                 // If parser returns None, the character is part of an escape sequence and should be skipped
@@ -2715,13 +2727,9 @@ impl SplitRenderer {
 
                 if remaining_cols > 0 {
                     // Find overlays with extend_to_line_end that overlap with this line
-                    // We use the first byte position of the line content (if available)
-                    // or check if any overlay with extend_to_line_end overlaps the line's byte range
-                    let line_start_byte = line_char_source_bytes.first().copied().flatten();
-                    let line_end_byte = line_char_source_bytes.last().copied().flatten();
-
+                    // Use the tracked byte positions from character rendering
                     // Find the highest priority background color from overlays with extend_to_line_end
-                    let fill_style: Option<Style> = if let (Some(start), Some(end)) = (line_start_byte, line_end_byte) {
+                    let fill_style: Option<Style> = if let (Some(start), Some(end)) = (first_line_byte_pos, last_line_byte_pos) {
                         viewport_overlays
                             .iter()
                             .filter(|(overlay, range)| {
