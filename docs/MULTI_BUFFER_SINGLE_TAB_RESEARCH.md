@@ -1,10 +1,31 @@
 # Multi-Buffer Single-Tab Architecture
 
-**Status**: Complete Design
+**Status**: Implemented
 **Date**: 2025-12-31
 **Related Documents**:
 - `COMPOSITE_BUFFER_ARCHITECTURE.md` - Original proposal
 - `REVIEW_DIFF_FEATURE.md` - Feature documentation
+
+---
+
+## Implementation Summary
+
+The multi-buffer single-tab architecture has been implemented with the following components:
+
+### Core Infrastructure (Rust)
+- `src/model/composite_buffer.rs` - Core data structures (CompositeBuffer, SourcePane, LineAlignment, DiffHunk)
+- `src/view/composite_view.rs` - Per-split view state (CompositeViewState, PaneViewport)
+- `src/view/composite_renderer.rs` - Rendering logic for side-by-side, stacked, and unified layouts
+- `src/input/composite_router.rs` - Input routing to focused pane
+- `src/app/composite_buffer_actions.rs` - Editor methods for composite buffer management
+
+### Plugin API (TypeScript)
+- `editor.createCompositeBuffer(options)` - Create a multi-buffer view
+- `editor.updateCompositeAlignment(bufferId, hunks)` - Update diff alignment
+- `editor.closeCompositeBuffer(bufferId)` - Close a composite buffer
+
+### Example Plugin
+- `plugins/diff_view.ts` - Demonstrates side-by-side diff comparing current file with git HEAD
 
 ---
 
