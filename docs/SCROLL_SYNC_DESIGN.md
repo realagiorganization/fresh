@@ -221,3 +221,75 @@ The existing test `test_side_by_side_diff_scroll_sync` should pass with:
 - g (go to start) - both panes show early content
 - Ctrl+Down, PageDown, mouse wheel - smooth synchronized scrolling
 - No jitter, no feedback loops
+
+---
+
+## Implementation Status (2025-12-31)
+
+### Completed Work
+
+1. **Core Infrastructure Created** (`src/view/scroll_sync.rs`)
+   - `SyncAnchor` struct for mapping left/right line positions
+   - `ScrollSyncGroup` with single source of truth (`scroll_line`)
+   - `ScrollSyncManager` for managing multiple sync groups
+   - Line conversion functions: `left_to_right_line()`, `right_to_left_line()`
+
+2. **Plugin API Implemented** (`src/services/plugins/`)
+   - `CreateScrollSyncGroup` command (synchronous, plugin-provided ID)
+   - `SetScrollSyncAnchors` command for setting anchor pairs
+   - `RemoveScrollSyncGroup` command for cleanup
+   - Exposed via `editor.createScrollSyncGroup()`, `editor.setScrollSyncAnchors()`, `editor.removeScrollSyncGroup()`
+
+3. **Plugin Integration** (`plugins/audit_mode.ts`)
+   - Updated `review_drill_down` to create scroll sync groups
+   - Generates anchors from aligned diff lines
+   - Cleans up groups on buffer close via `on_buffer_closed` handler
+   - Fallback to old `on_viewport_changed` approach if core sync fails
+
+4. **Async Blocking Fix**
+   - Changed `CreateScrollSyncGroup` from async to synchronous operation
+   - Plugin now provides its own group IDs (counter-based)
+   - Eliminates deadlock where plugin awaited response that required render cycle
+
+### Current Issue: Scroll Sync Not Working
+
+The `sync_scroll_groups()` function in `src/app/render.rs` is being called but computing `active_line = 0` instead of the actual scroll position.
+
+**Debug Logging Added:**
+```rust
+tracing::debug!(
+    "sync_scroll_groups: active_split={:?}, buffer_id={:?}, top_byte={}, buffer_len={}, active_line={}",
+    active_split, active_buffer_id, active_top_byte, buffer_len, active_line
+);
+```
+
+**Suspected Causes:**
+1. Wrong buffer being used (split shows virtual buffer, but `buffer_for_split` returns different ID)
+2. `viewport.top_byte` not being updated when cursor moves with 'G'
+3. `get_line_number()` returning 0 for some reason
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/view/scroll_sync.rs` | New file - core sync infrastructure |
+| `src/view/mod.rs` | Added `scroll_sync` module |
+| `src/app/mod.rs` | Added `scroll_sync_manager` field, command handlers |
+| `src/app/render.rs` | Added `sync_scroll_groups()` call in render loop |
+| `src/services/plugins/api.rs` | Added scroll sync commands |
+| `src/services/plugins/runtime.rs` | Added sync JS ops |
+| `src/services/plugins/thread.rs` | Removed async response handling |
+| `plugins/audit_mode.ts` | Updated to use core scroll sync |
+
+### Next Steps
+
+1. Debug why `active_line` is computed as 0:
+   - Check if `viewport.top_byte` is being set correctly
+   - Verify correct buffer is being used for virtual diff buffers
+   - Add more logging around viewport updates
+
+2. Consider alternative approach:
+   - Use cursor position instead of viewport top_byte
+   - Or track scroll position directly in scroll sync group
+
+3. Run full test suite to verify no regressions

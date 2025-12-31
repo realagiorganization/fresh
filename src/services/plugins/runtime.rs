@@ -3294,60 +3294,28 @@ fn op_fresh_disable_lsp_for_language(state: &mut OpState, #[string] language: St
 /// Create a scroll sync group for anchor-based synchronized scrolling
 ///
 /// Used for side-by-side diff views where two panes need to scroll together.
-/// Returns a promise that resolves to the group ID.
-#[op2(async)]
-async fn op_fresh_create_scroll_sync_group(
-    state: Rc<RefCell<OpState>>,
+/// The plugin provides the group ID (must be unique per plugin).
+#[op2(fast)]
+fn op_fresh_create_scroll_sync_group(
+    state: &mut OpState,
+    group_id: u32,
     left_split: u32,
     right_split: u32,
-) -> Result<u32, JsErrorBox> {
+) -> bool {
     use crate::model::event::SplitId;
-    use crate::services::plugins::api::PluginResponse;
 
-    let receiver = {
-        let state = state.borrow();
-        let runtime_state = state
-            .try_borrow::<Rc<RefCell<TsRuntimeState>>>()
-            .ok_or_else(|| JsErrorBox::generic("Failed to get runtime state"))?;
+    if let Some(runtime_state) = state.try_borrow::<Rc<RefCell<TsRuntimeState>>>() {
         let runtime_state = runtime_state.borrow();
-
-        // Allocate request ID
-        let request_id = {
-            let mut id = runtime_state.next_request_id.borrow_mut();
-            let current = *id;
-            *id += 1;
-            current
-        };
-
-        // Create oneshot channel for response
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        {
-            let mut pending = runtime_state.pending_responses.lock().unwrap();
-            pending.insert(request_id, tx);
-        }
-
-        runtime_state
+        let result = runtime_state
             .command_sender
             .send(PluginCommand::CreateScrollSyncGroup {
+                group_id,
                 left_split: SplitId(left_split as usize),
                 right_split: SplitId(right_split as usize),
-                request_id,
-            })
-            .map_err(|_| JsErrorBox::generic("Failed to send command"))?;
-
-        rx
-    };
-
-    // Wait for response
-    let response = receiver
-        .await
-        .map_err(|_| JsErrorBox::generic("Response channel closed"))?;
-
-    // Extract group ID from response
-    match response {
-        PluginResponse::ScrollSyncGroupCreated { group_id, .. } => Ok(group_id),
-        _ => Err(JsErrorBox::generic("Unexpected response type")),
+            });
+        return result.is_ok();
     }
+    false
 }
 
 /// Set sync anchors for a scroll sync group
@@ -3947,8 +3915,8 @@ impl TypeScriptRuntime {
                     },
 
                     // Scroll sync for side-by-side diff views
-                    createScrollSyncGroup(leftSplit, rightSplit) {
-                        return core.ops.op_fresh_create_scroll_sync_group(leftSplit, rightSplit);
+                    createScrollSyncGroup(groupId, leftSplit, rightSplit) {
+                        return core.ops.op_fresh_create_scroll_sync_group(groupId, leftSplit, rightSplit);
                     },
                     setScrollSyncAnchors(groupId, anchors) {
                         return core.ops.op_fresh_set_scroll_sync_anchors(groupId, anchors);
@@ -4010,10 +3978,6 @@ impl TypeScriptRuntime {
             crate::services::plugins::api::PluginResponse::BufferText { request_id, .. } => {
                 *request_id
             }
-            crate::services::plugins::api::PluginResponse::ScrollSyncGroupCreated {
-                request_id,
-                ..
-            } => *request_id,
         };
 
         let sender = {

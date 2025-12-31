@@ -3426,41 +3426,91 @@ impl Editor {
 
     /// Synchronize viewports for all scroll sync groups
     ///
-    /// This is called at the start of render() to apply the authoritative scroll_line
-    /// from each scroll sync group to the actual viewport positions.
+    /// This syncs the inactive split's viewport to match the active split's position.
+    /// By deriving from the active split's actual viewport, we capture all viewport
+    /// changes regardless of source (scroll events, cursor movements, etc.).
     fn sync_scroll_groups(&mut self) {
-        // Collect the sync info first to avoid borrow issues
+        let active_split = self.split_manager.active_split();
+        let group_count = self.scroll_sync_manager.groups().len();
+
+        if group_count > 0 {
+            tracing::debug!(
+                "sync_scroll_groups: active_split={:?}, {} groups",
+                active_split,
+                group_count
+            );
+        }
+
+        // Collect sync info: for each group where active split participates,
+        // get the active split's current line position
         let sync_info: Vec<_> = self
             .scroll_sync_manager
             .groups()
             .iter()
-            .map(|group| {
-                (
+            .filter_map(|group| {
+                tracing::debug!(
+                    "sync_scroll_groups: checking group {}, left={:?}, right={:?}",
+                    group.id,
                     group.left_split,
-                    group.right_split,
-                    group.left_scroll_line(),
-                    group.right_scroll_line(),
-                )
+                    group.right_split
+                );
+
+                if !group.contains_split(active_split) {
+                    tracing::debug!(
+                        "sync_scroll_groups: active split {:?} not in group",
+                        active_split
+                    );
+                    return None;
+                }
+
+                // Get active split's current viewport top_byte
+                let active_top_byte = self
+                    .split_view_states
+                    .get(&active_split)?
+                    .viewport
+                    .top_byte;
+
+                // Get active split's buffer to convert bytes → line
+                let active_buffer_id = self.split_manager.buffer_for_split(active_split)?;
+                let buffer_state = self.buffers.get(&active_buffer_id)?;
+                let buffer_len = buffer_state.buffer.len();
+                let active_line = buffer_state.buffer.get_line_number(active_top_byte);
+
+                tracing::debug!(
+                    "sync_scroll_groups: active_split={:?}, buffer_id={:?}, top_byte={}, buffer_len={}, active_line={}",
+                    active_split,
+                    active_buffer_id,
+                    active_top_byte,
+                    buffer_len,
+                    active_line
+                );
+
+                // Determine the other split and compute its target line
+                let (other_split, other_line) = if group.is_left_split(active_split) {
+                    // Active is left, sync right
+                    (group.right_split, group.left_to_right_line(active_line))
+                } else {
+                    // Active is right, sync left
+                    (group.left_split, group.right_to_left_line(active_line))
+                };
+
+                tracing::debug!(
+                    "sync_scroll_groups: syncing other_split={:?} to line {}",
+                    other_split,
+                    other_line
+                );
+
+                Some((other_split, other_line))
             })
             .collect();
 
-        for (left_split, right_split, left_line, right_line) in sync_info {
-            // Sync left split viewport
-            if let Some(buffer_id) = self.split_manager.buffer_for_split(left_split) {
+        // Apply sync to other splits
+        for (other_split, target_line) in sync_info {
+            if let Some(buffer_id) = self.split_manager.buffer_for_split(other_split) {
                 if let Some(state) = self.buffers.get_mut(&buffer_id) {
                     let buffer = &mut state.buffer;
-                    if let Some(view_state) = self.split_view_states.get_mut(&left_split) {
-                        view_state.viewport.scroll_to(buffer, left_line);
-                    }
-                }
-            }
-
-            // Sync right split viewport
-            if let Some(buffer_id) = self.split_manager.buffer_for_split(right_split) {
-                if let Some(state) = self.buffers.get_mut(&buffer_id) {
-                    let buffer = &mut state.buffer;
-                    if let Some(view_state) = self.split_view_states.get_mut(&right_split) {
-                        view_state.viewport.scroll_to(buffer, right_line);
+                    if let Some(view_state) = self.split_view_states.get_mut(&other_split) {
+                        view_state.viewport.scroll_to(buffer, target_line);
                     }
                 }
             }

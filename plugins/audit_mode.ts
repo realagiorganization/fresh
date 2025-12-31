@@ -1005,6 +1005,7 @@ interface SideBySideDiffState {
 }
 
 let activeSideBySideState: SideBySideDiffState | null = null;
+let nextScrollSyncGroupId = 1;
 
 globalThis.review_drill_down = async () => {
     const bid = editor.getActiveBufferId();
@@ -1128,7 +1129,9 @@ globalThis.review_drill_down = async () => {
         // This replaces the old viewport_changed hook approach
         let scrollSyncGroupId: number | null = null;
         try {
-            scrollSyncGroupId = await (editor as any).createScrollSyncGroup(oldSplitId, newSplitId);
+            // Generate a unique group ID
+            scrollSyncGroupId = nextScrollSyncGroupId++;
+            (editor as any).createScrollSyncGroup(scrollSyncGroupId, oldSplitId, newSplitId);
 
             // Compute sync anchors from aligned lines
             // Each aligned line is a sync point - we map line indices to anchors
@@ -1158,6 +1161,7 @@ globalThis.review_drill_down = async () => {
             (editor as any).setScrollSyncAnchors(scrollSyncGroupId, anchors);
         } catch (e) {
             editor.debug(`Failed to create scroll sync group: ${e}`);
+            scrollSyncGroupId = null;
         }
 
         // Store state for synchronized scrolling

@@ -191,6 +191,24 @@ impl ScrollSyncManager {
         id
     }
 
+    /// Create a scroll sync group with a plugin-provided ID
+    /// Returns true if created successfully, false if ID already exists
+    pub fn create_group_with_id(
+        &mut self,
+        id: ScrollSyncGroupId,
+        left_split: SplitId,
+        right_split: SplitId,
+    ) -> bool {
+        // Check if ID already exists
+        if self.groups.iter().any(|g| g.id == id) {
+            return false;
+        }
+
+        let group = ScrollSyncGroup::new(id, left_split, right_split);
+        self.groups.push(group);
+        true
+    }
+
     /// Remove a scroll sync group by ID
     pub fn remove_group(&mut self, id: ScrollSyncGroupId) -> bool {
         if let Some(pos) = self.groups.iter().position(|g| g.id == id) {

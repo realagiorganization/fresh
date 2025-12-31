@@ -39,11 +39,6 @@ pub enum PluginResponse {
         request_id: u64,
         text: Result<String, String>,
     },
-    /// Response to CreateScrollSyncGroup with the group ID
-    ScrollSyncGroupCreated {
-        request_id: u64,
-        group_id: u32,
-    },
 }
 
 /// Information about a cursor in the editor
@@ -723,14 +718,14 @@ pub enum PluginCommand {
 
     /// Create a scroll sync group for anchor-based synchronized scrolling
     /// Used for side-by-side diff views where two panes need to scroll together
-    /// Returns the group ID via async response
+    /// The plugin provides the group ID (must be unique per plugin)
     CreateScrollSyncGroup {
+        /// Plugin-assigned group ID
+        group_id: u32,
         /// The left (primary) split - scroll position is tracked in this split's line space
         left_split: SplitId,
         /// The right (secondary) split - position is derived from anchors
         right_split: SplitId,
-        /// Request ID for async response
-        request_id: u64,
     },
 
     /// Set sync anchors for a scroll sync group

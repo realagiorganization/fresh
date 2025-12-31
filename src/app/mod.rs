@@ -1773,23 +1773,18 @@ impl Editor {
         let active_split = self.split_manager.active_split();
 
         // Check if this split is in a scroll sync group (anchor-based sync for diffs)
-        // If so, update the group's scroll_line and let render sync the viewports
-        if self.scroll_sync_manager.is_split_synced(active_split) {
-            self.scroll_sync_manager
-                .apply_scroll_delta(active_split, line_offset);
-
-            // Mark both splits to skip ensure_visible
-            if let Some(group) = self.scroll_sync_manager.find_group_for_split(active_split) {
-                let left = group.left_split;
-                let right = group.right_split;
-                if let Some(vs) = self.split_view_states.get_mut(&left) {
-                    vs.viewport.set_skip_ensure_visible();
-                }
-                if let Some(vs) = self.split_view_states.get_mut(&right) {
-                    vs.viewport.set_skip_ensure_visible();
-                }
+        // Mark both splits to skip ensure_visible so cursor doesn't override scroll
+        // The sync_scroll_groups() at render time will sync the other split
+        if let Some(group) = self.scroll_sync_manager.find_group_for_split(active_split) {
+            let left = group.left_split;
+            let right = group.right_split;
+            if let Some(vs) = self.split_view_states.get_mut(&left) {
+                vs.viewport.set_skip_ensure_visible();
             }
-            return;
+            if let Some(vs) = self.split_view_states.get_mut(&right) {
+                vs.viewport.set_skip_ensure_visible();
+            }
+            // Continue to scroll the active split normally below
         }
 
         // Fall back to simple sync_group (same delta to all splits)
@@ -3897,24 +3892,26 @@ impl Editor {
 
             // ==================== Scroll Sync Commands ====================
             PluginCommand::CreateScrollSyncGroup {
+                group_id,
                 left_split,
                 right_split,
-                request_id,
             } => {
-                let group_id = self.scroll_sync_manager.create_group(left_split, right_split);
-                tracing::debug!(
-                    "Created scroll sync group {} for splits {:?} and {:?}",
-                    group_id,
-                    left_split,
-                    right_split
-                );
-                // Send the group ID back to the plugin
-                self.send_plugin_response(
-                    crate::services::plugins::api::PluginResponse::ScrollSyncGroupCreated {
-                        request_id,
+                let success = self
+                    .scroll_sync_manager
+                    .create_group_with_id(group_id, left_split, right_split);
+                if success {
+                    tracing::debug!(
+                        "Created scroll sync group {} for splits {:?} and {:?}",
                         group_id,
-                    },
-                );
+                        left_split,
+                        right_split
+                    );
+                } else {
+                    tracing::warn!(
+                        "Failed to create scroll sync group {} (ID already exists)",
+                        group_id
+                    );
+                }
             }
             PluginCommand::SetScrollSyncAnchors { group_id, anchors } => {
                 use crate::view::scroll_sync::SyncAnchor;

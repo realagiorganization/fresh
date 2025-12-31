@@ -1294,16 +1294,17 @@ disableLspForLanguage(language: string): boolean
 
 Create a scroll sync group for anchor-based synchronized scrolling
 Used for side-by-side diff views where two panes need to scroll together.
-Returns a promise that resolves to the group ID.
+The plugin provides the group ID (must be unique per plugin).
 
 ```typescript
-createScrollSyncGroup(left_split: number, right_split: number): Promise<number>
+createScrollSyncGroup(group_id: number, left_split: number, right_split: number): boolean
 ```
 
 **Parameters:**
 
 | Name | Type | Description |
 |------|------|-------------|
+| `group_id` | `number` | - |
 | `left_split` | `number` | - |
 | `right_split` | `number` | - |
 
