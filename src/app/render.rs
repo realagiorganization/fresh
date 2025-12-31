@@ -332,6 +332,7 @@ impl Editor {
                 &mut self.buffers,
                 &self.buffer_metadata,
                 &mut self.event_logs,
+                &self.composite_buffers,
                 &self.theme,
                 self.ansi_background.as_ref(),
                 self.background_fade,

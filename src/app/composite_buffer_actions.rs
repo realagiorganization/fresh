@@ -78,8 +78,26 @@ impl Editor {
         self.composite_buffers.insert(buffer_id, composite);
 
         // Add metadata for display
-        let metadata = BufferMetadata::virtual_buffer(name, mode, true);
+        let metadata = BufferMetadata::virtual_buffer(name.clone(), mode.clone(), true);
         self.buffer_metadata.insert(buffer_id, metadata);
+
+        // Create an EditorState entry so the buffer can be shown in tabs and via showBuffer()
+        // The actual content rendering is handled by the composite renderer
+        let mut state = crate::state::EditorState::new(
+            80,
+            24,
+            crate::config::LARGE_FILE_THRESHOLD_BYTES as usize,
+        );
+        state.is_composite_buffer = true;
+        state.editing_disabled = true;
+        state.mode = mode;
+        self.buffers.insert(buffer_id, state);
+
+        // Register with the active split so it appears in tabs
+        let split_id = self.split_manager.active_split();
+        if let Some(view_state) = self.split_view_states.get_mut(&split_id) {
+            view_state.add_buffer(buffer_id);
+        }
 
         buffer_id
     }

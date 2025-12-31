@@ -85,6 +85,11 @@ pub struct EditorState {
     /// but navigation, selection, and copy are still allowed
     pub editing_disabled: bool,
 
+    /// Whether this buffer is a composite buffer (multi-pane view)
+    /// When true, the buffer content is rendered by the composite renderer
+    /// instead of the normal buffer rendering path
+    pub is_composite_buffer: bool,
+
     /// Whether to show whitespace tab indicators (→) for this buffer
     /// Set based on language config; defaults to true
     pub show_whitespace_tabs: bool,
@@ -144,6 +149,7 @@ impl EditorState {
             text_properties: TextPropertyManager::new(),
             show_cursors: true,
             editing_disabled: false,
+            is_composite_buffer: false,
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: 4, // Default tab size
@@ -226,6 +232,7 @@ impl EditorState {
             text_properties: TextPropertyManager::new(),
             show_cursors: true,
             editing_disabled: false,
+            is_composite_buffer: false,
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: 4, // Default tab size
@@ -297,6 +304,7 @@ impl EditorState {
             text_properties: TextPropertyManager::new(),
             show_cursors: true,
             editing_disabled: false,
+            is_composite_buffer: false,
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: 4, // Default tab size

@@ -640,6 +640,7 @@ impl SplitRenderer {
         buffers: &mut HashMap<BufferId, EditorState>,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
         event_logs: &mut HashMap<BufferId, EventLog>,
+        composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
         theme: &crate::view::theme::Theme,
         ansi_background: Option<&AnsiBackground>,
         background_fade: f32,
@@ -773,6 +774,23 @@ impl SplitRenderer {
             let event_log_opt = event_logs.get_mut(&buffer_id);
 
             if let Some(state) = state_opt {
+                // Check if this is a composite buffer - render differently
+                if state.is_composite_buffer {
+                    if let Some(composite) = composite_buffers.get(&buffer_id) {
+                        // Render composite buffer with side-by-side panes
+                        Self::render_composite_buffer(
+                            frame,
+                            layout.content_rect,
+                            composite,
+                            buffers,
+                            theme,
+                            is_active,
+                        );
+                    }
+                    view_line_mappings.insert(split_id, Vec::new());
+                    continue;
+                }
+
                 // Get viewport from SplitViewState (authoritative source)
                 // We need to get it mutably for sync operations
                 // Use as_deref() to get Option<&HashMap> for read-only operations
@@ -925,6 +943,165 @@ impl SplitRenderer {
                     frame.render_widget(paragraph, cell_area);
                 }
             }
+        }
+    }
+
+    /// Render a composite buffer (side-by-side view of multiple source buffers)
+    fn render_composite_buffer(
+        frame: &mut Frame,
+        area: Rect,
+        composite: &crate::model::composite_buffer::CompositeBuffer,
+        buffers: &HashMap<BufferId, EditorState>,
+        theme: &crate::view::theme::Theme,
+        _is_active: bool,
+    ) {
+        use crate::model::composite_buffer::CompositeLayout;
+        use ratatui::widgets::Clear;
+
+        // Clear the area first
+        frame.render_widget(Clear, area);
+
+        // Calculate pane widths based on layout
+        let pane_count = composite.sources.len();
+        if pane_count == 0 {
+            return;
+        }
+
+        // Extract show_separator from layout
+        let show_separator = match &composite.layout {
+            CompositeLayout::SideBySide { show_separator, .. } => *show_separator,
+            _ => false,
+        };
+
+        // Calculate pane areas
+        let separator_width = if show_separator { 1 } else { 0 };
+        let total_separators = (pane_count.saturating_sub(1)) as u16 * separator_width;
+        let available_width = area.width.saturating_sub(total_separators);
+
+        let pane_widths: Vec<u16> = match &composite.layout {
+            CompositeLayout::SideBySide { ratios, .. } => {
+                let default_ratio = 1.0 / pane_count as f32;
+                ratios
+                    .iter()
+                    .chain(std::iter::repeat(&default_ratio))
+                    .take(pane_count)
+                    .map(|r| (available_width as f32 * r).round() as u16)
+                    .collect()
+            }
+            _ => {
+                // Equal widths for stacked/unified layouts
+                let pane_width = available_width / pane_count as u16;
+                vec![pane_width; pane_count]
+            }
+        };
+
+        // Render each pane
+        let mut x_offset = area.x;
+        for (idx, (source, &width)) in composite.sources.iter().zip(&pane_widths).enumerate() {
+            let pane_area = Rect::new(x_offset, area.y, width, area.height);
+
+            // Get the source buffer content
+            if let Some(source_state) = buffers.get(&source.buffer_id) {
+                Self::render_composite_pane(
+                    frame,
+                    pane_area,
+                    source_state,
+                    &source.label,
+                    theme,
+                    idx == composite.active_pane,
+                );
+            } else {
+                // Source buffer not found - render placeholder
+                let placeholder = Paragraph::new(format!("Buffer {:?} not found", source.buffer_id))
+                    .style(Style::default().fg(theme.line_number_fg));
+                frame.render_widget(placeholder, pane_area);
+            }
+
+            x_offset += width;
+
+            // Render separator if needed
+            if show_separator && idx < pane_count - 1 {
+                let sep_area = Rect::new(x_offset, area.y, separator_width, area.height);
+                let separator = "│".repeat(area.height as usize);
+                let sep_widget = Paragraph::new(separator)
+                    .style(Style::default().fg(theme.split_separator_fg));
+                frame.render_widget(sep_widget, sep_area);
+                x_offset += separator_width;
+            }
+        }
+    }
+
+    /// Render a single pane of a composite buffer
+    fn render_composite_pane(
+        frame: &mut Frame,
+        area: Rect,
+        source_state: &EditorState,
+        label: &str,
+        theme: &crate::view::theme::Theme,
+        is_focused: bool,
+    ) {
+        // Render header with label
+        let header_height = 1u16;
+        let header_area = Rect::new(area.x, area.y, area.width, header_height);
+        let content_area = Rect::new(
+            area.x,
+            area.y + header_height,
+            area.width,
+            area.height.saturating_sub(header_height),
+        );
+
+        // Header style
+        let header_style = if is_focused {
+            Style::default()
+                .fg(theme.tab_active_fg)
+                .bg(theme.tab_active_bg)
+        } else {
+            Style::default()
+                .fg(theme.tab_inactive_fg)
+                .bg(theme.tab_inactive_bg)
+        };
+
+        // Render header
+        let header_text = format!(" {} ", label);
+        let header = Paragraph::new(header_text).style(header_style);
+        frame.render_widget(header, header_area);
+
+        // Render buffer content - simple line-by-line display
+        let buffer = &source_state.buffer;
+        if let Some(line_count) = buffer.line_count() {
+            let visible_lines = content_area.height as usize;
+            let mut lines_text = Vec::new();
+
+            for line_idx in 0..visible_lines.min(line_count) {
+                if let Some(line) = buffer.get_line(line_idx) {
+                    // Truncate line to fit pane width (leave room for line numbers)
+                    let gutter_width = 4;
+                    let max_line_width = content_area.width.saturating_sub(gutter_width) as usize;
+                    // Convert Vec<u8> to String (lossy conversion for display)
+                    let line_str = String::from_utf8_lossy(&line);
+                    let line_content: String = line_str.chars().take(max_line_width).collect();
+
+                    // Create line with line number
+                    let line_num = format!("{:>3} ", line_idx + 1);
+                    let line_text = Line::from(vec![
+                        Span::styled(line_num, Style::default().fg(theme.line_number_fg)),
+                        Span::raw(line_content),
+                    ]);
+                    lines_text.push(line_text);
+                }
+            }
+
+            // Fill remaining lines with tildes
+            while lines_text.len() < visible_lines {
+                lines_text.push(Line::from(Span::styled(
+                    "~",
+                    Style::default().fg(theme.line_number_fg),
+                )));
+            }
+
+            let content = Paragraph::new(lines_text)
+                .style(Style::default().fg(theme.editor_fg).bg(theme.editor_bg));
+            frame.render_widget(content, content_area);
         }
     }
 
