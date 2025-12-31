@@ -2729,12 +2729,15 @@ impl SplitRenderer {
                     // Find overlays with extend_to_line_end that overlap with this line
                     // Use the tracked byte positions from character rendering
                     // Find the highest priority background color from overlays with extend_to_line_end
-                    let fill_style: Option<Style> = if let (Some(start), Some(end)) = (first_line_byte_pos, last_line_byte_pos) {
+                    let fill_style: Option<Style> = if let (Some(start), Some(end)) =
+                        (first_line_byte_pos, last_line_byte_pos)
+                    {
                         viewport_overlays
                             .iter()
                             .filter(|(overlay, range)| {
-                                overlay.extend_to_line_end &&
-                                range.start <= end && range.end >= start
+                                overlay.extend_to_line_end
+                                    && range.start <= end
+                                    && range.end >= start
                             })
                             .max_by_key(|(o, _)| o.priority)
                             .and_then(|(overlay, _)| {

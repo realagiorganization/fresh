@@ -3118,7 +3118,14 @@ impl Editor {
                 extend_to_line_end,
             } => {
                 self.handle_add_overlay(
-                    buffer_id, namespace, range, color, bg_color, underline, bold, italic,
+                    buffer_id,
+                    namespace,
+                    range,
+                    color,
+                    bg_color,
+                    underline,
+                    bold,
+                    italic,
                     extend_to_line_end,
                 );
             }
@@ -3583,7 +3590,8 @@ impl Editor {
                                 self.terminal_height,
                                 buffer_id,
                             );
-                            view_state.viewport.line_wrap_enabled = line_wrap.unwrap_or(self.config.editor.line_wrap);
+                            view_state.viewport.line_wrap_enabled =
+                                line_wrap.unwrap_or(self.config.editor.line_wrap);
                             self.split_view_states.insert(new_split_id, view_state);
 
                             // Focus the new split (the diagnostics panel)

@@ -367,7 +367,7 @@ fn start_server(config: Config) {
     fs::write(&main_rs_path, modified_content).expect("Failed to modify file");
 
     let mut harness = EditorTestHarness::with_config_and_working_dir(
-        160,  // Wide enough for side-by-side
+        160, // Wide enough for side-by-side
         50,
         Config::default(),
         repo.path.clone(),
@@ -403,9 +403,7 @@ fn start_server(config: Config) {
 
     // Navigate to a hunk and drill down
     for _ in 0..10 {
-        harness
-            .send_key(KeyCode::Down, KeyModifiers::NONE)
-            .unwrap();
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
@@ -512,9 +510,7 @@ fn start_server(config: Config) {
 
     // Navigate and drill down
     for _ in 0..10 {
-        harness
-            .send_key(KeyCode::Down, KeyModifiers::NONE)
-            .unwrap();
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
@@ -535,8 +531,8 @@ fn start_server(config: Config) {
     // Should show the statistics format in status bar
     // Format is: "Side-by-side diff: +N -M ~K"
     assert!(
-        screen.contains("Side-by-side diff:") ||
-        (screen.contains("+") && screen.contains("-") && screen.contains("~")),
+        screen.contains("Side-by-side diff:")
+            || (screen.contains("+") && screen.contains("-") && screen.contains("~")),
         "Should show diff statistics. Screen:\n{}",
         screen
     );
@@ -610,9 +606,7 @@ fn start_server(config: Config) {
 
     // Navigate and drill down
     for _ in 0..10 {
-        harness
-            .send_key(KeyCode::Down, KeyModifiers::NONE)
-            .unwrap();
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
@@ -631,8 +625,11 @@ fn start_server(config: Config) {
 
     // The gutter should show + for additions, - for removals, ~ for modifications
     // These appear as "│+" "│-" "│~" in the gutter column
-    let has_markers = screen.contains("│+") || screen.contains("│-") || screen.contains("│~")
-        || screen.contains("+") || screen.contains("-");
+    let has_markers = screen.contains("│+")
+        || screen.contains("│-")
+        || screen.contains("│~")
+        || screen.contains("+")
+        || screen.contains("-");
 
     assert!(
         has_markers,
@@ -660,7 +657,10 @@ fn test_side_by_side_diff_scroll_sync() {
     let main_rs_path = repo.path.join("src/main.rs");
     let mut original_lines: Vec<String> = Vec::new();
     for i in 0..60 {
-        original_lines.push(format!("fn function_{}() {{ println!(\"Line {}\"); }}", i, i));
+        original_lines.push(format!(
+            "fn function_{}() {{ println!(\"Line {}\"); }}",
+            i, i
+        ));
     }
     fs::write(&main_rs_path, original_lines.join("\n")).expect("Failed to write original file");
 
@@ -671,11 +671,17 @@ fn test_side_by_side_diff_scroll_sync() {
     // Now modify - add some lines in the middle and change some at the end
     let mut modified_lines: Vec<String> = Vec::new();
     for i in 0..30 {
-        modified_lines.push(format!("fn function_{}() {{ println!(\"Line {}\"); }}", i, i));
+        modified_lines.push(format!(
+            "fn function_{}() {{ println!(\"Line {}\"); }}",
+            i, i
+        ));
     }
     // Add new lines in the middle
     for i in 0..5 {
-        modified_lines.push(format!("fn new_function_{}() {{ println!(\"New {}\"); }}", i, i));
+        modified_lines.push(format!(
+            "fn new_function_{}() {{ println!(\"New {}\"); }}",
+            i, i
+        ));
     }
     for i in 30..60 {
         if i >= 55 {
@@ -685,7 +691,10 @@ fn test_side_by_side_diff_scroll_sync() {
                 i, i
             ));
         } else {
-            modified_lines.push(format!("fn function_{}() {{ println!(\"Line {}\"); }}", i, i));
+            modified_lines.push(format!(
+                "fn function_{}() {{ println!(\"Line {}\"); }}",
+                i, i
+            ));
         }
     }
     fs::write(&main_rs_path, modified_lines.join("\n")).expect("Failed to modify file");
@@ -726,9 +735,7 @@ fn test_side_by_side_diff_scroll_sync() {
 
     // Navigate and drill down to open side-by-side view
     for _ in 0..10 {
-        harness
-            .send_key(KeyCode::Down, KeyModifiers::NONE)
-            .unwrap();
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
@@ -873,9 +880,7 @@ fn helper() {
 
     // Navigate and drill down
     for _ in 0..8 {
-        harness
-            .send_key(KeyCode::Down, KeyModifiers::NONE)
-            .unwrap();
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
     }
     harness
         .send_key(KeyCode::Enter, KeyModifiers::NONE)
