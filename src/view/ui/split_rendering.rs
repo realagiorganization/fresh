@@ -2726,9 +2726,8 @@ impl SplitRenderer {
                 let remaining_cols = content_width.saturating_sub(visible_char_count);
 
                 if remaining_cols > 0 {
-                    // Find overlays with extend_to_line_end that overlap with this line
-                    // Use the tracked byte positions from character rendering
                     // Find the highest priority background color from overlays with extend_to_line_end
+                    // that overlap with this line's byte range
                     let fill_style: Option<Style> = if let (Some(start), Some(end)) =
                         (first_line_byte_pos, last_line_byte_pos)
                     {
@@ -2743,12 +2742,14 @@ impl SplitRenderer {
                             .and_then(|(overlay, _)| {
                                 match &overlay.face {
                                     crate::view::overlay::OverlayFace::Background { color } => {
-                                        Some(Style::default().bg(*color))
+                                        // Set both fg and bg to ensure ANSI codes are output
+                                        Some(Style::default().fg(*color).bg(*color))
                                     }
                                     crate::view::overlay::OverlayFace::Style { style } => {
                                         // Extract background from style if present
-                                        if style.bg.is_some() {
-                                            Some(Style::default().bg(style.bg.unwrap()))
+                                        if let Some(bg) = style.bg {
+                                            // Set fg to same as bg for invisible text
+                                            Some(Style::default().fg(bg).bg(bg))
                                         } else {
                                             None
                                         }
