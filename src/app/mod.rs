@@ -4229,6 +4229,24 @@ impl Editor {
                     tracing::warn!("Scroll sync group {} not found", group_id);
                 }
             }
+
+            // ==================== Composite Buffer Commands ====================
+            PluginCommand::CreateCompositeBuffer {
+                name,
+                mode,
+                layout,
+                sources,
+                hunks,
+                request_id,
+            } => {
+                self.handle_create_composite_buffer(name, mode, layout, sources, hunks, request_id);
+            }
+            PluginCommand::UpdateCompositeAlignment { buffer_id, hunks } => {
+                self.handle_update_composite_alignment(buffer_id, hunks);
+            }
+            PluginCommand::CloseCompositeBuffer { buffer_id } => {
+                self.close_composite_buffer(buffer_id);
+            }
         }
         Ok(())
     }

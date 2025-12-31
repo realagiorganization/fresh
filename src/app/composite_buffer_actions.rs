@@ -167,4 +167,128 @@ impl Editor {
             view_state.set_scroll_row(row, max_row);
         }
     }
+
+    // =========================================================================
+    // Plugin Command Handlers
+    // =========================================================================
+
+    /// Handle the CreateCompositeBuffer plugin command
+    pub(crate) fn handle_create_composite_buffer(
+        &mut self,
+        name: String,
+        mode: String,
+        layout_config: crate::services::plugins::api::CompositeLayoutConfig,
+        source_configs: Vec<crate::services::plugins::api::CompositeSourceConfig>,
+        hunks: Option<Vec<crate::services::plugins::api::CompositeHunk>>,
+        _request_id: Option<u64>,
+    ) {
+        use crate::model::composite_buffer::{
+            CompositeLayout, DiffHunk, GutterStyle, LineAlignment, PaneStyle, SourcePane,
+        };
+
+        // Convert layout config
+        let layout = match layout_config.layout_type.as_str() {
+            "stacked" => CompositeLayout::Stacked {
+                spacing: layout_config.spacing.unwrap_or(1),
+            },
+            "unified" => CompositeLayout::Unified,
+            _ => CompositeLayout::SideBySide {
+                ratios: layout_config.ratios.unwrap_or_else(|| vec![0.5, 0.5]),
+                show_separator: layout_config.show_separator,
+            },
+        };
+
+        // Convert source configs
+        let sources: Vec<SourcePane> = source_configs
+            .into_iter()
+            .map(|src| {
+                let mut pane = SourcePane::new(
+                    BufferId(src.buffer_id),
+                    src.label,
+                    src.editable,
+                );
+                if let Some(style_config) = src.style {
+                    let gutter_style = match style_config.gutter_style.as_deref() {
+                        Some("diff-markers") => GutterStyle::DiffMarkers,
+                        Some("both") => GutterStyle::Both,
+                        Some("none") => GutterStyle::None,
+                        _ => GutterStyle::LineNumbers,
+                    };
+                    pane.style = PaneStyle {
+                        add_bg: style_config.add_bg,
+                        remove_bg: style_config.remove_bg,
+                        modify_bg: style_config.modify_bg,
+                        gutter_style,
+                    };
+                }
+                pane
+            })
+            .collect();
+
+        // Create the composite buffer
+        let buffer_id = self.create_composite_buffer(name.clone(), mode.clone(), layout, sources);
+
+        // Set alignment from hunks if provided
+        if let Some(hunk_configs) = hunks {
+            let diff_hunks: Vec<DiffHunk> = hunk_configs
+                .into_iter()
+                .map(|h| DiffHunk::new(h.old_start, h.old_count, h.new_start, h.new_count))
+                .collect();
+
+            // Get line counts from source buffers
+            let old_line_count = self
+                .buffers
+                .get(&self.composite_buffers.get(&buffer_id).unwrap().sources[0].buffer_id)
+                .and_then(|s| s.buffer.line_count())
+                .unwrap_or(0);
+            let new_line_count = self
+                .buffers
+                .get(&self.composite_buffers.get(&buffer_id).unwrap().sources[1].buffer_id)
+                .and_then(|s| s.buffer.line_count())
+                .unwrap_or(0);
+
+            let alignment = LineAlignment::from_hunks(&diff_hunks, old_line_count, new_line_count);
+            self.set_composite_alignment(buffer_id, alignment);
+        }
+
+        tracing::info!(
+            "Created composite buffer '{}' with mode '{}' (id={:?})",
+            name,
+            mode,
+            buffer_id
+        );
+
+        // TODO: Send response with buffer_id if request_id is provided
+    }
+
+    /// Handle the UpdateCompositeAlignment plugin command
+    pub(crate) fn handle_update_composite_alignment(
+        &mut self,
+        buffer_id: BufferId,
+        hunk_configs: Vec<crate::services::plugins::api::CompositeHunk>,
+    ) {
+        use crate::model::composite_buffer::{DiffHunk, LineAlignment};
+
+        if let Some(composite) = self.composite_buffers.get(&buffer_id) {
+            let diff_hunks: Vec<DiffHunk> = hunk_configs
+                .into_iter()
+                .map(|h| DiffHunk::new(h.old_start, h.old_count, h.new_start, h.new_count))
+                .collect();
+
+            // Get line counts from source buffers
+            let old_line_count = self
+                .buffers
+                .get(&composite.sources[0].buffer_id)
+                .and_then(|s| s.buffer.line_count())
+                .unwrap_or(0);
+            let new_line_count = self
+                .buffers
+                .get(&composite.sources[1].buffer_id)
+                .and_then(|s| s.buffer.line_count())
+                .unwrap_or(0);
+
+            let alignment = LineAlignment::from_hunks(&diff_hunks, old_line_count, new_line_count);
+            self.set_composite_alignment(buffer_id, alignment);
+        }
+    }
 }
