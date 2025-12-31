@@ -4,6 +4,8 @@
 
 pub mod calibration_wizard;
 pub mod color_support;
+pub mod composite_renderer;
+pub mod composite_view;
 pub mod controls;
 pub mod dimming;
 pub mod file_browser_input;
