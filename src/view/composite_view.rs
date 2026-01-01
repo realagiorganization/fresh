@@ -25,6 +25,9 @@ pub struct CompositeViewState {
     /// Current cursor row (for navigation highlighting)
     pub cursor_row: usize,
 
+    /// Current cursor column within the focused pane
+    pub cursor_column: usize,
+
     /// Cursor positions per pane (for editing)
     pub pane_cursors: Vec<Cursors>,
 
@@ -41,6 +44,7 @@ impl CompositeViewState {
             focused_pane: 0,
             scroll_row: 0,
             cursor_row: 0,
+            cursor_column: 0,
             pane_cursors: (0..pane_count).map(|_| Cursors::new()).collect(),
             pane_widths: vec![0; pane_count],
         }
@@ -78,6 +82,53 @@ impl CompositeViewState {
     pub fn move_cursor_to_bottom(&mut self, max_row: usize, viewport_height: usize) {
         self.cursor_row = max_row;
         self.scroll_row = max_row.saturating_sub(viewport_height - 1);
+    }
+
+    /// Move cursor left by one column
+    pub fn move_cursor_left(&mut self) {
+        if self.cursor_column > 0 {
+            self.cursor_column -= 1;
+            // Auto-scroll horizontally if needed
+            if let Some(viewport) = self.pane_viewports.get_mut(self.focused_pane) {
+                if self.cursor_column < viewport.left_column {
+                    viewport.left_column = self.cursor_column;
+                }
+            }
+        }
+    }
+
+    /// Move cursor right by one column
+    pub fn move_cursor_right(&mut self, max_column: usize, pane_width: usize) {
+        if self.cursor_column < max_column {
+            self.cursor_column += 1;
+            // Auto-scroll horizontally if needed
+            if let Some(viewport) = self.pane_viewports.get_mut(self.focused_pane) {
+                let visible_width = pane_width.saturating_sub(4); // minus gutter
+                if self.cursor_column >= viewport.left_column + visible_width {
+                    viewport.left_column = self.cursor_column.saturating_sub(visible_width - 1);
+                }
+            }
+        }
+    }
+
+    /// Move cursor to start of line
+    pub fn move_cursor_to_line_start(&mut self) {
+        self.cursor_column = 0;
+        if let Some(viewport) = self.pane_viewports.get_mut(self.focused_pane) {
+            viewport.left_column = 0;
+        }
+    }
+
+    /// Move cursor to end of line
+    pub fn move_cursor_to_line_end(&mut self, line_length: usize, pane_width: usize) {
+        self.cursor_column = line_length;
+        // Auto-scroll to show cursor
+        if let Some(viewport) = self.pane_viewports.get_mut(self.focused_pane) {
+            let visible_width = pane_width.saturating_sub(4); // minus gutter
+            if self.cursor_column >= viewport.left_column + visible_width {
+                viewport.left_column = self.cursor_column.saturating_sub(visible_width - 1);
+            }
+        }
     }
 
     /// Scroll all panes together by delta lines

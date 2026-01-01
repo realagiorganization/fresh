@@ -790,9 +790,6 @@ impl SplitRenderer {
                                     buffer_id, pane_count,
                                 )
                             });
-                        let scroll_row = view_state.scroll_row;
-                        let cursor_row = view_state.cursor_row;
-
                         // Render composite buffer with side-by-side panes
                         Self::render_composite_buffer(
                             frame,
@@ -801,8 +798,19 @@ impl SplitRenderer {
                             buffers,
                             theme,
                             is_active,
-                            scroll_row,
-                            cursor_row,
+                            view_state,
+                        );
+
+                        // Render scrollbar for composite buffer
+                        let total_rows = composite.row_count();
+                        let content_height = layout.content_rect.height.saturating_sub(1) as usize; // -1 for header
+                        Self::render_composite_scrollbar(
+                            frame,
+                            layout.scrollbar_rect,
+                            total_rows,
+                            view_state.scroll_row,
+                            content_height,
+                            is_active,
                         );
                     }
                     view_line_mappings.insert(split_id, Vec::new());
@@ -972,11 +980,13 @@ impl SplitRenderer {
         buffers: &HashMap<BufferId, EditorState>,
         theme: &crate::view::theme::Theme,
         _is_active: bool,
-        scroll_row: usize,
-        cursor_row: usize,
+        view_state: &crate::view::composite_view::CompositeViewState,
     ) {
         use crate::model::composite_buffer::{CompositeLayout, RowType};
         use ratatui::widgets::Clear;
+
+        let scroll_row = view_state.scroll_row;
+        let cursor_row = view_state.cursor_row;
 
         // Clear the area first
         frame.render_widget(Clear, area);
@@ -1020,7 +1030,7 @@ impl SplitRenderer {
         let mut x_offset = area.x;
         for (idx, (source, &width)) in composite.sources.iter().zip(&pane_widths).enumerate() {
             let header_area = Rect::new(x_offset, area.y, width, header_height);
-            let is_focused = idx == composite.active_pane;
+            let is_focused = idx == view_state.focused_pane;
 
             let header_style = if is_focused {
                 Style::default()
@@ -1082,6 +1092,12 @@ impl SplitRenderer {
             {
                 let pane_area = Rect::new(x_offset, content_y + view_row as u16, width, 1);
 
+                // Get horizontal scroll offset for this pane
+                let left_column = view_state
+                    .get_pane_viewport(pane_idx)
+                    .map(|v| v.left_column)
+                    .unwrap_or(0);
+
                 // Get source line for this pane
                 let source_line_opt = aligned_row.get_pane_line(pane_idx);
 
@@ -1094,12 +1110,10 @@ impl SplitRenderer {
                             .map(|line| String::from_utf8_lossy(&line).to_string())
                             .unwrap_or_default();
 
-                        // Prepare line display
+                        // Prepare line display with horizontal scrolling
                         let gutter_width = 4;
                         let max_content_width =
                             width.saturating_sub(gutter_width as u16) as usize;
-                        let truncated: String =
-                            line_content.chars().take(max_content_width).collect();
 
                         // Determine background
                         let bg = if is_cursor_row {
@@ -1115,11 +1129,60 @@ impl SplitRenderer {
                         // Content style
                         let content_style = Style::default().fg(theme.editor_fg).bg(bg);
 
-                        let line = Line::from(vec![
-                            Span::styled(line_num, line_num_style),
-                            Span::styled(truncated, content_style),
-                        ]);
+                        // Check if cursor should be shown in this pane at this row
+                        let is_cursor_pane = pane_idx == view_state.focused_pane;
+                        let cursor_column = view_state.cursor_column;
 
+                        // Apply horizontal scroll: skip left_column chars, then take max_content_width
+                        let chars: Vec<char> = line_content.chars().collect();
+                        let scrolled_chars: Vec<char> = chars
+                            .iter()
+                            .skip(left_column)
+                            .take(max_content_width)
+                            .copied()
+                            .collect();
+
+                        // Build spans with cursor highlighting
+                        let mut spans = vec![Span::styled(line_num, line_num_style)];
+
+                        if is_cursor_row && is_cursor_pane {
+                            // Calculate cursor position in scrolled view
+                            let cursor_in_view = if cursor_column >= left_column {
+                                cursor_column - left_column
+                            } else {
+                                0
+                            };
+
+                            if cursor_in_view < max_content_width {
+                                // Split content around cursor
+                                let before: String = scrolled_chars.iter().take(cursor_in_view).collect();
+                                let cursor_char = scrolled_chars.get(cursor_in_view).copied().unwrap_or(' ');
+                                let after: String = scrolled_chars.iter().skip(cursor_in_view + 1).collect();
+
+                                // Cursor style: inverted colors
+                                let cursor_style = Style::default()
+                                    .fg(theme.editor_bg)
+                                    .bg(theme.editor_fg);
+
+                                spans.push(Span::styled(before, content_style));
+                                spans.push(Span::styled(cursor_char.to_string(), cursor_style));
+
+                                // Pad the after portion
+                                let remaining_width = max_content_width.saturating_sub(cursor_in_view + 1);
+                                let padded_after = format!("{:<width$}", after, width = remaining_width);
+                                spans.push(Span::styled(padded_after, content_style));
+                            } else {
+                                // Cursor is off-screen, render normally
+                                let padded: String = format!("{:<width$}", scrolled_chars.iter().collect::<String>(), width = max_content_width);
+                                spans.push(Span::styled(padded, content_style));
+                            }
+                        } else {
+                            // No cursor, render normally
+                            let padded: String = format!("{:<width$}", scrolled_chars.iter().collect::<String>(), width = max_content_width);
+                            spans.push(Span::styled(padded, content_style));
+                        }
+
+                        let line = Line::from(spans);
                         let para = Paragraph::new(line);
                         frame.render_widget(para, pane_area);
                     }
@@ -1131,8 +1194,28 @@ impl SplitRenderer {
                         row_bg.unwrap_or(theme.editor_bg)
                     };
                     let style = Style::default().fg(theme.line_number_fg).bg(bg);
-                    let empty = Paragraph::new("    ").style(style);
-                    frame.render_widget(empty, pane_area);
+
+                    // Check if cursor should be shown on this empty line
+                    let is_cursor_pane = pane_idx == view_state.focused_pane;
+                    if is_cursor_row && is_cursor_pane && view_state.cursor_column == 0 {
+                        // Show cursor on empty line
+                        let cursor_style = Style::default()
+                            .fg(theme.editor_bg)
+                            .bg(theme.editor_fg);
+                        let gutter_width = 4usize;
+                        let max_content_width = width.saturating_sub(gutter_width as u16) as usize;
+                        let padding = " ".repeat(max_content_width.saturating_sub(1));
+                        let line = Line::from(vec![
+                            Span::styled("    ", style),
+                            Span::styled(" ", cursor_style),
+                            Span::styled(padding, Style::default().bg(bg)),
+                        ]);
+                        let para = Paragraph::new(line);
+                        frame.render_widget(para, pane_area);
+                    } else {
+                        let empty = Paragraph::new("    ").style(style);
+                        frame.render_widget(empty, pane_area);
+                    }
                 }
 
                 x_offset += width;
@@ -1147,6 +1230,77 @@ impl SplitRenderer {
                     x_offset += separator_width;
                 }
             }
+        }
+    }
+
+    /// Render a scrollbar for composite buffer views
+    fn render_composite_scrollbar(
+        frame: &mut Frame,
+        scrollbar_rect: Rect,
+        total_rows: usize,
+        scroll_row: usize,
+        viewport_height: usize,
+        is_active: bool,
+    ) {
+        let height = scrollbar_rect.height as usize;
+        if height == 0 || total_rows == 0 {
+            return;
+        }
+
+        // Calculate thumb size based on viewport ratio to total document
+        let thumb_size_raw = if total_rows > 0 {
+            ((viewport_height as f64 / total_rows as f64) * height as f64).ceil() as usize
+        } else {
+            1
+        };
+
+        // Maximum scroll position
+        let max_scroll = total_rows.saturating_sub(viewport_height);
+
+        // When content fits in viewport, fill entire scrollbar
+        let thumb_size = if max_scroll == 0 {
+            height
+        } else {
+            // Cap thumb size: minimum 1, maximum 80% of scrollbar height
+            let max_thumb_size = (height as f64 * 0.8).floor() as usize;
+            thumb_size_raw.max(1).min(max_thumb_size).min(height)
+        };
+
+        // Calculate thumb position
+        let thumb_start = if max_scroll > 0 {
+            let scroll_ratio = scroll_row.min(max_scroll) as f64 / max_scroll as f64;
+            let max_thumb_start = height.saturating_sub(thumb_size);
+            (scroll_ratio * max_thumb_start as f64) as usize
+        } else {
+            0
+        };
+
+        let thumb_end = thumb_start + thumb_size;
+
+        // Choose colors based on whether split is active
+        let track_color = if is_active {
+            Color::DarkGray
+        } else {
+            Color::Black
+        };
+        let thumb_color = if is_active {
+            Color::Gray
+        } else {
+            Color::DarkGray
+        };
+
+        // Render as background fills
+        for row in 0..height {
+            let cell_area = Rect::new(scrollbar_rect.x, scrollbar_rect.y + row as u16, 1, 1);
+
+            let style = if row >= thumb_start && row < thumb_end {
+                Style::default().bg(thumb_color)
+            } else {
+                Style::default().bg(track_color)
+            };
+
+            let paragraph = Paragraph::new(" ").style(style);
+            frame.render_widget(paragraph, cell_area);
         }
     }
 
