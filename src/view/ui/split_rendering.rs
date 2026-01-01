@@ -973,17 +973,17 @@ impl SplitRenderer {
     }
 
     /// Render a composite buffer (side-by-side view of multiple source buffers)
+    /// Uses ViewLines for proper syntax highlighting, ANSI handling, etc.
     fn render_composite_buffer(
         frame: &mut Frame,
         area: Rect,
         composite: &crate::model::composite_buffer::CompositeBuffer,
-        buffers: &HashMap<BufferId, EditorState>,
+        buffers: &mut HashMap<BufferId, EditorState>,
         theme: &crate::view::theme::Theme,
         _is_active: bool,
         view_state: &crate::view::composite_view::CompositeViewState,
     ) {
         use crate::model::composite_buffer::{CompositeLayout, RowType};
-        use ratatui::widgets::Clear;
 
         let scroll_row = view_state.scroll_row;
         let cursor_row = view_state.cursor_row;
@@ -1058,6 +1058,67 @@ impl SplitRenderer {
         let alignment = &composite.alignment;
         let total_rows = alignment.rows.len();
 
+        // Build ViewData for each pane to get syntax-highlighted ViewLines
+        // First, find the range of source lines we need for each pane
+        let mut pane_view_data: Vec<Option<(Vec<ViewLine>, HashMap<usize, usize>)>> = Vec::new();
+
+        for (pane_idx, source) in composite.sources.iter().enumerate() {
+            if let Some(source_state) = buffers.get_mut(&source.buffer_id) {
+                // Find the first source line we need for this pane
+                let first_source_line = alignment.rows
+                    .iter()
+                    .skip(scroll_row)
+                    .take(visible_rows)
+                    .filter_map(|row| row.get_pane_line(pane_idx))
+                    .map(|r| r.line)
+                    .min();
+
+                if let Some(first_line) = first_source_line {
+                    // Get top_byte for this line
+                    let top_byte = source_state.buffer.line_start_offset(first_line).unwrap_or(0);
+
+                    // Create a temporary viewport for building view data
+                    let pane_width = pane_widths.get(pane_idx).copied().unwrap_or(80);
+                    let mut viewport = crate::view::viewport::Viewport::new(pane_width, content_height);
+                    viewport.top_byte = top_byte;
+                    viewport.line_wrap_enabled = false;
+
+                    let pane_width = pane_widths.get(pane_idx).copied().unwrap_or(80) as usize;
+                    let gutter_width = 4; // Line number width
+                    let content_width = pane_width.saturating_sub(gutter_width);
+
+                    // Build ViewData for this pane
+                    let view_data = Self::build_view_data(
+                        source_state,
+                        &viewport,
+                        None, // No view transform
+                        80,   // estimated_line_length
+                        visible_rows + 10, // visible_count (add buffer)
+                        false, // line_wrap_enabled
+                        content_width,
+                        gutter_width,
+                    );
+
+                    // Build source_line -> ViewLine index mapping
+                    let mut line_to_view_line: HashMap<usize, usize> = HashMap::new();
+                    let mut current_line = first_line;
+                    for (idx, view_line) in view_data.lines.iter().enumerate() {
+                        if should_show_line_number(view_line) {
+                            line_to_view_line.insert(current_line, idx);
+                            current_line += 1;
+                        }
+                    }
+
+                    pane_view_data.push(Some((view_data.lines, line_to_view_line)));
+                } else {
+                    pane_view_data.push(None);
+                }
+            } else {
+                pane_view_data.push(None);
+            }
+        }
+
+        // Now render aligned rows using ViewLines
         for view_row in 0..visible_rows {
             let display_row = scroll_row + view_row;
             if display_row >= total_rows {
@@ -1102,92 +1163,70 @@ impl SplitRenderer {
                 let source_line_opt = aligned_row.get_pane_line(pane_idx);
 
                 if let Some(source_line_ref) = source_line_opt {
-                    // Get content from source buffer
-                    if let Some(source_state) = buffers.get(&source.buffer_id) {
-                        let buffer = &source_state.buffer;
-                        let line_content = buffer
-                            .get_line(source_line_ref.line)
-                            .map(|line| String::from_utf8_lossy(&line).to_string())
-                            .unwrap_or_default();
+                    // Try to get ViewLine from pre-built data
+                    let view_line_opt = pane_view_data
+                        .get(pane_idx)
+                        .and_then(|opt| opt.as_ref())
+                        .and_then(|(lines, mapping)| {
+                            mapping.get(&source_line_ref.line).and_then(|&idx| lines.get(idx))
+                        });
 
-                        // Prepare line display with horizontal scrolling
-                        let gutter_width = 4;
-                        let max_content_width =
-                            width.saturating_sub(gutter_width as u16) as usize;
+                    let gutter_width = 4usize;
+                    let max_content_width = width.saturating_sub(gutter_width as u16) as usize;
 
-                        // Determine background
-                        let bg = if is_cursor_row {
-                            theme.current_line_bg
-                        } else {
-                            row_bg.unwrap_or(theme.editor_bg)
-                        };
+                    // Determine background
+                    let bg = if is_cursor_row {
+                        theme.current_line_bg
+                    } else {
+                        row_bg.unwrap_or(theme.editor_bg)
+                    };
 
-                        // Line number
-                        let line_num = format!("{:>3} ", source_line_ref.line + 1);
-                        let line_num_style = Style::default().fg(theme.line_number_fg).bg(bg);
+                    // Line number
+                    let line_num = format!("{:>3} ", source_line_ref.line + 1);
+                    let line_num_style = Style::default().fg(theme.line_number_fg).bg(bg);
 
-                        // Content style
-                        let content_style = Style::default().fg(theme.editor_fg).bg(bg);
+                    let is_cursor_pane = pane_idx == view_state.focused_pane;
+                    let cursor_column = view_state.cursor_column;
 
-                        // Check if cursor should be shown in this pane at this row
-                        let is_cursor_pane = pane_idx == view_state.focused_pane;
-                        let cursor_column = view_state.cursor_column;
+                    // Build spans using ViewLine if available (for syntax highlighting)
+                    let mut spans = vec![Span::styled(line_num, line_num_style)];
 
-                        // Apply horizontal scroll: skip left_column chars, then take max_content_width
-                        let chars: Vec<char> = line_content.chars().collect();
-                        let scrolled_chars: Vec<char> = chars
-                            .iter()
-                            .skip(left_column)
-                            .take(max_content_width)
-                            .copied()
-                            .collect();
+                    if let Some(view_line) = view_line_opt {
+                        // Use ViewLine for syntax-highlighted content
+                        Self::render_view_line_content(
+                            &mut spans,
+                            view_line,
+                            left_column,
+                            max_content_width,
+                            bg,
+                            theme,
+                            is_cursor_row && is_cursor_pane,
+                            cursor_column,
+                        );
+                    } else {
+                        // Fallback: get content directly from buffer
+                        if let Some(source_state) = buffers.get(&source.buffer_id) {
+                            let line_content = source_state.buffer
+                                .get_line(source_line_ref.line)
+                                .map(|line| String::from_utf8_lossy(&line).to_string())
+                                .unwrap_or_default();
 
-                        // Build spans with cursor highlighting
-                        let mut spans = vec![Span::styled(line_num, line_num_style)];
-
-                        if is_cursor_row && is_cursor_pane {
-                            // Calculate cursor position in scrolled view
-                            let cursor_in_view = if cursor_column >= left_column {
-                                cursor_column - left_column
-                            } else {
-                                0
-                            };
-
-                            if cursor_in_view < max_content_width {
-                                // Split content around cursor
-                                let before: String = scrolled_chars.iter().take(cursor_in_view).collect();
-                                let cursor_char = scrolled_chars.get(cursor_in_view).copied().unwrap_or(' ');
-                                let after: String = scrolled_chars.iter().skip(cursor_in_view + 1).collect();
-
-                                // Cursor style: inverted colors
-                                let cursor_style = Style::default()
-                                    .fg(theme.editor_bg)
-                                    .bg(theme.editor_fg);
-
-                                spans.push(Span::styled(before, content_style));
-                                spans.push(Span::styled(cursor_char.to_string(), cursor_style));
-
-                                // Pad the after portion
-                                let remaining_width = max_content_width.saturating_sub(cursor_in_view + 1);
-                                let padded_after = format!("{:<width$}", after, width = remaining_width);
-                                spans.push(Span::styled(padded_after, content_style));
-                            } else {
-                                // Cursor is off-screen, render normally
-                                let padded: String = format!("{:<width$}", scrolled_chars.iter().collect::<String>(), width = max_content_width);
-                                spans.push(Span::styled(padded, content_style));
-                            }
-                        } else {
-                            // No cursor, render normally
-                            let padded: String = format!("{:<width$}", scrolled_chars.iter().collect::<String>(), width = max_content_width);
+                            let content_style = Style::default().fg(theme.editor_fg).bg(bg);
+                            let chars: Vec<char> = line_content.chars().collect();
+                            let scrolled: String = chars.iter()
+                                .skip(left_column)
+                                .take(max_content_width)
+                                .collect();
+                            let padded = format!("{:<width$}", scrolled, width = max_content_width);
                             spans.push(Span::styled(padded, content_style));
                         }
-
-                        let line = Line::from(spans);
-                        let para = Paragraph::new(line);
-                        frame.render_widget(para, pane_area);
                     }
+
+                    let line = Line::from(spans);
+                    let para = Paragraph::new(line);
+                    frame.render_widget(para, pane_area);
                 } else {
-                    // No content for this pane (padding line)
+                    // No content for this pane (padding/gap line)
                     let bg = if is_cursor_row {
                         theme.current_line_bg
                     } else {
@@ -1213,8 +1252,11 @@ impl SplitRenderer {
                         let para = Paragraph::new(line);
                         frame.render_widget(para, pane_area);
                     } else {
-                        let empty = Paragraph::new("    ").style(style);
-                        frame.render_widget(empty, pane_area);
+                        // Empty gap line with diff background
+                        let gap_style = Style::default().bg(bg);
+                        let empty_content = " ".repeat(width as usize);
+                        let para = Paragraph::new(empty_content).style(gap_style);
+                        frame.render_widget(para, pane_area);
                     }
                 }
 
@@ -1230,6 +1272,107 @@ impl SplitRenderer {
                     x_offset += separator_width;
                 }
             }
+        }
+    }
+
+    /// Render ViewLine content with syntax highlighting to spans
+    fn render_view_line_content(
+        spans: &mut Vec<Span<'static>>,
+        view_line: &ViewLine,
+        left_column: usize,
+        max_width: usize,
+        bg: Color,
+        theme: &crate::view::theme::Theme,
+        show_cursor: bool,
+        cursor_column: usize,
+    ) {
+        let text = &view_line.text;
+        let char_styles = &view_line.char_styles;
+
+        // Apply horizontal scroll and collect visible characters with styles
+        let chars: Vec<char> = text.chars().collect();
+        let mut col = 0usize;
+        let mut rendered = 0usize;
+        let mut current_span_text = String::new();
+        let mut current_style: Option<Style> = None;
+
+        for (char_idx, ch) in chars.iter().enumerate() {
+            let char_width = char_width(*ch);
+
+            // Skip characters before left_column
+            if col < left_column {
+                col += char_width;
+                continue;
+            }
+
+            // Stop if we've rendered enough
+            if rendered >= max_width {
+                break;
+            }
+
+            // Get style for this character
+            let token_style = char_styles.get(char_idx).and_then(|s| s.as_ref());
+            let char_style = if let Some(ts) = token_style {
+                let fg = ts.fg.map(|(r, g, b)| Color::Rgb(r, g, b))
+                    .unwrap_or(theme.editor_fg);
+                let mut style = Style::default().fg(fg).bg(bg);
+                if ts.bold {
+                    style = style.add_modifier(Modifier::BOLD);
+                }
+                if ts.italic {
+                    style = style.add_modifier(Modifier::ITALIC);
+                }
+                style
+            } else {
+                Style::default().fg(theme.editor_fg).bg(bg)
+            };
+
+            // Handle cursor
+            let final_style = if show_cursor && (col - left_column) == cursor_column {
+                // Invert colors for cursor
+                Style::default().fg(theme.editor_bg).bg(theme.editor_fg)
+            } else {
+                char_style
+            };
+
+            // Accumulate or flush spans based on style changes
+            if current_style.is_some() && current_style != Some(final_style) {
+                if !current_span_text.is_empty() {
+                    spans.push(Span::styled(
+                        std::mem::take(&mut current_span_text),
+                        current_style.unwrap(),
+                    ));
+                }
+            }
+
+            current_style = Some(final_style);
+            current_span_text.push(*ch);
+            col += char_width;
+            rendered += char_width;
+        }
+
+        // Flush remaining span
+        if !current_span_text.is_empty() {
+            if let Some(style) = current_style {
+                spans.push(Span::styled(current_span_text, style));
+            }
+        }
+
+        // Pad to fill width
+        if rendered < max_width {
+            let padding = " ".repeat(max_width - rendered);
+            let pad_style = if show_cursor && rendered <= cursor_column && cursor_column < max_width {
+                // Cursor is in padding area
+                let cursor_pos = cursor_column - rendered;
+                if cursor_pos == 0 {
+                    Style::default().fg(theme.editor_bg).bg(theme.editor_fg)
+                } else {
+                    Style::default().bg(bg)
+                }
+            } else {
+                Style::default().bg(bg)
+            };
+            spans.push(Span::styled(padding, pad_style));
         }
     }
 
