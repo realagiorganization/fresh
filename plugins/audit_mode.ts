@@ -1200,11 +1200,11 @@ editor.defineMode("diff-view", "special", [
     ["PageDown", "move_page_down"],
     ["PageUp", "move_page_up"],
     // Selection and copy
-    ["Shift+Down", "select_down"],
-    ["Shift+Up", "select_up"],
-    ["Shift+j", "select_down"],
-    ["Shift+k", "select_up"],
-    ["Ctrl+c", "copy"],
+    ["S-Down", "select_down"],
+    ["S-Up", "select_up"],
+    ["J", "select_down"],
+    ["K", "select_up"],
+    ["C-c", "copy"],
     ["y", "copy"],
 ], true);
 

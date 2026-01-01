@@ -338,7 +338,16 @@ impl Editor {
                     );
                 }
             }
-            Action::Copy => self.copy_selection(),
+            Action::Copy => {
+                // Check if active buffer is a composite buffer
+                let buffer_id = self.active_buffer();
+                if self.is_composite_buffer(buffer_id) {
+                    if let Some(_handled) = self.handle_composite_action(buffer_id, &Action::Copy) {
+                        return Ok(());
+                    }
+                }
+                self.copy_selection()
+            }
             Action::CopyWithTheme(theme) => self.copy_selection_with_theme(&theme),
             Action::Cut => {
                 if self.is_editing_disabled() {
