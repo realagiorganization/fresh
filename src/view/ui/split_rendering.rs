@@ -975,7 +975,7 @@ impl SplitRenderer {
         scroll_row: usize,
         cursor_row: usize,
     ) {
-        use crate::model::composite_buffer::CompositeLayout;
+        use crate::model::composite_buffer::{CompositeLayout, RowType};
         use ratatui::widgets::Clear;
 
         // Clear the area first
@@ -1015,138 +1015,138 @@ impl SplitRenderer {
             }
         };
 
-        // Render each pane
+        // Render headers first
+        let header_height = 1u16;
         let mut x_offset = area.x;
         for (idx, (source, &width)) in composite.sources.iter().zip(&pane_widths).enumerate() {
-            let pane_area = Rect::new(x_offset, area.y, width, area.height);
+            let header_area = Rect::new(x_offset, area.y, width, header_height);
+            let is_focused = idx == composite.active_pane;
 
-            // Get the source buffer content
-            if let Some(source_state) = buffers.get(&source.buffer_id) {
-                Self::render_composite_pane(
-                    frame,
-                    pane_area,
-                    source_state,
-                    &source.label,
-                    theme,
-                    idx == composite.active_pane,
-                    scroll_row,
-                    cursor_row,
-                );
+            let header_style = if is_focused {
+                Style::default()
+                    .fg(theme.tab_active_fg)
+                    .bg(theme.tab_active_bg)
             } else {
-                // Source buffer not found - render placeholder
-                let placeholder = Paragraph::new(format!("Buffer {:?} not found", source.buffer_id))
-                    .style(Style::default().fg(theme.line_number_fg));
-                frame.render_widget(placeholder, pane_area);
-            }
+                Style::default()
+                    .fg(theme.tab_inactive_fg)
+                    .bg(theme.tab_inactive_bg)
+            };
 
-            x_offset += width;
+            let header_text = format!(" {} ", source.label);
+            let header = Paragraph::new(header_text).style(header_style);
+            frame.render_widget(header, header_area);
 
-            // Render separator if needed
-            if show_separator && idx < pane_count - 1 {
-                let sep_area = Rect::new(x_offset, area.y, separator_width, area.height);
-                let separator = "│".repeat(area.height as usize);
-                let sep_widget = Paragraph::new(separator)
-                    .style(Style::default().fg(theme.split_separator_fg));
-                frame.render_widget(sep_widget, sep_area);
-                x_offset += separator_width;
-            }
+            x_offset += width + separator_width;
         }
-    }
 
-    /// Render a single pane of a composite buffer
-    fn render_composite_pane(
-        frame: &mut Frame,
-        area: Rect,
-        source_state: &EditorState,
-        label: &str,
-        theme: &crate::view::theme::Theme,
-        is_focused: bool,
-        scroll_row: usize,
-        cursor_row: usize,
-    ) {
-        // Render header with label
-        let header_height = 1u16;
-        let header_area = Rect::new(area.x, area.y, area.width, header_height);
-        let content_area = Rect::new(
-            area.x,
-            area.y + header_height,
-            area.width,
-            area.height.saturating_sub(header_height),
-        );
+        // Content area (below headers)
+        let content_y = area.y + header_height;
+        let content_height = area.height.saturating_sub(header_height);
+        let visible_rows = content_height as usize;
 
-        // Header style
-        let header_style = if is_focused {
-            Style::default()
-                .fg(theme.tab_active_fg)
-                .bg(theme.tab_active_bg)
-        } else {
-            Style::default()
-                .fg(theme.tab_inactive_fg)
-                .bg(theme.tab_inactive_bg)
-        };
+        // Render aligned rows
+        let alignment = &composite.alignment;
+        let total_rows = alignment.rows.len();
 
-        // Render header
-        let header_text = format!(" {} ", label);
-        let header = Paragraph::new(header_text).style(header_style);
-        frame.render_widget(header, header_area);
+        for view_row in 0..visible_rows {
+            let display_row = scroll_row + view_row;
+            if display_row >= total_rows {
+                // Fill with tildes for empty rows
+                let mut x = area.x;
+                for &width in &pane_widths {
+                    let tilde_area = Rect::new(x, content_y + view_row as u16, width, 1);
+                    let tilde = Paragraph::new("~")
+                        .style(Style::default().fg(theme.line_number_fg));
+                    frame.render_widget(tilde, tilde_area);
+                    x += width + separator_width;
+                }
+                continue;
+            }
 
-        // Render buffer content - simple line-by-line display
-        let buffer = &source_state.buffer;
-        if let Some(line_count) = buffer.line_count() {
-            let visible_lines = content_area.height as usize;
-            let mut lines_text = Vec::new();
+            let aligned_row = &alignment.rows[display_row];
+            let is_cursor_row = display_row == cursor_row;
 
-            // Start from scroll_row, clamp to valid range
-            let start_line = scroll_row.min(line_count.saturating_sub(1));
-            let end_line = (start_line + visible_lines).min(line_count);
+            // Determine row background based on type
+            let row_bg = match aligned_row.row_type {
+                RowType::Addition => Some(theme.diff_add_bg),
+                RowType::Deletion => Some(theme.diff_remove_bg),
+                RowType::Modification => Some(theme.diff_modify_bg),
+                RowType::HunkHeader => Some(theme.current_line_bg),
+                RowType::Context => None,
+            };
 
-            for line_idx in start_line..end_line {
-                if let Some(line) = buffer.get_line(line_idx) {
-                    // Truncate line to fit pane width (leave room for line numbers)
-                    let gutter_width = 4;
-                    let max_line_width = content_area.width.saturating_sub(gutter_width) as usize;
-                    // Convert Vec<u8> to String (lossy conversion for display)
-                    let line_str = String::from_utf8_lossy(&line);
-                    let line_content: String = line_str.chars().take(max_line_width).collect();
+            // Render each pane for this row
+            let mut x_offset = area.x;
+            for (pane_idx, (source, &width)) in
+                composite.sources.iter().zip(&pane_widths).enumerate()
+            {
+                let pane_area = Rect::new(x_offset, content_y + view_row as u16, width, 1);
 
-                    // Highlight cursor line
-                    let is_cursor_line = line_idx == cursor_row;
-                    let line_style = if is_cursor_line {
-                        Style::default().bg(theme.current_line_bg)
+                // Get source line for this pane
+                let source_line_opt = aligned_row.get_pane_line(pane_idx);
+
+                if let Some(source_line_ref) = source_line_opt {
+                    // Get content from source buffer
+                    if let Some(source_state) = buffers.get(&source.buffer_id) {
+                        let buffer = &source_state.buffer;
+                        let line_content = buffer
+                            .get_line(source_line_ref.line)
+                            .map(|line| String::from_utf8_lossy(&line).to_string())
+                            .unwrap_or_default();
+
+                        // Prepare line display
+                        let gutter_width = 4;
+                        let max_content_width =
+                            width.saturating_sub(gutter_width as u16) as usize;
+                        let truncated: String =
+                            line_content.chars().take(max_content_width).collect();
+
+                        // Determine background
+                        let bg = if is_cursor_row {
+                            theme.current_line_bg
+                        } else {
+                            row_bg.unwrap_or(theme.editor_bg)
+                        };
+
+                        // Line number
+                        let line_num = format!("{:>3} ", source_line_ref.line + 1);
+                        let line_num_style = Style::default().fg(theme.line_number_fg).bg(bg);
+
+                        // Content style
+                        let content_style = Style::default().fg(theme.editor_fg).bg(bg);
+
+                        let line = Line::from(vec![
+                            Span::styled(line_num, line_num_style),
+                            Span::styled(truncated, content_style),
+                        ]);
+
+                        let para = Paragraph::new(line);
+                        frame.render_widget(para, pane_area);
+                    }
+                } else {
+                    // No content for this pane (padding line)
+                    let bg = if is_cursor_row {
+                        theme.current_line_bg
                     } else {
-                        Style::default()
+                        row_bg.unwrap_or(theme.editor_bg)
                     };
+                    let style = Style::default().fg(theme.line_number_fg).bg(bg);
+                    let empty = Paragraph::new("    ").style(style);
+                    frame.render_widget(empty, pane_area);
+                }
 
-                    // Create line with line number (1-based)
-                    let line_num = format!("{:>3} ", line_idx + 1);
-                    let line_text = Line::from(vec![
-                        Span::styled(
-                            line_num,
-                            Style::default().fg(theme.line_number_fg).bg(
-                                if is_cursor_line {
-                                    theme.current_line_bg
-                                } else {
-                                    theme.editor_bg
-                                },
-                            ),
-                        ),
-                        Span::styled(line_content, line_style),
-                    ]);
-                    lines_text.push(line_text);
+                x_offset += width;
+
+                // Render separator
+                if show_separator && pane_idx < pane_count - 1 {
+                    let sep_area =
+                        Rect::new(x_offset, content_y + view_row as u16, separator_width, 1);
+                    let sep = Paragraph::new("│")
+                        .style(Style::default().fg(theme.split_separator_fg));
+                    frame.render_widget(sep, sep_area);
+                    x_offset += separator_width;
                 }
             }
-
-            // Fill remaining lines with tildes
-            while lines_text.len() < visible_lines {
-                lines_text.push(Line::from(Span::styled(
-                    "~",
-                    Style::default().fg(theme.line_number_fg),
-                )));
-            }
-
-            let content = Paragraph::new(lines_text)
-                .style(Style::default().fg(theme.editor_fg).bg(theme.editor_bg));
-            frame.render_widget(content, content_area);
         }
     }
 

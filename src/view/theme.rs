@@ -88,6 +88,24 @@ struct EditorColors {
     current_line_bg: ColorDef,
     line_number_fg: ColorDef,
     line_number_bg: ColorDef,
+    #[serde(default = "default_diff_add_bg")]
+    diff_add_bg: ColorDef,
+    #[serde(default = "default_diff_remove_bg")]
+    diff_remove_bg: ColorDef,
+    #[serde(default = "default_diff_modify_bg")]
+    diff_modify_bg: ColorDef,
+}
+
+fn default_diff_add_bg() -> ColorDef {
+    ColorDef::Rgb(35, 60, 35) // Dark green
+}
+
+fn default_diff_remove_bg() -> ColorDef {
+    ColorDef::Rgb(70, 35, 35) // Dark red
+}
+
+fn default_diff_modify_bg() -> ColorDef {
+    ColorDef::Rgb(70, 60, 30) // Dark yellow
 }
 
 fn default_inactive_cursor() -> ColorDef {
@@ -353,6 +371,11 @@ pub struct Theme {
     pub line_number_fg: Color,
     pub line_number_bg: Color,
 
+    // Diff highlighting colors
+    pub diff_add_bg: Color,
+    pub diff_remove_bg: Color,
+    pub diff_modify_bg: Color,
+
     // UI element colors
     pub tab_active_fg: Color,
     pub tab_active_bg: Color,
@@ -474,6 +497,9 @@ impl From<ThemeFile> for Theme {
             current_line_bg: file.editor.current_line_bg.into(),
             line_number_fg: file.editor.line_number_fg.into(),
             line_number_bg: file.editor.line_number_bg.into(),
+            diff_add_bg: file.editor.diff_add_bg.into(),
+            diff_remove_bg: file.editor.diff_remove_bg.into(),
+            diff_modify_bg: file.editor.diff_modify_bg.into(),
             tab_active_fg: file.ui.tab_active_fg.into(),
             tab_active_bg: file.ui.tab_active_bg.into(),
             tab_inactive_fg: file.ui.tab_inactive_fg.into(),
@@ -609,6 +635,11 @@ impl Theme {
             line_number_fg: Color::Rgb(100, 100, 100),
             line_number_bg: Color::Rgb(30, 30, 30),
 
+            // Diff highlighting colors
+            diff_add_bg: Color::Rgb(35, 60, 35),      // Dark green
+            diff_remove_bg: Color::Rgb(70, 35, 35),   // Dark red
+            diff_modify_bg: Color::Rgb(70, 60, 30),   // Dark yellow/orange
+
             // UI element colors
             tab_active_fg: Color::Yellow,
             tab_active_bg: Color::Blue,
@@ -733,6 +764,11 @@ impl Theme {
             line_number_fg: Color::Rgb(140, 140, 140),
             line_number_bg: Color::Rgb(255, 255, 255),
 
+            // Diff highlighting colors
+            diff_add_bg: Color::Rgb(200, 255, 200),    // Light green
+            diff_remove_bg: Color::Rgb(255, 200, 200), // Light red
+            diff_modify_bg: Color::Rgb(255, 240, 180), // Light yellow
+
             // UI element colors
             tab_active_fg: Color::Rgb(40, 40, 40),
             tab_active_bg: Color::Rgb(255, 255, 255),
@@ -856,6 +892,11 @@ impl Theme {
             current_line_bg: Color::Rgb(20, 20, 20),
             line_number_fg: Color::Rgb(140, 140, 140),
             line_number_bg: Color::Black,
+
+            // Diff highlighting colors
+            diff_add_bg: Color::Rgb(0, 80, 0),       // Dark green
+            diff_remove_bg: Color::Rgb(100, 0, 0),   // Dark red
+            diff_modify_bg: Color::Rgb(100, 80, 0),  // Dark yellow
 
             // UI element colors
             tab_active_fg: Color::Black,
@@ -1030,6 +1071,11 @@ impl Theme {
             current_line_bg: Color::Rgb(0, 0, 128),  // Slightly darker blue
             line_number_fg: Color::Rgb(85, 255, 255), // Cyan
             line_number_bg: Color::Rgb(0, 0, 170),
+
+            // Diff highlighting colors
+            diff_add_bg: Color::Rgb(0, 100, 0),      // DOS green
+            diff_remove_bg: Color::Rgb(170, 0, 0),   // DOS red
+            diff_modify_bg: Color::Rgb(170, 85, 0),  // DOS orange
 
             // UI element colors
             tab_active_fg: Color::Rgb(0, 0, 0),
