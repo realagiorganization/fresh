@@ -273,6 +273,9 @@ impl Editor {
                     .map(|vs| vs.viewport.height as usize)
                     .unwrap_or(24);
 
+                let new_cursor_row;
+                let new_cursor_column;
+
                 if let Some(view_state) = self.composite_view_states.get_mut(&(split_id, buffer_id))
                 {
                     match action {
@@ -291,6 +294,19 @@ impl Editor {
                         }
                         _ => {}
                     }
+                    new_cursor_row = view_state.cursor_row;
+                    new_cursor_column = view_state.cursor_column;
+                } else {
+                    new_cursor_row = 0;
+                    new_cursor_column = 0;
+                }
+
+                // Sync the fake EditorState's cursor with CompositeViewState
+                // This makes the status bar show the correct position
+                if let Some(state) = self.buffers.get_mut(&buffer_id) {
+                    state.primary_cursor_line_number =
+                        crate::model::buffer::LineNumber::Absolute(new_cursor_row);
+                    state.cursors.primary_mut().position = new_cursor_column;
                 }
 
                 let _ = (focused_buffer_id, other_buffer_id);
@@ -366,6 +382,9 @@ impl Editor {
                     .map(|vs| vs.viewport.height as usize)
                     .unwrap_or(24);
 
+                let new_cursor_row;
+                let new_cursor_column;
+
                 if let Some(view_state) = self.composite_view_states.get_mut(&(split_id, buffer_id))
                 {
                     if !view_state.visual_mode {
@@ -387,6 +406,18 @@ impl Editor {
                         }
                         _ => {}
                     }
+                    new_cursor_row = view_state.cursor_row;
+                    new_cursor_column = view_state.cursor_column;
+                } else {
+                    new_cursor_row = 0;
+                    new_cursor_column = 0;
+                }
+
+                // Sync the fake EditorState's cursor with CompositeViewState
+                if let Some(state) = self.buffers.get_mut(&buffer_id) {
+                    state.primary_cursor_line_number =
+                        crate::model::buffer::LineNumber::Absolute(new_cursor_row);
+                    state.cursors.primary_mut().position = new_cursor_column;
                 }
 
                 let _ = (focused_buffer_id, other_buffer_id);

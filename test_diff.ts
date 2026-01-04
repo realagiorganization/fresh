@@ -1,5 +1,6 @@
 // Test file for diff view
 // Added a new comment line
+// TESTING NAVIGATION IN DIFF VIEW
 
 function hello() {
     console.log('Hello, world!');

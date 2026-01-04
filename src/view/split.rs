@@ -109,6 +109,12 @@ pub struct SplitViewState {
     /// Sync group ID for synchronized scrolling
     /// Splits with the same sync_group will scroll together
     pub sync_group: Option<u32>,
+
+    /// When set, this split renders a composite view (e.g., side-by-side diff).
+    /// The split's buffer_id is the focused source buffer, but rendering uses
+    /// the composite layout. This makes the source buffer the "active buffer"
+    /// so normal keybindings work directly.
+    pub composite_view: Option<BufferId>,
 }
 
 impl SplitViewState {
@@ -128,6 +134,7 @@ impl SplitViewState {
             layout_dirty: true, // Start dirty so first operation builds layout
             previous_buffer: None,
             sync_group: None,
+            composite_view: None,
         }
     }
 
@@ -147,6 +154,7 @@ impl SplitViewState {
             layout_dirty: true, // Start dirty so first operation builds layout
             previous_buffer: None,
             sync_group: None,
+            composite_view: None,
         }
     }
 
