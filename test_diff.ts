@@ -18,7 +18,7 @@ function scrollTest1() { console.log('scroll test 1'); }
 function scrollTest2() { console.log('scroll test 2'); }
 function scrollTest3() { console.log('scroll test 3'); }
 function scrollTest4() { console.log('scroll test 4'); }
-function scrollTest5() { console.log('scroll test 5'); }
+function scrollTest5() { console.log('scroll test 5 - MODIFIED!!!'); }
 function scrollTest6() { console.log('scroll test 6'); }
 function scrollTest7() { console.log('scroll test 7'); }
 function scrollTest8() { console.log('scroll test 8'); }
@@ -35,3 +35,4 @@ function scrollTest18() { console.log('scroll test 18'); }
 function scrollTest19() { console.log('scroll test 19'); }
 function scrollTest20() { console.log('scroll test 20'); }
 // Added at the end
+// NEW CHANGE FOR TESTING DIFF VIEW
