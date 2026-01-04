@@ -85,6 +85,11 @@ pub struct EditorState {
     /// but navigation, selection, and copy are still allowed
     pub editing_disabled: bool,
 
+    /// Whether this buffer is a composite buffer (multi-pane view)
+    /// When true, the buffer content is rendered by the composite renderer
+    /// instead of the normal buffer rendering path
+    pub is_composite_buffer: bool,
+
     /// Whether to show whitespace tab indicators (→) for this buffer
     /// Set based on language config; defaults to true
     pub show_whitespace_tabs: bool,
@@ -144,6 +149,7 @@ impl EditorState {
             text_properties: TextPropertyManager::new(),
             show_cursors: true,
             editing_disabled: false,
+            is_composite_buffer: false,
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: 4, // Default tab size
@@ -161,14 +167,26 @@ impl EditorState {
     /// Set the syntax highlighting language based on a filename or extension
     /// This allows virtual buffers to get highlighting even without a real file path
     pub fn set_language_from_name(&mut self, name: &str, registry: &GrammarRegistry) {
-        let path = std::path::Path::new(name);
+        // Handle virtual buffer names like "*OLD:test.ts*" or "*OURS*.c"
+        // 1. Strip surrounding * characters
+        // 2. Extract filename after any prefix like "OLD:" or "NEW:"
+        let cleaned_name = name.trim_matches('*');
+        let filename = if let Some(pos) = cleaned_name.rfind(':') {
+            // Extract part after the last colon (e.g., "OLD:test.ts" -> "test.ts")
+            &cleaned_name[pos + 1..]
+        } else {
+            cleaned_name
+        };
+
+        let path = std::path::Path::new(filename);
         self.highlighter = HighlightEngine::for_file(path, registry);
         if let Some(language) = Language::from_path(path) {
             self.semantic_highlighter.set_language(&language);
         }
         tracing::debug!(
-            "Set highlighter for virtual buffer based on name: {} (backend: {})",
+            "Set highlighter for virtual buffer based on name: {} -> {} (backend: {})",
             name,
+            filename,
             self.highlighter.backend_name()
         );
     }
@@ -226,6 +244,7 @@ impl EditorState {
             text_properties: TextPropertyManager::new(),
             show_cursors: true,
             editing_disabled: false,
+            is_composite_buffer: false,
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: 4, // Default tab size
@@ -297,6 +316,7 @@ impl EditorState {
             text_properties: TextPropertyManager::new(),
             show_cursors: true,
             editing_disabled: false,
+            is_composite_buffer: false,
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: 4, // Default tab size

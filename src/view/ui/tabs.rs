@@ -125,10 +125,16 @@ impl TabsRenderer {
         let mut rendered_buffer_ids: Vec<BufferId> = Vec::new(); // Track which buffers actually got rendered
 
         // First, build all spans and calculate their display widths
-        for (idx, id) in split_buffers.iter().enumerate() {
+        for (_idx, id) in split_buffers.iter().enumerate() {
             let Some(state) = buffers.get(id) else {
                 continue;
             };
+            // Skip buffers that are marked as hidden from tabs (e.g., composite source buffers)
+            if let Some(meta) = buffer_metadata.get(id) {
+                if meta.hidden_from_tabs {
+                    continue;
+                }
+            }
             rendered_buffer_ids.push(*id);
 
             let meta = buffer_metadata.get(id);
@@ -218,15 +224,26 @@ impl TabsRenderer {
                 Span::styled(close_text.to_string(), close_style),
                 close_width,
             ));
+        }
 
-            // Add a small separator between tabs if it's not the last tab
-            if idx < split_buffers.len() - 1 {
-                all_tab_spans.push((
+        // Add separators between tabs (we do this after the loop to handle hidden buffers correctly)
+        // We'll rebuild all_tab_spans with separators inserted
+        let mut final_spans: Vec<(Span<'static>, usize)> = Vec::new();
+        let spans_per_tab = 2; // name + close button
+        for (tab_idx, chunk) in all_tab_spans.chunks(spans_per_tab).enumerate() {
+            for span in chunk {
+                final_spans.push(span.clone());
+            }
+            // Add separator if not the last tab
+            if tab_idx < rendered_buffer_ids.len().saturating_sub(1) {
+                final_spans.push((
                     Span::styled(" ", Style::default().bg(theme.tab_separator_bg)),
                     1,
                 ));
             }
         }
+        #[allow(clippy::let_and_return)]
+        let all_tab_spans = final_spans;
 
         let mut current_spans: Vec<Span> = Vec::new();
         let max_width = area.width as usize;

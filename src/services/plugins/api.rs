@@ -39,6 +39,11 @@ pub enum PluginResponse {
         request_id: u64,
         text: Result<String, String>,
     },
+    /// Response to CreateCompositeBuffer with the created buffer ID
+    CompositeBufferCreated {
+        request_id: u64,
+        buffer_id: BufferId,
+    },
 }
 
 /// Information about a cursor in the editor
@@ -100,6 +105,76 @@ pub struct LayoutHints {
     pub compose_width: Option<u16>,
     /// Optional column guides for aligned tables
     pub column_guides: Option<Vec<u16>>,
+}
+
+// ============================================================================
+// Composite Buffer Configuration (for multi-buffer single-tab views)
+// ============================================================================
+
+/// Layout configuration for composite buffers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompositeLayoutConfig {
+    /// Layout type: "side-by-side", "stacked", or "unified"
+    #[serde(rename = "type")]
+    pub layout_type: String,
+    /// Width ratios for side-by-side (e.g., [0.5, 0.5])
+    #[serde(default)]
+    pub ratios: Option<Vec<f32>>,
+    /// Show separator between panes
+    #[serde(default = "default_true")]
+    pub show_separator: bool,
+    /// Spacing for stacked layout
+    #[serde(default)]
+    pub spacing: Option<u16>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Source pane configuration for composite buffers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompositeSourceConfig {
+    /// Buffer ID of the source buffer
+    pub buffer_id: usize,
+    /// Label for this pane (e.g., "OLD", "NEW")
+    pub label: String,
+    /// Whether this pane is editable
+    #[serde(default)]
+    pub editable: bool,
+    /// Style configuration
+    #[serde(default)]
+    pub style: Option<CompositePaneStyle>,
+}
+
+/// Style configuration for a composite pane
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CompositePaneStyle {
+    /// Background color for added lines (RGB)
+    #[serde(default)]
+    pub add_bg: Option<(u8, u8, u8)>,
+    /// Background color for removed lines (RGB)
+    #[serde(default)]
+    pub remove_bg: Option<(u8, u8, u8)>,
+    /// Background color for modified lines (RGB)
+    #[serde(default)]
+    pub modify_bg: Option<(u8, u8, u8)>,
+    /// Gutter style: "line-numbers", "diff-markers", "both", or "none"
+    #[serde(default)]
+    pub gutter_style: Option<String>,
+}
+
+/// Diff hunk for composite buffer alignment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompositeHunk {
+    /// Starting line in old buffer (0-indexed)
+    pub old_start: usize,
+    /// Number of lines in old buffer
+    pub old_count: usize,
+    /// Starting line in new buffer (0-indexed)
+    pub new_start: usize,
+    /// Number of lines in new buffer
+    pub new_count: usize,
 }
 
 /// Wire-format view token kind (serialized for plugin transforms)
@@ -512,6 +587,8 @@ pub enum PluginCommand {
         show_cursors: bool,
         /// Whether editing is disabled (blocks editing commands)
         editing_disabled: bool,
+        /// Whether this buffer should be hidden from tabs (for composite source buffers)
+        hidden_from_tabs: bool,
         /// Optional request ID for async response
         request_id: Option<u64>,
     },
@@ -592,6 +669,32 @@ pub enum PluginCommand {
 
     /// Close a buffer and remove it from all splits
     CloseBuffer { buffer_id: BufferId },
+
+    /// Create a composite buffer that displays multiple source buffers
+    /// Used for side-by-side diff, unified diff, and 3-way merge views
+    CreateCompositeBuffer {
+        /// Display name (shown in tab bar)
+        name: String,
+        /// Mode name for keybindings (e.g., "diff-view")
+        mode: String,
+        /// Layout configuration
+        layout: CompositeLayoutConfig,
+        /// Source pane configurations
+        sources: Vec<CompositeSourceConfig>,
+        /// Diff hunks for line alignment (optional)
+        hunks: Option<Vec<CompositeHunk>>,
+        /// Request ID for async response
+        request_id: Option<u64>,
+    },
+
+    /// Update alignment for a composite buffer (e.g., after source edit)
+    UpdateCompositeAlignment {
+        buffer_id: BufferId,
+        hunks: Vec<CompositeHunk>,
+    },
+
+    /// Close a composite buffer
+    CloseCompositeBuffer { buffer_id: BufferId },
 
     /// Focus a specific split
     FocusSplit { split_id: SplitId },
@@ -1048,6 +1151,7 @@ impl PluginApi {
             show_line_numbers: true,
             show_cursors: true,
             editing_disabled: false,
+            hidden_from_tabs: false,
             request_id: None,
         })
     }

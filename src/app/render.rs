@@ -332,6 +332,8 @@ impl Editor {
                 &mut self.buffers,
                 &self.buffer_metadata,
                 &mut self.event_logs,
+                &self.composite_buffers,
+                &mut self.composite_view_states,
                 &self.theme,
                 self.ansi_background.as_ref(),
                 self.background_fade,
@@ -3430,6 +3432,7 @@ impl Editor {
             read_only: false, // Allow editing for saving
             binary: false,
             lsp_opened_with: std::collections::HashSet::new(),
+            hidden_from_tabs: false,
         };
         self.buffer_metadata.insert(buffer_id, metadata);
 
@@ -3504,6 +3507,7 @@ impl Editor {
             read_only: true,
             binary: false,
             lsp_opened_with: std::collections::HashSet::new(),
+            hidden_from_tabs: false,
         };
         self.buffer_metadata.insert(buffer_id, metadata);
 

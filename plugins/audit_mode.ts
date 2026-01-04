@@ -1009,6 +1009,16 @@ interface SideBySideDiffState {
 let activeSideBySideState: SideBySideDiffState | null = null;
 let nextScrollSyncGroupId = 1;
 
+// State for composite buffer-based diff view
+interface CompositeDiffState {
+    compositeBufferId: number;
+    oldBufferId: number;
+    newBufferId: number;
+    filePath: string;
+}
+
+let activeCompositeDiffState: CompositeDiffState | null = null;
+
 globalThis.review_drill_down = async () => {
     const bid = editor.getActiveBufferId();
     const props = editor.getTextPropertiesAtCursor(bid);
@@ -1048,21 +1058,9 @@ globalThis.review_drill_down = async () => {
             return;
         }
 
-        // Close the Review Diff buffer to make room for side-by-side view
-        // Store the review buffer ID so we can restore it later
-        const reviewBufferId = bid;
-
-        // Compute aligned diff for the FULL file with all hunks
-        const alignedLines = computeFullFileAlignedDiff(oldContent, newContent, fileHunks);
-
-        // Generate content for both panes
-        const oldPane = generateDiffPaneContent(alignedLines, 'old');
-        const newPane = generateDiffPaneContent(alignedLines, 'new');
-
-        // Close any existing side-by-side views
+        // Close any existing side-by-side views (old split-based approach)
         if (activeSideBySideState) {
             try {
-                // Remove scroll sync group first
                 if (activeSideBySideState.scrollSyncGroupId !== null) {
                     (editor as any).removeScrollSyncGroup(activeSideBySideState.scrollSyncGroupId);
                 }
@@ -1072,143 +1070,132 @@ globalThis.review_drill_down = async () => {
             activeSideBySideState = null;
         }
 
-        // Get the current split ID before closing the Review Diff buffer
-        const currentSplitId = (editor as any).getActiveSplitId();
+        // Close any existing composite diff view
+        if (activeCompositeDiffState) {
+            try {
+                editor.closeCompositeBuffer(activeCompositeDiffState.compositeBufferId);
+                editor.closeBuffer(activeCompositeDiffState.oldBufferId);
+                editor.closeBuffer(activeCompositeDiffState.newBufferId);
+            } catch {}
+            activeCompositeDiffState = null;
+        }
 
-        // Create OLD buffer in the CURRENT split (replaces Review Diff)
-        const oldBufferId = await editor.createVirtualBufferInExistingSplit({
-            name: `[OLD] ${h.file}`,
-            mode: "diff-view",
+        // Create virtual buffers for old and new content
+        const oldLines = oldContent.split('\n');
+        const newLines = newContent.split('\n');
+
+        const oldEntries: TextPropertyEntry[] = oldLines.map((line, idx) => ({
+            text: line + '\n',
+            properties: { type: 'line', lineNum: idx + 1 }
+        }));
+
+        const newEntries: TextPropertyEntry[] = newLines.map((line, idx) => ({
+            text: line + '\n',
+            properties: { type: 'line', lineNum: idx + 1 }
+        }));
+
+        // Create source buffers (hidden from tabs, used by composite)
+        const oldBufferId = await editor.createVirtualBuffer({
+            name: `*OLD:${h.file}*`,
+            mode: "normal",
             read_only: true,
+            entries: oldEntries,
+            show_line_numbers: true,
             editing_disabled: true,
-            entries: oldPane.entries,
-            split_id: currentSplitId,
-            show_line_numbers: false,
-            line_wrap: false
+            hidden_from_tabs: true
         });
-        const oldSplitId = currentSplitId;
 
-        // Close the Review Diff buffer after showing OLD
-        editor.closeBuffer(reviewBufferId);
-
-        // Apply highlights to old pane
-        editor.clearNamespace(oldBufferId, "diff-view");
-        for (const hl of oldPane.highlights) {
-            const bg = hl.bg || [-1, -1, -1];
-            editor.addOverlay(
-                oldBufferId, "diff-view",
-                hl.range[0], hl.range[1],
-                hl.fg[0], hl.fg[1], hl.fg[2],
-                false, hl.bold || false, false,
-                bg[0], bg[1], bg[2],
-                hl.extend_to_line_end || false
-            );
-        }
-
-        // Step 2: Create NEW pane in a vertical split (RIGHT of OLD)
-        const newRes = await editor.createVirtualBufferInSplit({
-            name: `[NEW] ${h.file}`,
-            mode: "diff-view",
+        const newBufferId = await editor.createVirtualBuffer({
+            name: `*NEW:${h.file}*`,
+            mode: "normal",
             read_only: true,
+            entries: newEntries,
+            show_line_numbers: true,
             editing_disabled: true,
-            entries: newPane.entries,
-            ratio: 0.5,
-            direction: "vertical",
-            show_line_numbers: false,
-            line_wrap: false
+            hidden_from_tabs: true
         });
-        const newBufferId = newRes.buffer_id;
-        const newSplitId = newRes.split_id!;
 
-        // Apply highlights to new pane
-        editor.clearNamespace(newBufferId, "diff-view");
-        for (const hl of newPane.highlights) {
-            const bg = hl.bg || [-1, -1, -1];
-            editor.addOverlay(
-                newBufferId, "diff-view",
-                hl.range[0], hl.range[1],
-                hl.fg[0], hl.fg[1], hl.fg[2],
-                false, hl.bold || false, false,
-                bg[0], bg[1], bg[2],
-                hl.extend_to_line_end || false
-            );
-        }
-
-        // Focus OLD pane (left) - convention is to start on old side
-        (editor as any).focusSplit(oldSplitId);
-
-        // Set up core-handled scroll sync using the new anchor-based API
-        // This replaces the old viewport_changed hook approach
-        let scrollSyncGroupId: number | null = null;
-        try {
-            // Generate a unique group ID
-            scrollSyncGroupId = nextScrollSyncGroupId++;
-            (editor as any).createScrollSyncGroup(scrollSyncGroupId, oldSplitId, newSplitId);
-
-            // Compute sync anchors from aligned lines
-            // Each aligned line is a sync point - we map line indices to anchors
-            // For the new core sync, we use line numbers (not byte offsets)
-            const anchors: [number, number][] = [];
-            for (let i = 0; i < alignedLines.length; i++) {
-                // Add anchors at meaningful boundaries: start of file, and at change boundaries
-                const line = alignedLines[i];
-                const prevLine = i > 0 ? alignedLines[i - 1] : null;
-
-                // Add anchor at start of file
-                if (i === 0) {
-                    anchors.push([0, 0]);
-                }
-
-                // Add anchor at change boundaries (when change type changes)
-                if (prevLine && prevLine.changeType !== line.changeType) {
-                    anchors.push([i, i]);
-                }
+        // Convert hunks to composite buffer format (parse counts from git diff)
+        const compositeHunks: TsCompositeHunk[] = fileHunks.map(fh => {
+            // Parse actual counts from the hunk lines
+            let oldCount = 0, newCount = 0;
+            for (const line of fh.lines) {
+                if (line.startsWith('-')) oldCount++;
+                else if (line.startsWith('+')) newCount++;
+                else if (line.startsWith(' ')) { oldCount++; newCount++; }
             }
+            return {
+                old_start: fh.oldRange.start - 1,  // Convert to 0-indexed
+                old_count: oldCount || 1,
+                new_start: fh.range.start - 1,     // Convert to 0-indexed
+                new_count: newCount || 1
+            };
+        });
 
-            // Add anchor at end
-            if (alignedLines.length > 0) {
-                anchors.push([alignedLines.length, alignedLines.length]);
-            }
+        // Create composite buffer with side-by-side layout
+        const compositeBufferId = await editor.createCompositeBuffer({
+            name: `*Diff: ${h.file}*`,
+            mode: "diff-view",
+            layout: {
+                layout_type: "side-by-side",
+                ratios: [0.5, 0.5],
+                show_separator: true
+            },
+            sources: [
+                {
+                    buffer_id: oldBufferId,
+                    label: "OLD (HEAD)",
+                    editable: false,
+                    style: {
+                        remove_bg: [80, 40, 40],
+                        gutter_style: "diff-markers"
+                    }
+                },
+                {
+                    buffer_id: newBufferId,
+                    label: "NEW (Working)",
+                    editable: false,
+                    style: {
+                        add_bg: [40, 80, 40],
+                        gutter_style: "diff-markers"
+                    }
+                }
+            ],
+            hunks: compositeHunks.length > 0 ? compositeHunks : null
+        });
 
-            (editor as any).setScrollSyncAnchors(scrollSyncGroupId, anchors);
-        } catch (e) {
-            editor.debug(`Failed to create scroll sync group: ${e}`);
-            scrollSyncGroupId = null;
-        }
-
-        // Store state for synchronized scrolling
-        activeSideBySideState = {
-            oldSplitId,
-            newSplitId,
+        // Store state for cleanup
+        activeCompositeDiffState = {
+            compositeBufferId,
             oldBufferId,
             newBufferId,
-            alignedLines,
-            oldLineByteOffsets: oldPane.lineByteOffsets,
-            newLineByteOffsets: newPane.lineByteOffsets,
-            scrollSyncGroupId
+            filePath: h.file
         };
-        activeDiffViewState = { lSplit: oldSplitId, rSplit: newSplitId };
 
-        const addedLines = alignedLines.filter(l => l.changeType === 'added').length;
-        const removedLines = alignedLines.filter(l => l.changeType === 'removed').length;
-        const modifiedLines = alignedLines.filter(l => l.changeType === 'modified').length;
+        // Show the composite buffer (replaces the review diff buffer)
+        editor.showBuffer(compositeBufferId);
+
+        const addedCount = fileHunks.reduce((sum, fh) => {
+            return sum + fh.lines.filter(l => l.startsWith('+')).length;
+        }, 0);
+        const removedCount = fileHunks.reduce((sum, fh) => {
+            return sum + fh.lines.filter(l => l.startsWith('-')).length;
+        }, 0);
+
         editor.setStatus(editor.t("status.diff_summary", { added: String(addedLines), removed: String(removedLines), modified: String(modifiedLines) }));
     }
 };
 
-// Define the diff-view mode with navigation keys
-editor.defineMode("diff-view", "special", [
-    ["q", "close_buffer"],
-    ["j", "move_down"],
-    ["k", "move_up"],
-    ["g", "move_document_start"],
-    ["G", "move_document_end"],
-    ["C-d", "move_page_down"],
-    ["C-u", "move_page_up"],
-    ["Down", "move_down"],
-    ["Up", "move_up"],
-    ["PageDown", "move_page_down"],
-    ["PageUp", "move_page_up"],
+// Define the diff-view mode - inherits from "normal" for all standard navigation/selection/copy
+// Only adds diff-specific keybindings (close, hunk navigation)
+editor.defineMode("diff-view", "normal", [
+    // Close the diff view
+    ["q", "close"],
+    // Hunk navigation (diff-specific)
+    ["n", "review_next_hunk"],
+    ["p", "review_prev_hunk"],
+    ["]", "review_next_hunk"],
+    ["[", "review_prev_hunk"],
 ], true);
 
 // --- Review Comment Actions ---
@@ -1528,7 +1515,7 @@ globalThis.on_review_buffer_closed = (data: any) => {
     if (data.buffer_id === state.reviewBufferId) stop_review_diff();
 };
 
-// Side-by-side diff for current file (can be called directly without Review Diff mode)
+// Side-by-side diff for current file using composite buffers
 globalThis.side_by_side_diff_current_file = async () => {
     const bid = editor.getActiveBufferId();
     const absolutePath = editor.getBufferPath(bid);
@@ -1584,20 +1571,22 @@ globalThis.side_by_side_diff_current_file = async () => {
 
     for (const line of lines) {
         if (line.startsWith('@@')) {
-            const match = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@(.*)/);
+            const match = line.match(/@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@(.*)/);
             if (match) {
                 const oldStart = parseInt(match[1]);
-                const newStart = parseInt(match[2]);
+                const oldCount = match[2] ? parseInt(match[2]) : 1;
+                const newStart = parseInt(match[3]);
+                const newCount = match[4] ? parseInt(match[4]) : 1;
                 currentHunk = {
                     id: `${filePath}:${newStart}`,
                     file: filePath,
-                    range: { start: newStart, end: newStart },
-                    oldRange: { start: oldStart, end: oldStart },
+                    range: { start: newStart, end: newStart + newCount - 1 },
+                    oldRange: { start: oldStart, end: oldStart + oldCount - 1 },
                     type: 'modify',
                     lines: [],
                     status: 'pending',
                     reviewStatus: 'pending',
-                    contextHeader: match[3]?.trim() || "",
+                    contextHeader: match[5]?.trim() || "",
                     byteOffset: 0
                 };
                 fileHunks.push(currentHunk);
@@ -1631,13 +1620,6 @@ globalThis.side_by_side_diff_current_file = async () => {
         return;
     }
 
-    // Compute aligned diff for the FULL file
-    const alignedLines = computeFullFileAlignedDiff(oldContent, newContent, fileHunks);
-
-    // Generate content for both panes
-    const oldPane = generateDiffPaneContent(alignedLines, 'old');
-    const newPane = generateDiffPaneContent(alignedLines, 'new');
-
     // Close any existing side-by-side views
     if (activeSideBySideState) {
         try {
@@ -1650,109 +1632,111 @@ globalThis.side_by_side_diff_current_file = async () => {
         activeSideBySideState = null;
     }
 
-    // Get the current split ID
-    const currentSplitId = (editor as any).getActiveSplitId();
-
-    // Create OLD buffer in the CURRENT split
-    const oldBufferId = await editor.createVirtualBufferInExistingSplit({
-        name: `[OLD] ${filePath}`,
-        mode: "diff-view",
-        read_only: true,
-        editing_disabled: true,
-        entries: oldPane.entries,
-        split_id: currentSplitId,
-        show_line_numbers: false,
-        line_wrap: false
-    });
-    const oldSplitId = currentSplitId;
-
-    // Apply highlights to old pane
-    editor.clearNamespace(oldBufferId, "diff-view");
-    for (const hl of oldPane.highlights) {
-        const bg = hl.bg || [-1, -1, -1];
-        editor.addOverlay(
-            oldBufferId, "diff-view",
-            hl.range[0], hl.range[1],
-            hl.fg[0], hl.fg[1], hl.fg[2],
-            false, hl.bold || false, false,
-            bg[0], bg[1], bg[2],
-            hl.extend_to_line_end || false
-        );
+    // Close any existing composite diff view
+    if (activeCompositeDiffState) {
+        try {
+            editor.closeCompositeBuffer(activeCompositeDiffState.compositeBufferId);
+            editor.closeBuffer(activeCompositeDiffState.oldBufferId);
+            editor.closeBuffer(activeCompositeDiffState.newBufferId);
+        } catch {}
+        activeCompositeDiffState = null;
     }
 
-    // Create NEW pane in a vertical split (RIGHT of OLD)
-    const newRes = await editor.createVirtualBufferInSplit({
-        name: `[NEW] ${filePath}`,
-        mode: "diff-view",
+    // Create virtual buffers for old and new content
+    const oldLines = oldContent.split('\n');
+    const newLines = newContent.split('\n');
+
+    const oldEntries: TextPropertyEntry[] = oldLines.map((line, idx) => ({
+        text: line + '\n',
+        properties: { type: 'line', lineNum: idx + 1 }
+    }));
+
+    const newEntries: TextPropertyEntry[] = newLines.map((line, idx) => ({
+        text: line + '\n',
+        properties: { type: 'line', lineNum: idx + 1 }
+    }));
+
+    // Create source buffers (hidden from tabs, used by composite)
+    const oldBufferId = await editor.createVirtualBuffer({
+        name: `*OLD:${filePath}*`,
+        mode: "normal",
         read_only: true,
+        entries: oldEntries,
+        show_line_numbers: true,
         editing_disabled: true,
-        entries: newPane.entries,
-        ratio: 0.5,
-        direction: "vertical",
-        show_line_numbers: false,
-        line_wrap: false
+        hidden_from_tabs: true
     });
-    const newBufferId = newRes.buffer_id;
-    const newSplitId = newRes.split_id!;
 
-    // Apply highlights to new pane
-    editor.clearNamespace(newBufferId, "diff-view");
-    for (const hl of newPane.highlights) {
-        const bg = hl.bg || [-1, -1, -1];
-        editor.addOverlay(
-            newBufferId, "diff-view",
-            hl.range[0], hl.range[1],
-            hl.fg[0], hl.fg[1], hl.fg[2],
-            false, hl.bold || false, false,
-            bg[0], bg[1], bg[2],
-            hl.extend_to_line_end || false
-        );
-    }
+    const newBufferId = await editor.createVirtualBuffer({
+        name: `*NEW:${filePath}*`,
+        mode: "normal",
+        read_only: true,
+        entries: newEntries,
+        show_line_numbers: true,
+        editing_disabled: true,
+        hidden_from_tabs: true
+    });
 
-    // Focus OLD pane (left)
-    (editor as any).focusSplit(oldSplitId);
+    // Convert hunks to composite buffer format
+    const compositeHunks: TsCompositeHunk[] = fileHunks.map(h => ({
+        old_start: h.oldRange.start - 1,  // Convert to 0-indexed
+        old_count: h.oldRange.end - h.oldRange.start + 1,
+        new_start: h.range.start - 1,     // Convert to 0-indexed
+        new_count: h.range.end - h.range.start + 1
+    }));
 
-    // Set up scroll sync
-    let scrollSyncGroupId: number | null = null;
-    try {
-        scrollSyncGroupId = nextScrollSyncGroupId++;
-        (editor as any).createScrollSyncGroup(scrollSyncGroupId, oldSplitId, newSplitId);
-
-        const anchors: [number, number][] = [];
-        for (let i = 0; i < alignedLines.length; i++) {
-            const line = alignedLines[i];
-            const prevLine = i > 0 ? alignedLines[i - 1] : null;
-            if (i === 0) anchors.push([0, 0]);
-            if (prevLine && prevLine.changeType !== line.changeType) {
-                anchors.push([i, i]);
+    // Create composite buffer with side-by-side layout
+    const compositeBufferId = await editor.createCompositeBuffer({
+        name: `*Diff: ${filePath}*`,
+        mode: "diff-view",
+        layout: {
+            layout_type: "side-by-side",
+            ratios: [0.5, 0.5],
+            show_separator: true
+        },
+        sources: [
+            {
+                buffer_id: oldBufferId,
+                label: "OLD (HEAD)",
+                editable: false,
+                style: {
+                    remove_bg: [80, 40, 40],
+                    gutter_style: "diff-markers"
+                }
+            },
+            {
+                buffer_id: newBufferId,
+                label: "NEW (Working)",
+                editable: false,
+                style: {
+                    add_bg: [40, 80, 40],
+                    gutter_style: "diff-markers"
+                }
             }
-        }
-        if (alignedLines.length > 0) {
-            anchors.push([alignedLines.length, alignedLines.length]);
-        }
-        (editor as any).setScrollSyncAnchors(scrollSyncGroupId, anchors);
-    } catch (e) {
-        editor.debug(`Failed to create scroll sync group: ${e}`);
-        scrollSyncGroupId = null;
-    }
+        ],
+        hunks: compositeHunks.length > 0 ? compositeHunks : null
+    });
 
-    // Store state
-    activeSideBySideState = {
-        oldSplitId,
-        newSplitId,
+    // Store state for cleanup
+    activeCompositeDiffState = {
+        compositeBufferId,
         oldBufferId,
         newBufferId,
-        alignedLines,
-        oldLineByteOffsets: oldPane.lineByteOffsets,
-        newLineByteOffsets: newPane.lineByteOffsets,
-        scrollSyncGroupId
+        filePath
     };
-    activeDiffViewState = { lSplit: oldSplitId, rSplit: newSplitId };
 
-    const addedLines = alignedLines.filter(l => l.changeType === 'added').length;
-    const removedLines = alignedLines.filter(l => l.changeType === 'removed').length;
-    const modifiedLines = alignedLines.filter(l => l.changeType === 'modified').length;
-    editor.setStatus(editor.t("status.diff_summary", { added: String(addedLines), removed: String(removedLines), modified: String(modifiedLines) }));
+    // Show the composite buffer
+    editor.showBuffer(compositeBufferId);
+
+    const addedCount = fileHunks.reduce((sum, h) => {
+        return sum + h.lines.filter(l => l.startsWith('+')).length;
+    }, 0);
+    const removedCount = fileHunks.reduce((sum, h) => {
+        return sum + h.lines.filter(l => l.startsWith('-')).length;
+    }, 0);
+    const modifiedCount = Math.min(addedCount, removedCount);
+
+    editor.setStatus(editor.t("status.diff_summary", { added: String(addedCount), removed: String(removedCount), modified: String(modifiedCount) }));
 };
 
 // Register Modes and Commands
@@ -1772,7 +1756,7 @@ editor.registerCommand("%cmd.overall_feedback", "%cmd.overall_feedback_desc", "r
 editor.registerCommand("%cmd.export_markdown", "%cmd.export_markdown_desc", "review_export_session", "review-mode");
 editor.registerCommand("%cmd.export_json", "%cmd.export_json_desc", "review_export_json", "review-mode");
 
-// Handler for when buffers are closed - cleans up scroll sync groups
+// Handler for when buffers are closed - cleans up scroll sync groups and composite buffers
 globalThis.on_buffer_closed = (data: any) => {
     // If one of the diff view buffers is closed, clean up the scroll sync group
     if (activeSideBySideState) {
@@ -1788,6 +1772,18 @@ globalThis.on_buffer_closed = (data: any) => {
             activeDiffViewState = null;
         }
     }
+
+    // Clean up composite diff state if the composite buffer is closed
+    if (activeCompositeDiffState) {
+        if (data.buffer_id === activeCompositeDiffState.compositeBufferId) {
+            // Close the source buffers
+            try {
+                editor.closeBuffer(activeCompositeDiffState.oldBufferId);
+                editor.closeBuffer(activeCompositeDiffState.newBufferId);
+            } catch {}
+            activeCompositeDiffState = null;
+        }
+    }
 };
 
 editor.on("buffer_closed", "on_buffer_closed");
@@ -1797,7 +1793,7 @@ editor.defineMode("review-mode", "normal", [
     ["s", "review_stage_hunk"], ["d", "review_discard_hunk"],
     // Navigation
     ["n", "review_next_hunk"], ["p", "review_prev_hunk"], ["r", "review_refresh"],
-    ["Enter", "review_drill_down"], ["q", "close_buffer"],
+    ["Enter", "review_drill_down"], ["q", "close"],
     // Review actions
     ["c", "review_add_comment"],
     ["a", "review_approve_hunk"],

@@ -33,6 +33,50 @@ use std::ops::Range;
 /// memory usage reasonable (~80KB per ViewLine instead of hundreds of MB).
 const MAX_SAFE_LINE_WIDTH: usize = 10_000;
 
+/// Compute character-level diff between two strings, returning ranges of changed characters.
+/// Returns a tuple of (old_changed_ranges, new_changed_ranges) where each range indicates
+/// character indices that differ between the strings.
+fn compute_inline_diff(old_text: &str, new_text: &str) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+    let old_chars: Vec<char> = old_text.chars().collect();
+    let new_chars: Vec<char> = new_text.chars().collect();
+
+    let mut old_ranges = Vec::new();
+    let mut new_ranges = Vec::new();
+
+    // Find common prefix
+    let prefix_len = old_chars
+        .iter()
+        .zip(new_chars.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    // Find common suffix (from the non-prefix part)
+    let old_remaining = old_chars.len() - prefix_len;
+    let new_remaining = new_chars.len() - prefix_len;
+    let suffix_len = old_chars
+        .iter()
+        .rev()
+        .zip(new_chars.iter().rev())
+        .take(old_remaining.min(new_remaining))
+        .take_while(|(a, b)| a == b)
+        .count();
+
+    // The changed range is between prefix and suffix
+    let old_start = prefix_len;
+    let old_end = old_chars.len().saturating_sub(suffix_len);
+    let new_start = prefix_len;
+    let new_end = new_chars.len().saturating_sub(suffix_len);
+
+    if old_start < old_end {
+        old_ranges.push(old_start..old_end);
+    }
+    if new_start < new_end {
+        new_ranges.push(new_start..new_end);
+    }
+
+    (old_ranges, new_ranges)
+}
+
 fn push_span_with_map(
     spans: &mut Vec<Span<'static>>,
     map: &mut Vec<Option<usize>>,
@@ -640,6 +684,11 @@ impl SplitRenderer {
         buffers: &mut HashMap<BufferId, EditorState>,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
         event_logs: &mut HashMap<BufferId, EventLog>,
+        composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
+        composite_view_states: &mut HashMap<
+            (crate::model::event::SplitId, BufferId),
+            crate::view::composite_view::CompositeViewState,
+        >,
         theme: &crate::view::theme::Theme,
         ansi_background: Option<&AnsiBackground>,
         background_fade: f32,
@@ -773,6 +822,45 @@ impl SplitRenderer {
             let event_log_opt = event_logs.get_mut(&buffer_id);
 
             if let Some(state) = state_opt {
+                // Check if this is a composite buffer - render differently
+                if state.is_composite_buffer {
+                    if let Some(composite) = composite_buffers.get(&buffer_id) {
+                        // Get or create composite view state
+                        let pane_count = composite.pane_count();
+                        let view_state = composite_view_states
+                            .entry((split_id, buffer_id))
+                            .or_insert_with(|| {
+                                crate::view::composite_view::CompositeViewState::new(
+                                    buffer_id, pane_count,
+                                )
+                            });
+                        // Render composite buffer with side-by-side panes
+                        Self::render_composite_buffer(
+                            frame,
+                            layout.content_rect,
+                            composite,
+                            buffers,
+                            theme,
+                            is_active,
+                            view_state,
+                        );
+
+                        // Render scrollbar for composite buffer
+                        let total_rows = composite.row_count();
+                        let content_height = layout.content_rect.height.saturating_sub(1) as usize; // -1 for header
+                        Self::render_composite_scrollbar(
+                            frame,
+                            layout.scrollbar_rect,
+                            total_rows,
+                            view_state.scroll_row,
+                            content_height,
+                            is_active,
+                        );
+                    }
+                    view_line_mappings.insert(split_id, Vec::new());
+                    continue;
+                }
+
                 // Get viewport from SplitViewState (authoritative source)
                 // We need to get it mutably for sync operations
                 // Use as_deref() to get Option<&HashMap> for read-only operations
@@ -925,6 +1013,593 @@ impl SplitRenderer {
                     frame.render_widget(paragraph, cell_area);
                 }
             }
+        }
+    }
+
+    /// Render a composite buffer (side-by-side view of multiple source buffers)
+    /// Uses ViewLines for proper syntax highlighting, ANSI handling, etc.
+    fn render_composite_buffer(
+        frame: &mut Frame,
+        area: Rect,
+        composite: &crate::model::composite_buffer::CompositeBuffer,
+        buffers: &mut HashMap<BufferId, EditorState>,
+        theme: &crate::view::theme::Theme,
+        _is_active: bool,
+        view_state: &crate::view::composite_view::CompositeViewState,
+    ) {
+        use crate::model::composite_buffer::{CompositeLayout, RowType};
+
+        let scroll_row = view_state.scroll_row;
+        let cursor_row = view_state.cursor_row;
+
+        // Clear the area first
+        frame.render_widget(Clear, area);
+
+        // Calculate pane widths based on layout
+        let pane_count = composite.sources.len();
+        if pane_count == 0 {
+            return;
+        }
+
+        // Extract show_separator from layout
+        let show_separator = match &composite.layout {
+            CompositeLayout::SideBySide { show_separator, .. } => *show_separator,
+            _ => false,
+        };
+
+        // Calculate pane areas
+        let separator_width = if show_separator { 1 } else { 0 };
+        let total_separators = (pane_count.saturating_sub(1)) as u16 * separator_width;
+        let available_width = area.width.saturating_sub(total_separators);
+
+        let pane_widths: Vec<u16> = match &composite.layout {
+            CompositeLayout::SideBySide { ratios, .. } => {
+                let default_ratio = 1.0 / pane_count as f32;
+                ratios
+                    .iter()
+                    .chain(std::iter::repeat(&default_ratio))
+                    .take(pane_count)
+                    .map(|r| (available_width as f32 * r).round() as u16)
+                    .collect()
+            }
+            _ => {
+                // Equal widths for stacked/unified layouts
+                let pane_width = available_width / pane_count as u16;
+                vec![pane_width; pane_count]
+            }
+        };
+
+        // Render headers first
+        let header_height = 1u16;
+        let mut x_offset = area.x;
+        for (idx, (source, &width)) in composite.sources.iter().zip(&pane_widths).enumerate() {
+            let header_area = Rect::new(x_offset, area.y, width, header_height);
+            let is_focused = idx == view_state.focused_pane;
+
+            let header_style = if is_focused {
+                Style::default()
+                    .fg(theme.tab_active_fg)
+                    .bg(theme.tab_active_bg)
+            } else {
+                Style::default()
+                    .fg(theme.tab_inactive_fg)
+                    .bg(theme.tab_inactive_bg)
+            };
+
+            let header_text = format!(" {} ", source.label);
+            let header = Paragraph::new(header_text).style(header_style);
+            frame.render_widget(header, header_area);
+
+            x_offset += width + separator_width;
+        }
+
+        // Content area (below headers)
+        let content_y = area.y + header_height;
+        let content_height = area.height.saturating_sub(header_height);
+        let visible_rows = content_height as usize;
+
+        // Render aligned rows
+        let alignment = &composite.alignment;
+        let total_rows = alignment.rows.len();
+
+        // Build ViewData and get syntax highlighting for each pane
+        // Store: (ViewLines, line->ViewLine mapping, highlight spans)
+        struct PaneRenderData {
+            lines: Vec<ViewLine>,
+            line_to_view_line: HashMap<usize, usize>,
+            highlight_spans: Vec<crate::primitives::highlighter::HighlightSpan>,
+        }
+
+        let mut pane_render_data: Vec<Option<PaneRenderData>> = Vec::new();
+
+        for (pane_idx, source) in composite.sources.iter().enumerate() {
+            if let Some(source_state) = buffers.get_mut(&source.buffer_id) {
+                // Find the first and last source lines we need for this pane
+                let visible_lines: Vec<usize> = alignment
+                    .rows
+                    .iter()
+                    .skip(scroll_row)
+                    .take(visible_rows)
+                    .filter_map(|row| row.get_pane_line(pane_idx))
+                    .map(|r| r.line)
+                    .collect();
+
+                let first_line = visible_lines.iter().copied().min();
+                let last_line = visible_lines.iter().copied().max();
+
+                if let (Some(first_line), Some(last_line)) = (first_line, last_line) {
+                    // Get byte range for highlighting
+                    let top_byte = source_state
+                        .buffer
+                        .line_start_offset(first_line)
+                        .unwrap_or(0);
+                    let end_byte = source_state
+                        .buffer
+                        .line_start_offset(last_line + 1)
+                        .unwrap_or(source_state.buffer.len());
+
+                    // Get syntax highlighting spans from the highlighter
+                    let highlight_spans = source_state.highlighter.highlight_viewport(
+                        &source_state.buffer,
+                        top_byte,
+                        end_byte,
+                        theme,
+                        1024, // highlight_context_bytes
+                    );
+
+                    // Create a temporary viewport for building view data
+                    let pane_width = pane_widths.get(pane_idx).copied().unwrap_or(80);
+                    let mut viewport =
+                        crate::view::viewport::Viewport::new(pane_width, content_height);
+                    viewport.top_byte = top_byte;
+                    viewport.line_wrap_enabled = false;
+
+                    let pane_width = pane_widths.get(pane_idx).copied().unwrap_or(80) as usize;
+                    let gutter_width = 4; // Line number width
+                    let content_width = pane_width.saturating_sub(gutter_width);
+
+                    // Build ViewData for this pane
+                    let view_data = Self::build_view_data(
+                        source_state,
+                        &viewport,
+                        None,              // No view transform
+                        80,                // estimated_line_length
+                        visible_rows + 10, // visible_count (add buffer)
+                        false,             // line_wrap_enabled
+                        content_width,
+                        gutter_width,
+                    );
+
+                    // Build source_line -> ViewLine index mapping
+                    let mut line_to_view_line: HashMap<usize, usize> = HashMap::new();
+                    let mut current_line = first_line;
+                    for (idx, view_line) in view_data.lines.iter().enumerate() {
+                        if should_show_line_number(view_line) {
+                            line_to_view_line.insert(current_line, idx);
+                            current_line += 1;
+                        }
+                    }
+
+                    pane_render_data.push(Some(PaneRenderData {
+                        lines: view_data.lines,
+                        line_to_view_line,
+                        highlight_spans,
+                    }));
+                } else {
+                    pane_render_data.push(None);
+                }
+            } else {
+                pane_render_data.push(None);
+            }
+        }
+
+        // Now render aligned rows using ViewLines
+        for view_row in 0..visible_rows {
+            let display_row = scroll_row + view_row;
+            if display_row >= total_rows {
+                // Fill with tildes for empty rows
+                let mut x = area.x;
+                for &width in &pane_widths {
+                    let tilde_area = Rect::new(x, content_y + view_row as u16, width, 1);
+                    let tilde =
+                        Paragraph::new("~").style(Style::default().fg(theme.line_number_fg));
+                    frame.render_widget(tilde, tilde_area);
+                    x += width + separator_width;
+                }
+                continue;
+            }
+
+            let aligned_row = &alignment.rows[display_row];
+            let is_cursor_row = display_row == cursor_row;
+            let is_selected = view_state.is_row_selected(display_row);
+
+            // Determine row background based on type and selection
+            let row_bg = if is_selected {
+                // Selection background takes precedence
+                Some(theme.selection_bg)
+            } else {
+                match aligned_row.row_type {
+                    RowType::Addition => Some(theme.diff_add_bg),
+                    RowType::Deletion => Some(theme.diff_remove_bg),
+                    RowType::Modification => Some(theme.diff_modify_bg),
+                    RowType::HunkHeader => Some(theme.current_line_bg),
+                    RowType::Context => None,
+                }
+            };
+
+            // Compute inline diff for modified rows (to highlight changed words/characters)
+            let inline_diffs: Vec<Vec<Range<usize>>> = if aligned_row.row_type
+                == RowType::Modification
+            {
+                // Get line content from both panes
+                let mut line_contents: Vec<Option<String>> = Vec::new();
+                for (pane_idx, source) in composite.sources.iter().enumerate() {
+                    if let Some(line_ref) = aligned_row.get_pane_line(pane_idx) {
+                        if let Some(source_state) = buffers.get(&source.buffer_id) {
+                            line_contents.push(
+                                source_state
+                                    .buffer
+                                    .get_line(line_ref.line)
+                                    .map(|line| String::from_utf8_lossy(&line).to_string()),
+                            );
+                        } else {
+                            line_contents.push(None);
+                        }
+                    } else {
+                        line_contents.push(None);
+                    }
+                }
+
+                // Compute inline diff between panes (typically old vs new)
+                if line_contents.len() >= 2 {
+                    if let (Some(old_text), Some(new_text)) = (&line_contents[0], &line_contents[1])
+                    {
+                        let (old_ranges, new_ranges) = compute_inline_diff(old_text, new_text);
+                        vec![old_ranges, new_ranges]
+                    } else {
+                        vec![Vec::new(); composite.sources.len()]
+                    }
+                } else {
+                    vec![Vec::new(); composite.sources.len()]
+                }
+            } else {
+                // For non-modification rows, no inline highlighting
+                vec![Vec::new(); composite.sources.len()]
+            };
+
+            // Render each pane for this row
+            let mut x_offset = area.x;
+            for (pane_idx, (_source, &width)) in
+                composite.sources.iter().zip(&pane_widths).enumerate()
+            {
+                let pane_area = Rect::new(x_offset, content_y + view_row as u16, width, 1);
+
+                // Get horizontal scroll offset for this pane
+                let left_column = view_state
+                    .get_pane_viewport(pane_idx)
+                    .map(|v| v.left_column)
+                    .unwrap_or(0);
+
+                // Get source line for this pane
+                let source_line_opt = aligned_row.get_pane_line(pane_idx);
+
+                if let Some(source_line_ref) = source_line_opt {
+                    // Try to get ViewLine and highlight spans from pre-built data
+                    let pane_data = pane_render_data.get(pane_idx).and_then(|opt| opt.as_ref());
+                    let view_line_opt = pane_data.and_then(|data| {
+                        data.line_to_view_line
+                            .get(&source_line_ref.line)
+                            .and_then(|&idx| data.lines.get(idx))
+                    });
+                    let highlight_spans = pane_data
+                        .map(|data| data.highlight_spans.as_slice())
+                        .unwrap_or(&[]);
+
+                    let gutter_width = 4usize;
+                    let max_content_width = width.saturating_sub(gutter_width as u16) as usize;
+
+                    // Determine background
+                    let bg = if is_cursor_row {
+                        theme.current_line_bg
+                    } else {
+                        row_bg.unwrap_or(theme.editor_bg)
+                    };
+
+                    // Line number
+                    let line_num = format!("{:>3} ", source_line_ref.line + 1);
+                    let line_num_style = Style::default().fg(theme.line_number_fg).bg(bg);
+
+                    let is_cursor_pane = pane_idx == view_state.focused_pane;
+                    let cursor_column = view_state.cursor_column;
+
+                    // Get inline diff ranges for this pane
+                    let inline_ranges = inline_diffs.get(pane_idx).cloned().unwrap_or_default();
+
+                    // Determine highlight color for changed portions (brighter than line bg)
+                    let highlight_bg = match aligned_row.row_type {
+                        RowType::Deletion => Some(theme.diff_remove_highlight_bg),
+                        RowType::Addition => Some(theme.diff_add_highlight_bg),
+                        RowType::Modification => {
+                            if pane_idx == 0 {
+                                Some(theme.diff_remove_highlight_bg)
+                            } else {
+                                Some(theme.diff_add_highlight_bg)
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    // Build spans using ViewLine if available (for syntax highlighting)
+                    let mut spans = vec![Span::styled(line_num, line_num_style)];
+
+                    if let Some(view_line) = view_line_opt {
+                        // Use ViewLine for syntax-highlighted content
+                        Self::render_view_line_content(
+                            &mut spans,
+                            view_line,
+                            highlight_spans,
+                            left_column,
+                            max_content_width,
+                            bg,
+                            theme,
+                            is_cursor_row && is_cursor_pane,
+                            cursor_column,
+                            &inline_ranges,
+                            highlight_bg,
+                        );
+                    } else {
+                        // This branch should be unreachable:
+                        // - visible_lines is collected from the same range we iterate over
+                        // - If source_line_ref exists, that line was in visible_lines
+                        // - So pane_render_data exists and the line should be in the mapping
+                        // - With line_wrap disabled, each source line = one ViewLine
+                        tracing::warn!(
+                            "ViewLine missing for composite buffer: pane={}, line={}, pane_data={}",
+                            pane_idx,
+                            source_line_ref.line,
+                            pane_data.is_some()
+                        );
+                        // Graceful degradation: render empty content with background
+                        let base_style = Style::default().fg(theme.editor_fg).bg(bg);
+                        let padding = " ".repeat(max_content_width);
+                        spans.push(Span::styled(padding, base_style));
+                    }
+
+                    let line = Line::from(spans);
+                    let para = Paragraph::new(line);
+                    frame.render_widget(para, pane_area);
+                } else {
+                    // No content for this pane (padding/gap line)
+                    let bg = if is_cursor_row {
+                        theme.current_line_bg
+                    } else {
+                        row_bg.unwrap_or(theme.editor_bg)
+                    };
+                    let style = Style::default().fg(theme.line_number_fg).bg(bg);
+
+                    // Check if cursor should be shown on this empty line
+                    let is_cursor_pane = pane_idx == view_state.focused_pane;
+                    if is_cursor_row && is_cursor_pane && view_state.cursor_column == 0 {
+                        // Show cursor on empty line
+                        let cursor_style = Style::default().fg(theme.editor_bg).bg(theme.editor_fg);
+                        let gutter_width = 4usize;
+                        let max_content_width = width.saturating_sub(gutter_width as u16) as usize;
+                        let padding = " ".repeat(max_content_width.saturating_sub(1));
+                        let line = Line::from(vec![
+                            Span::styled("    ", style),
+                            Span::styled(" ", cursor_style),
+                            Span::styled(padding, Style::default().bg(bg)),
+                        ]);
+                        let para = Paragraph::new(line);
+                        frame.render_widget(para, pane_area);
+                    } else {
+                        // Empty gap line with diff background
+                        let gap_style = Style::default().bg(bg);
+                        let empty_content = " ".repeat(width as usize);
+                        let para = Paragraph::new(empty_content).style(gap_style);
+                        frame.render_widget(para, pane_area);
+                    }
+                }
+
+                x_offset += width;
+
+                // Render separator
+                if show_separator && pane_idx < pane_count - 1 {
+                    let sep_area =
+                        Rect::new(x_offset, content_y + view_row as u16, separator_width, 1);
+                    let sep =
+                        Paragraph::new("│").style(Style::default().fg(theme.split_separator_fg));
+                    frame.render_widget(sep, sep_area);
+                    x_offset += separator_width;
+                }
+            }
+        }
+    }
+
+    /// Render ViewLine content with syntax highlighting to spans
+    fn render_view_line_content(
+        spans: &mut Vec<Span<'static>>,
+        view_line: &ViewLine,
+        highlight_spans: &[crate::primitives::highlighter::HighlightSpan],
+        left_column: usize,
+        max_width: usize,
+        bg: Color,
+        theme: &crate::view::theme::Theme,
+        show_cursor: bool,
+        cursor_column: usize,
+        inline_ranges: &[Range<usize>],
+        highlight_bg: Option<Color>,
+    ) {
+        let text = &view_line.text;
+        let char_source_bytes = &view_line.char_source_bytes;
+
+        // Apply horizontal scroll and collect visible characters with styles
+        let chars: Vec<char> = text.chars().collect();
+        let mut col = 0usize;
+        let mut rendered = 0usize;
+        let mut current_span_text = String::new();
+        let mut current_style: Option<Style> = None;
+
+        for (char_idx, ch) in chars.iter().enumerate() {
+            let char_width = char_width(*ch);
+
+            // Skip characters before left_column
+            if col < left_column {
+                col += char_width;
+                continue;
+            }
+
+            // Stop if we've rendered enough
+            if rendered >= max_width {
+                break;
+            }
+
+            // Get source byte position for this character
+            let byte_pos = char_source_bytes.get(char_idx).and_then(|b| *b);
+
+            // Get syntax highlight color from highlight_spans
+            let highlight_color = byte_pos.and_then(|bp| {
+                highlight_spans
+                    .iter()
+                    .find(|span| span.range.contains(&bp))
+                    .map(|span| span.color)
+            });
+
+            // Check if this character is in an inline diff range
+            let in_inline_range = inline_ranges.iter().any(|r| r.contains(&char_idx));
+
+            // Determine background: use highlight_bg for inline diff ranges
+            let char_bg = if in_inline_range {
+                highlight_bg.unwrap_or(bg)
+            } else {
+                bg
+            };
+
+            // Build character style
+            let char_style = if let Some(color) = highlight_color {
+                Style::default().fg(color).bg(char_bg)
+            } else {
+                Style::default().fg(theme.editor_fg).bg(char_bg)
+            };
+
+            // Handle cursor
+            let final_style = if show_cursor && (col - left_column) == cursor_column {
+                // Invert colors for cursor
+                Style::default().fg(theme.editor_bg).bg(theme.editor_fg)
+            } else {
+                char_style
+            };
+
+            // Accumulate or flush spans based on style changes
+            if current_style.is_some() && current_style != Some(final_style) {
+                if !current_span_text.is_empty() {
+                    spans.push(Span::styled(
+                        std::mem::take(&mut current_span_text),
+                        current_style.unwrap(),
+                    ));
+                }
+            }
+
+            current_style = Some(final_style);
+            current_span_text.push(*ch);
+            col += char_width;
+            rendered += char_width;
+        }
+
+        // Flush remaining span
+        if !current_span_text.is_empty() {
+            if let Some(style) = current_style {
+                spans.push(Span::styled(current_span_text, style));
+            }
+        }
+
+        // Pad to fill width
+        if rendered < max_width {
+            let padding = " ".repeat(max_width - rendered);
+            let pad_style = if show_cursor && rendered <= cursor_column && cursor_column < max_width
+            {
+                // Cursor is in padding area
+                let cursor_pos = cursor_column - rendered;
+                if cursor_pos == 0 {
+                    Style::default().fg(theme.editor_bg).bg(theme.editor_fg)
+                } else {
+                    Style::default().bg(bg)
+                }
+            } else {
+                Style::default().bg(bg)
+            };
+            spans.push(Span::styled(padding, pad_style));
+        }
+    }
+
+    /// Render a scrollbar for composite buffer views
+    fn render_composite_scrollbar(
+        frame: &mut Frame,
+        scrollbar_rect: Rect,
+        total_rows: usize,
+        scroll_row: usize,
+        viewport_height: usize,
+        is_active: bool,
+    ) {
+        let height = scrollbar_rect.height as usize;
+        if height == 0 || total_rows == 0 {
+            return;
+        }
+
+        // Calculate thumb size based on viewport ratio to total document
+        let thumb_size_raw = if total_rows > 0 {
+            ((viewport_height as f64 / total_rows as f64) * height as f64).ceil() as usize
+        } else {
+            1
+        };
+
+        // Maximum scroll position
+        let max_scroll = total_rows.saturating_sub(viewport_height);
+
+        // When content fits in viewport, fill entire scrollbar
+        let thumb_size = if max_scroll == 0 {
+            height
+        } else {
+            // Cap thumb size: minimum 1, maximum 80% of scrollbar height
+            let max_thumb_size = (height as f64 * 0.8).floor() as usize;
+            thumb_size_raw.max(1).min(max_thumb_size).min(height)
+        };
+
+        // Calculate thumb position
+        let thumb_start = if max_scroll > 0 {
+            let scroll_ratio = scroll_row.min(max_scroll) as f64 / max_scroll as f64;
+            let max_thumb_start = height.saturating_sub(thumb_size);
+            (scroll_ratio * max_thumb_start as f64) as usize
+        } else {
+            0
+        };
+
+        let thumb_end = thumb_start + thumb_size;
+
+        // Choose colors based on whether split is active
+        let track_color = if is_active {
+            Color::DarkGray
+        } else {
+            Color::Black
+        };
+        let thumb_color = if is_active {
+            Color::Gray
+        } else {
+            Color::DarkGray
+        };
+
+        // Render as background fills
+        for row in 0..height {
+            let cell_area = Rect::new(scrollbar_rect.x, scrollbar_rect.y + row as u16, 1, 1);
+
+            let style = if row >= thumb_start && row < thumb_end {
+                Style::default().bg(thumb_color)
+            } else {
+                Style::default().bg(track_color)
+            };
+
+            let paragraph = Paragraph::new(" ").style(style);
+            frame.render_widget(paragraph, cell_area);
         }
     }
 

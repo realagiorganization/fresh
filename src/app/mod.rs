@@ -3,6 +3,7 @@ mod buffer_management;
 mod calibration_actions;
 pub mod calibration_wizard;
 mod clipboard;
+mod composite_buffer_actions;
 mod file_explorer;
 pub mod file_open;
 mod file_open_input;
@@ -537,6 +538,15 @@ pub struct Editor {
     /// Stores (popup_id, Vec<(action_id, action_label)>)
     active_action_popup: Option<(String, Vec<(String, String)>)>,
 
+    /// Composite buffers (separate from regular buffers)
+    /// These display multiple source buffers in a single tab
+    composite_buffers: HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
+
+    /// View state for composite buffers (per split)
+    /// Maps (split_id, buffer_id) to composite view state
+    composite_view_states:
+        HashMap<(SplitId, BufferId), crate::view::composite_view::CompositeViewState>,
+
     /// Stdin streaming state (if reading from stdin)
     stdin_streaming: Option<StdinStreamingState>,
 }
@@ -976,6 +986,8 @@ impl Editor {
             stdin_streaming: None,
             review_hunks: Vec::new(),
             active_action_popup: None,
+            composite_buffers: HashMap::new(),
+            composite_view_states: HashMap::new(),
         })
     }
 
@@ -1567,6 +1579,11 @@ impl Editor {
 
     /// Get the display name for a buffer (filename or virtual buffer name)
     pub fn get_buffer_display_name(&self, buffer_id: BufferId) -> String {
+        // Check composite buffers first
+        if let Some(composite) = self.composite_buffers.get(&buffer_id) {
+            return composite.name.clone();
+        }
+
         self.buffer_metadata
             .get(&buffer_id)
             .map(|m| m.display_name.clone())
@@ -3753,6 +3770,7 @@ impl Editor {
                 show_line_numbers,
                 show_cursors,
                 editing_disabled,
+                hidden_from_tabs,
                 request_id,
             } => {
                 let buffer_id = self.create_virtual_buffer(name.clone(), mode.clone(), read_only);
@@ -3775,6 +3793,13 @@ impl Editor {
                         show_cursors,
                         editing_disabled
                     );
+                }
+
+                // Apply hidden_from_tabs to buffer metadata
+                if hidden_from_tabs {
+                    if let Some(meta) = self.buffer_metadata.get_mut(&buffer_id) {
+                        meta.hidden_from_tabs = true;
+                    }
                 }
 
                 // Now set the content
@@ -4218,6 +4243,24 @@ impl Editor {
                 } else {
                     tracing::warn!("Scroll sync group {} not found", group_id);
                 }
+            }
+
+            // ==================== Composite Buffer Commands ====================
+            PluginCommand::CreateCompositeBuffer {
+                name,
+                mode,
+                layout,
+                sources,
+                hunks,
+                request_id,
+            } => {
+                self.handle_create_composite_buffer(name, mode, layout, sources, hunks, request_id);
+            }
+            PluginCommand::UpdateCompositeAlignment { buffer_id, hunks } => {
+                self.handle_update_composite_alignment(buffer_id, hunks);
+            }
+            PluginCommand::CloseCompositeBuffer { buffer_id } => {
+                self.close_composite_buffer(buffer_id);
             }
         }
         Ok(())

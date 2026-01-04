@@ -453,6 +453,10 @@ fn respond_to_pending(
             request_id, ..
         } => *request_id,
         crate::services::plugins::api::PluginResponse::BufferText { request_id, .. } => *request_id,
+        crate::services::plugins::api::PluginResponse::CompositeBufferCreated {
+            request_id,
+            ..
+        } => *request_id,
     };
 
     let sender = {

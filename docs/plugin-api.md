@@ -356,6 +356,7 @@ interface CreateVirtualBufferInCurrentSplitOptions {
   show_line_numbers?: boolean | null;
   show_cursors?: boolean | null;
   editing_disabled?: boolean | null;
+  hidden_from_tabs?: boolean | null;
 }
 ```
 
@@ -368,6 +369,109 @@ interface CreateVirtualBufferInCurrentSplitOptions {
 | `show_line_numbers` | Whether to show line numbers in the buffer (default false for help/docs) |
 | `show_cursors` | Whether to show cursors in the buffer (default true) |
 | `editing_disabled` | Whether editing is disabled for this buffer (default false) |
+| `hidden_from_tabs` | Whether this buffer should be hidden from tabs (for composite source buffers) |
+
+### TsCompositeLayoutConfig
+
+Layout configuration for composite buffers
+
+```typescript
+interface TsCompositeLayoutConfig {
+  layout_type: string;
+  ratios?: number[] | null;
+  show_separator?: boolean | null;
+  spacing?: u16 | null;
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `layout_type` | Layout type: "side-by-side", "stacked", or "unified" |
+| `ratios` | Relative widths for side-by-side layout (e.g., [0.5, 0.5]) |
+| `show_separator` | Show separator between panes |
+| `spacing` | Spacing between stacked panes |
+
+### TsCompositePaneStyle
+
+Pane style configuration
+
+```typescript
+interface TsCompositePaneStyle {
+  add_bg?: [number, number, number] | null;
+  remove_bg?: [number, number, number] | null;
+  modify_bg?: [number, number, number] | null;
+  gutter_style?: string | null;
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `add_bg` | Background color for added lines (RGB tuple) |
+| `remove_bg` | Background color for removed lines (RGB tuple) |
+| `modify_bg` | Background color for modified lines (RGB tuple) |
+| `gutter_style` | Gutter style: "line-numbers", "diff-markers", "both", "none" |
+
+### TsCompositeSourceConfig
+
+Source pane configuration for composite buffers
+
+```typescript
+interface TsCompositeSourceConfig {
+  buffer_id: number;
+  label?: string | null;
+  editable: boolean;
+  style?: TsCompositePaneStyle | null;
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `buffer_id` | Buffer ID to display in this pane |
+| `label` | Label for the pane (shown in header) |
+| `editable` | Whether the pane is editable |
+| `style` | Pane styling options |
+
+### TsCompositeHunk
+
+Diff hunk configuration
+
+```typescript
+interface TsCompositeHunk {
+  old_start: number;
+  old_count: number;
+  new_start: number;
+  new_count: number;
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `old_start` | Start line in old file (0-indexed) |
+| `old_count` | Number of lines in old file |
+| `new_start` | Start line in new file (0-indexed) |
+| `new_count` | Number of lines in new file |
+
+### CreateCompositeBufferOptions
+
+Options for creating a composite buffer
+
+```typescript
+interface CreateCompositeBufferOptions {
+  name: string;
+  mode: string;
+  layout: TsCompositeLayoutConfig;
+  sources: TsCompositeSourceConfig[];
+  hunks?: TsCompositeHunk[] | null;
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `name` | Display name for the composite buffer (shown in tab) |
+| `mode` | Mode for keybindings (e.g., "diff-view") |
+| `layout` | Layout configuration |
+| `sources` | Source panes to display |
+| `hunks` | Optional diff hunks for line alignment |
 
 ### ActionSpecJs
 
@@ -1207,6 +1311,52 @@ startPromptWithInitial(label: string, prompt_type: string, initial_value: string
 | `label` | `string` | Label to display (e.g., "Git grep: ") |
 | `prompt_type` | `string` | Type identifier (e.g., "git-grep") |
 | `initial_value` | `string` | Initial text to pre-fill in the prompt |
+
+#### `createCompositeBuffer`
+
+Create a composite buffer that displays multiple source buffers
+Composite buffers allow displaying multiple underlying buffers in a single
+tab/view area with custom layouts (side-by-side, stacked, unified).
+This is useful for diff views, merge conflict resolution, etc.
+
+```typescript
+createCompositeBuffer(options: CreateCompositeBufferOptions): Promise<number>
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `options` | `CreateCompositeBufferOptions` | Configuration for the composite buffer |
+
+#### `updateCompositeAlignment`
+
+Update line alignment for a composite buffer
+
+```typescript
+updateCompositeAlignment(buffer_id: number, hunks: TsCompositeHunk[]): boolean
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `buffer_id` | `number` | The composite buffer ID |
+| `hunks` | `TsCompositeHunk[]` | New diff hunks for alignment |
+
+#### `closeCompositeBuffer`
+
+Close a composite buffer
+
+```typescript
+closeCompositeBuffer(buffer_id: number): boolean
+```
+
+**Parameters:**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `buffer_id` | `number` | The composite buffer ID to close |
 
 #### `sendLspRequest`
 

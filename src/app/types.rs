@@ -108,6 +108,9 @@ pub struct BufferMetadata {
     /// When a server restarts, it gets a new ID, so didOpen is automatically resent.
     /// Old IDs are harmless - they just remain in the set but don't match any active server.
     pub lsp_opened_with: HashSet<u64>,
+
+    /// Whether this buffer should be hidden from tabs (used for composite source buffers)
+    pub hidden_from_tabs: bool,
 }
 
 impl BufferMetadata {
@@ -155,6 +158,7 @@ impl BufferMetadata {
             read_only: false,
             binary: false,
             lsp_opened_with: HashSet::new(),
+            hidden_from_tabs: false,
         }
     }
 
@@ -172,6 +176,7 @@ impl BufferMetadata {
             read_only: false,
             binary: false,
             lsp_opened_with: HashSet::new(),
+            hidden_from_tabs: false,
         }
     }
 
@@ -201,6 +206,7 @@ impl BufferMetadata {
             read_only: false,
             binary: false,
             lsp_opened_with: HashSet::new(),
+            hidden_from_tabs: false,
         }
     }
 
@@ -249,6 +255,22 @@ impl BufferMetadata {
             read_only,
             binary: false,
             lsp_opened_with: HashSet::new(),
+            hidden_from_tabs: false,
+        }
+    }
+
+    /// Create metadata for a hidden virtual buffer (for composite source buffers)
+    /// These buffers are not shown in tabs and are managed by their parent composite buffer.
+    pub fn hidden_virtual_buffer(name: String, mode: String, read_only: bool) -> Self {
+        Self {
+            kind: BufferKind::Virtual { mode },
+            display_name: name,
+            lsp_enabled: false,
+            lsp_disabled_reason: Some(t!("lsp.disabled.virtual").to_string()),
+            read_only,
+            binary: false,
+            lsp_opened_with: HashSet::new(),
+            hidden_from_tabs: true,
         }
     }
 

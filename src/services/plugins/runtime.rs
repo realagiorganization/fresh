@@ -2684,6 +2684,8 @@ struct CreateVirtualBufferInCurrentSplitOptions {
     show_cursors: Option<bool>,
     /// Whether editing is disabled for this buffer (default false)
     editing_disabled: Option<bool>,
+    /// Whether this buffer should be hidden from tabs (for composite source buffers)
+    hidden_from_tabs: Option<bool>,
 }
 
 /// Create a virtual buffer in the current split as a new tab
@@ -2742,6 +2744,7 @@ async fn op_fresh_create_virtual_buffer(
                 show_line_numbers: options.show_line_numbers.unwrap_or(false),
                 show_cursors: options.show_cursors.unwrap_or(true),
                 editing_disabled: options.editing_disabled.unwrap_or(false),
+                hidden_from_tabs: options.hidden_from_tabs.unwrap_or(false),
                 request_id: Some(request_id),
             })
             .map_err(|_| JsErrorBox::generic("Failed to send command"))?;
@@ -2762,6 +2765,234 @@ async fn op_fresh_create_virtual_buffer(
         _ => Err(JsErrorBox::generic(
             "Unexpected plugin response for virtual buffer creation",
         )),
+    }
+}
+
+// =============================================================================
+// Composite Buffer Operations
+// =============================================================================
+
+/// Layout configuration for composite buffers
+#[derive(serde::Deserialize)]
+struct TsCompositeLayoutConfig {
+    /// Layout type: "side-by-side", "stacked", or "unified"
+    layout_type: String,
+    /// Relative widths for side-by-side layout (e.g., [0.5, 0.5])
+    ratios: Option<Vec<f32>>,
+    /// Show separator between panes
+    show_separator: Option<bool>,
+    /// Spacing between stacked panes
+    spacing: Option<u16>,
+}
+
+/// Pane style configuration
+#[derive(serde::Deserialize)]
+struct TsCompositePaneStyle {
+    /// Background color for added lines (RGB tuple)
+    add_bg: Option<(u8, u8, u8)>,
+    /// Background color for removed lines (RGB tuple)
+    remove_bg: Option<(u8, u8, u8)>,
+    /// Background color for modified lines (RGB tuple)
+    modify_bg: Option<(u8, u8, u8)>,
+    /// Gutter style: "line-numbers", "diff-markers", "both", "none"
+    gutter_style: Option<String>,
+}
+
+/// Source pane configuration for composite buffers
+#[derive(serde::Deserialize)]
+struct TsCompositeSourceConfig {
+    /// Buffer ID to display in this pane
+    buffer_id: u32,
+    /// Label for the pane (shown in header)
+    label: Option<String>,
+    /// Whether the pane is editable
+    editable: bool,
+    /// Pane styling options
+    style: Option<TsCompositePaneStyle>,
+}
+
+/// Diff hunk configuration
+#[derive(serde::Deserialize)]
+struct TsCompositeHunk {
+    /// Start line in old file (0-indexed)
+    old_start: usize,
+    /// Number of lines in old file
+    old_count: usize,
+    /// Start line in new file (0-indexed)
+    new_start: usize,
+    /// Number of lines in new file
+    new_count: usize,
+}
+
+/// Options for creating a composite buffer
+#[derive(serde::Deserialize)]
+struct CreateCompositeBufferOptions {
+    /// Display name for the composite buffer (shown in tab)
+    name: String,
+    /// Mode for keybindings (e.g., "diff-view")
+    mode: String,
+    /// Layout configuration
+    layout: TsCompositeLayoutConfig,
+    /// Source panes to display
+    sources: Vec<TsCompositeSourceConfig>,
+    /// Optional diff hunks for line alignment
+    hunks: Option<Vec<TsCompositeHunk>>,
+}
+
+/// Create a composite buffer that displays multiple source buffers
+///
+/// Composite buffers allow displaying multiple underlying buffers in a single
+/// tab/view area with custom layouts (side-by-side, stacked, unified).
+/// This is useful for diff views, merge conflict resolution, etc.
+/// @param options - Configuration for the composite buffer
+/// @returns Promise resolving to the buffer ID of the created composite buffer
+#[op2(async)]
+async fn op_fresh_create_composite_buffer(
+    state: Rc<RefCell<OpState>>,
+    #[serde] options: CreateCompositeBufferOptions,
+) -> Result<u32, JsErrorBox> {
+    let receiver = {
+        let state = state.borrow();
+        let runtime_state = state
+            .try_borrow::<Rc<RefCell<TsRuntimeState>>>()
+            .ok_or_else(|| JsErrorBox::generic("Failed to get runtime state"))?;
+        let runtime_state = runtime_state.borrow();
+
+        // Allocate request ID
+        let request_id = {
+            let mut id = runtime_state.next_request_id.borrow_mut();
+            let current = *id;
+            *id += 1;
+            current
+        };
+
+        // Create oneshot channel for response
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        // Store the sender
+        {
+            let mut pending = runtime_state.pending_responses.lock().unwrap();
+            pending.insert(request_id, tx);
+        }
+
+        // Convert TypeScript config to plugin API config
+        let layout_config = crate::services::plugins::api::CompositeLayoutConfig {
+            layout_type: options.layout.layout_type,
+            ratios: options.layout.ratios,
+            show_separator: options.layout.show_separator.unwrap_or(true),
+            spacing: options.layout.spacing,
+        };
+
+        let source_configs: Vec<crate::services::plugins::api::CompositeSourceConfig> = options
+            .sources
+            .into_iter()
+            .map(|src| crate::services::plugins::api::CompositeSourceConfig {
+                buffer_id: src.buffer_id as usize,
+                label: src.label.unwrap_or_default(),
+                editable: src.editable,
+                style: src
+                    .style
+                    .map(|s| crate::services::plugins::api::CompositePaneStyle {
+                        add_bg: s.add_bg,
+                        remove_bg: s.remove_bg,
+                        modify_bg: s.modify_bg,
+                        gutter_style: s.gutter_style,
+                    }),
+            })
+            .collect();
+
+        let hunks: Option<Vec<crate::services::plugins::api::CompositeHunk>> =
+            options.hunks.map(|h| {
+                h.into_iter()
+                    .map(|hunk| crate::services::plugins::api::CompositeHunk {
+                        old_start: hunk.old_start,
+                        old_count: hunk.old_count,
+                        new_start: hunk.new_start,
+                        new_count: hunk.new_count,
+                    })
+                    .collect()
+            });
+
+        // Send command
+        runtime_state
+            .command_sender
+            .send(PluginCommand::CreateCompositeBuffer {
+                name: options.name,
+                mode: options.mode,
+                layout: layout_config,
+                sources: source_configs,
+                hunks,
+                request_id: Some(request_id),
+            })
+            .map_err(|_| JsErrorBox::generic("Failed to send command"))?;
+
+        rx
+    };
+
+    // Wait for response
+    let response = receiver
+        .await
+        .map_err(|_| JsErrorBox::generic("Response channel closed"))?;
+
+    // Extract buffer ID from response
+    match response {
+        crate::services::plugins::api::PluginResponse::CompositeBufferCreated {
+            buffer_id, ..
+        } => Ok(buffer_id.0 as u32),
+        _ => Err(JsErrorBox::generic(
+            "Unexpected plugin response for composite buffer creation",
+        )),
+    }
+}
+
+/// Update line alignment for a composite buffer
+/// @param buffer_id - The composite buffer ID
+/// @param hunks - New diff hunks for alignment
+#[op2]
+fn op_fresh_update_composite_alignment(
+    state: &mut OpState,
+    buffer_id: u32,
+    #[serde] hunks: Vec<TsCompositeHunk>,
+) -> bool {
+    if let Some(runtime_state) = state.try_borrow::<Rc<RefCell<TsRuntimeState>>>() {
+        let runtime_state = runtime_state.borrow();
+
+        let hunk_configs: Vec<crate::services::plugins::api::CompositeHunk> = hunks
+            .into_iter()
+            .map(|h| crate::services::plugins::api::CompositeHunk {
+                old_start: h.old_start,
+                old_count: h.old_count,
+                new_start: h.new_start,
+                new_count: h.new_count,
+            })
+            .collect();
+
+        let _ = runtime_state
+            .command_sender
+            .send(PluginCommand::UpdateCompositeAlignment {
+                buffer_id: crate::model::event::BufferId(buffer_id as usize),
+                hunks: hunk_configs,
+            });
+        true
+    } else {
+        false
+    }
+}
+
+/// Close a composite buffer
+/// @param buffer_id - The composite buffer ID to close
+#[op2(fast)]
+fn op_fresh_close_composite_buffer(state: &mut OpState, buffer_id: u32) -> bool {
+    if let Some(runtime_state) = state.try_borrow::<Rc<RefCell<TsRuntimeState>>>() {
+        let runtime_state = runtime_state.borrow();
+        let _ = runtime_state
+            .command_sender
+            .send(PluginCommand::CloseCompositeBuffer {
+                buffer_id: crate::model::event::BufferId(buffer_id as usize),
+            });
+        true
+    } else {
+        false
     }
 }
 
@@ -3478,6 +3709,10 @@ extension!(
         op_fresh_create_virtual_buffer_in_split,
         op_fresh_create_virtual_buffer_in_existing_split,
         op_fresh_create_virtual_buffer,
+        // Composite buffer operations
+        op_fresh_create_composite_buffer,
+        op_fresh_update_composite_alignment,
+        op_fresh_close_composite_buffer,
         op_fresh_send_lsp_request,
         op_fresh_define_mode,
         op_fresh_show_buffer,
@@ -3867,6 +4102,18 @@ impl TypeScriptRuntime {
                     createVirtualBuffer(options) {
                         return core.ops.op_fresh_create_virtual_buffer(options);
                     },
+
+                    // Composite buffer operations
+                    createCompositeBuffer(options) {
+                        return core.ops.op_fresh_create_composite_buffer(options);
+                    },
+                    updateCompositeAlignment(bufferId, hunks) {
+                        return core.ops.op_fresh_update_composite_alignment(bufferId, hunks);
+                    },
+                    closeCompositeBuffer(bufferId) {
+                        return core.ops.op_fresh_close_composite_buffer(bufferId);
+                    },
+
                     defineMode(name, parent, bindings, readOnly = false) {
                         const parentStr = parent != null ? parent : "";
                         return core.ops.op_fresh_define_mode(name, parentStr, bindings, readOnly);
@@ -4055,6 +4302,10 @@ impl TypeScriptRuntime {
             crate::services::plugins::api::PluginResponse::BufferText { request_id, .. } => {
                 *request_id
             }
+            crate::services::plugins::api::PluginResponse::CompositeBufferCreated {
+                request_id,
+                ..
+            } => *request_id,
         };
 
         let sender = {

@@ -296,6 +296,70 @@ interface CreateVirtualBufferInCurrentSplitOptions {
   show_cursors?: boolean | null;
   /** Whether editing is disabled for this buffer (default false) */
   editing_disabled?: boolean | null;
+  /** Whether this buffer should be hidden from tabs (for composite source buffers) */
+  hidden_from_tabs?: boolean | null;
+}
+
+/** Layout configuration for composite buffers */
+interface TsCompositeLayoutConfig {
+  /** Layout type: "side-by-side", "stacked", or "unified" */
+  layout_type: string;
+  /** Relative widths for side-by-side layout (e.g., [0.5, 0.5]) */
+  ratios?: number[] | null;
+  /** Show separator between panes */
+  show_separator?: boolean | null;
+  /** Spacing between stacked panes */
+  spacing?: u16 | null;
+}
+
+/** Pane style configuration */
+interface TsCompositePaneStyle {
+  /** Background color for added lines (RGB tuple) */
+  add_bg?: [number, number, number] | null;
+  /** Background color for removed lines (RGB tuple) */
+  remove_bg?: [number, number, number] | null;
+  /** Background color for modified lines (RGB tuple) */
+  modify_bg?: [number, number, number] | null;
+  /** Gutter style: "line-numbers", "diff-markers", "both", "none" */
+  gutter_style?: string | null;
+}
+
+/** Source pane configuration for composite buffers */
+interface TsCompositeSourceConfig {
+  /** Buffer ID to display in this pane */
+  buffer_id: number;
+  /** Label for the pane (shown in header) */
+  label?: string | null;
+  /** Whether the pane is editable */
+  editable: boolean;
+  /** Pane styling options */
+  style?: TsCompositePaneStyle | null;
+}
+
+/** Diff hunk configuration */
+interface TsCompositeHunk {
+  /** Start line in old file (0-indexed) */
+  old_start: number;
+  /** Number of lines in old file */
+  old_count: number;
+  /** Start line in new file (0-indexed) */
+  new_start: number;
+  /** Number of lines in new file */
+  new_count: number;
+}
+
+/** Options for creating a composite buffer */
+interface CreateCompositeBufferOptions {
+  /** Display name for the composite buffer (shown in tab) */
+  name: string;
+  /** Mode for keybindings (e.g., "diff-view") */
+  mode: string;
+  /** Layout configuration */
+  layout: TsCompositeLayoutConfig;
+  /** Source panes to display */
+  sources: TsCompositeSourceConfig[];
+  /** Optional diff hunks for line alignment */
+  hunks?: TsCompositeHunk[] | null;
 }
 
 /** JavaScript representation of ActionSpec (with optional count) */
@@ -732,6 +796,27 @@ interface EditorAPI {
    * @returns true if prompt was started successfully
    */
   startPromptWithInitial(label: string, prompt_type: string, initial_value: string): boolean;
+  /**
+   * Create a composite buffer that displays multiple source buffers
+   *
+   * Composite buffers allow displaying multiple underlying buffers in a single
+   * tab/view area with custom layouts (side-by-side, stacked, unified).
+   * This is useful for diff views, merge conflict resolution, etc.
+   * @param options - Configuration for the composite buffer
+   * @returns Promise resolving to the buffer ID of the created composite buffer
+   */
+  createCompositeBuffer(options: CreateCompositeBufferOptions): Promise<number>;
+  /**
+   * Update line alignment for a composite buffer
+   * @param buffer_id - The composite buffer ID
+   * @param hunks - New diff hunks for alignment
+   */
+  updateCompositeAlignment(buffer_id: number, hunks: TsCompositeHunk[]): boolean;
+  /**
+   * Close a composite buffer
+   * @param buffer_id - The composite buffer ID to close
+   */
+  closeCompositeBuffer(buffer_id: number): boolean;
   /**
    * Send an arbitrary LSP request and receive the raw JSON response
    * @param language - Language ID (e.g., "cpp")
