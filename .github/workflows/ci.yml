@@ -102,4 +102,4 @@ jobs:
         if: hashFiles('Cargo.lock') == ''
         run: cargo generate-lockfile
       - name: Run tests
-        run: cargo nextest run -j=4 --no-fail-fast --locked --all-features --all-targets
+        run: cargo nextest run -j=16 --no-fail-fast --locked --all-features --all-targets
