@@ -759,6 +759,7 @@ impl SplitRenderer {
                 &split_buffers,
                 buffers,
                 buffer_metadata,
+                composite_buffers,
                 buffer_id, // The currently displayed buffer in this split
                 theme,
                 is_active,

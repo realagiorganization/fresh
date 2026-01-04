@@ -110,6 +110,7 @@ impl TabsRenderer {
         split_buffers: &[BufferId],
         buffers: &HashMap<BufferId, EditorState>,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
+        composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
         active_buffer: BufferId,
         theme: &crate::view::theme::Theme,
         is_active_split: bool,
@@ -126,9 +127,14 @@ impl TabsRenderer {
 
         // First, build all spans and calculate their display widths
         for (_idx, id) in split_buffers.iter().enumerate() {
-            let Some(state) = buffers.get(id) else {
+            // Check if this is a regular buffer or a composite buffer
+            let is_regular_buffer = buffers.contains_key(id);
+            let is_composite_buffer = composite_buffers.contains_key(id);
+
+            if !is_regular_buffer && !is_composite_buffer {
                 continue;
-            };
+            }
+
             // Skip buffers that are marked as hidden from tabs (e.g., composite source buffers)
             if let Some(meta) = buffer_metadata.get(id) {
                 if meta.hidden_from_tabs {
@@ -143,19 +149,34 @@ impl TabsRenderer {
                 .map(|mode| mode == "terminal")
                 .unwrap_or(false);
 
-            let name = if is_terminal {
+            // For composite buffers, use display_name from metadata
+            // For regular buffers, try file_path first, then display_name
+            let name = if is_composite_buffer {
+                meta.map(|m| m.display_name.as_str())
+            } else if is_terminal {
                 meta.map(|m| m.display_name.as_str())
             } else {
-                state
-                    .buffer
-                    .file_path()
+                buffers
+                    .get(id)
+                    .and_then(|state| state.buffer.file_path())
                     .and_then(|p| p.file_name())
                     .and_then(|n| n.to_str())
                     .or_else(|| meta.map(|m| m.display_name.as_str()))
             }
             .unwrap_or("[No Name]");
 
-            let modified = if state.buffer.is_modified() { "*" } else { "" };
+            // For composite buffers, never show as modified (they're read-only views)
+            let modified = if is_composite_buffer {
+                ""
+            } else if let Some(state) = buffers.get(id) {
+                if state.buffer.is_modified() {
+                    "*"
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            };
             let binary_indicator = if buffer_metadata.get(id).map(|m| m.binary).unwrap_or(false) {
                 " [BIN]"
             } else {
@@ -440,6 +461,7 @@ impl TabsRenderer {
         area: Rect,
         buffers: &HashMap<BufferId, EditorState>,
         buffer_metadata: &HashMap<BufferId, BufferMetadata>,
+        composite_buffers: &HashMap<BufferId, crate::model::composite_buffer::CompositeBuffer>,
         active_buffer: BufferId,
         theme: &crate::view::theme::Theme,
     ) {
@@ -453,6 +475,7 @@ impl TabsRenderer {
             &buffer_ids,
             buffers,
             buffer_metadata,
+            composite_buffers,
             active_buffer,
             theme,
             true, // Legacy behavior: always treat as active

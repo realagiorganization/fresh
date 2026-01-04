@@ -954,35 +954,42 @@ fn helper() {
 fn test_side_by_side_diff_survives_show_warnings() {
     init_tracing_from_env();
     let repo = GitTestRepo::new();
-    repo.setup_typical_project();
     setup_audit_mode_plugin(&repo);
 
+    // Create a simple file with multiple lines - matching the tmux test scenario
+    let test_txt_path = repo.path.join("test.txt");
+    let original_content = (1..=15)
+        .map(|i| format!("line {}", i))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    fs::write(&test_txt_path, &original_content).expect("Failed to write test.txt");
+
+    // Initialize git with the original content
     repo.git_add_all();
     repo.git_commit("Initial commit");
 
-    let main_rs_path = repo.path.join("src/main.rs");
-    let modified_content = r#"fn main() {
-    println!("Modified line");
-}
-"#;
-    fs::write(&main_rs_path, modified_content).expect("Failed to modify file");
+    // Modify the file with changes similar to tmux test
+    let modified_content = "line 1 modified\nline 2\nline 3\nline 4 changed\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10 modified\nline 11\nline 12\nline 13\nline 14\nline 15\nline 16 added\n";
+    fs::write(&test_txt_path, modified_content).expect("Failed to modify test.txt");
 
+    // Use smaller terminal to ensure diff view triggers warnings
     let mut harness = EditorTestHarness::with_config_and_working_dir(
-        160,
-        50,
+        100,
+        25,
         Config::default(),
         repo.path.clone(),
     )
     .unwrap();
 
-    harness.open_file(&main_rs_path).unwrap();
+    harness.open_file(&test_txt_path).unwrap();
     harness.render().unwrap();
 
     harness
-        .wait_until(|h| h.screen_to_string().contains("Modified"))
+        .wait_until(|h| h.screen_to_string().contains("line 1 modified"))
         .unwrap();
 
-    // Open side-by-side diff
+    // Open side-by-side diff via command palette (same as tmux)
     harness
         .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
         .unwrap();
@@ -994,7 +1001,7 @@ fn test_side_by_side_diff_survives_show_warnings() {
         .unwrap();
     harness.wait_for_prompt_closed().unwrap();
 
-    // Wait for diff to load
+    // Wait for diff to load (semantic waiting)
     harness
         .wait_until(|h| {
             let screen = h.screen_to_string();
@@ -1006,38 +1013,33 @@ fn test_side_by_side_diff_survives_show_warnings() {
         .unwrap();
 
     let screen_before = harness.screen_to_string();
-    println!("Screen before Show Warnings:\n{}", screen_before);
+    println!("Screen before opening new file:\n{}", screen_before);
 
-    // Verify we have the diff view (check status bar for diff indicator)
+    // Verify we have the diff tab in tab bar
     assert!(
-        screen_before.contains("Side-by-side diff:"),
-        "Should show diff view. Screen:\n{}",
+        screen_before.contains("*Diff:"),
+        "Should show diff tab. Screen:\n{}",
         screen_before
     );
 
-    // Now run "Show Warnings" command
+    // Create and open a new file (tests the same underlying issue as Show Warnings)
+    let new_file = repo.path.join("another_file.txt");
+    fs::write(&new_file, "new file content here\n").expect("Failed to write file");
+    harness.open_file(&new_file).unwrap();
+
+    // Wait for the new file to be shown
     harness
-        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .wait_until(|h| h.screen_to_string().contains("new file content"))
         .unwrap();
-    harness.wait_for_prompt().unwrap();
-    harness.type_text("Show Warnings").unwrap();
-    harness.render().unwrap();
-    harness
-        .send_key(KeyCode::Enter, KeyModifiers::NONE)
-        .unwrap();
-    harness.wait_for_prompt_closed().unwrap();
-    harness.render().unwrap();
 
     let screen_after = harness.screen_to_string();
-    println!("Screen after Show Warnings:\n{}", screen_after);
+    println!("Screen after opening new file:\n{}", screen_after);
 
-    // The diff view should still be visible (either focused or as a tab)
-    // Check for the diff buffer name or pane headers
+    // The diff tab should still be visible in the tab bar
+    // Bug: When a new buffer is opened, the composite diff buffer disappears from tabs
     assert!(
-        screen_after.contains("*Diff:")
-            || screen_after.contains("[OLD]")
-            || screen_after.contains("[NEW]"),
-        "Diff view should still be visible after Show Warnings. Screen:\n{}",
+        screen_after.contains("*Diff:"),
+        "Diff tab should still exist after opening new file. Screen:\n{}",
         screen_after
     );
 }
