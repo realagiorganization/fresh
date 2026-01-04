@@ -190,7 +190,10 @@ impl Editor {
     // =========================================================================
 
     /// Handle an action for a composite buffer.
-    /// Returns Some(true) if handled, Some(false) if handled but with error, None if not applicable.
+    ///
+    /// For navigation and selection actions, this forwards to the focused source buffer
+    /// and syncs scroll between panes. Returns Some(true) if handled, None to fall through
+    /// to normal buffer handling.
     pub fn handle_composite_action(
         &mut self,
         buffer_id: BufferId,
@@ -200,98 +203,20 @@ impl Editor {
 
         let split_id = self.split_manager.active_split();
 
-        // Get viewport height for page up/down (use a reasonable default)
-        let viewport_height = self
-            .split_view_states
-            .get(&split_id)
-            .map(|vs| vs.viewport.height as usize)
-            .unwrap_or(24);
+        // Get the focused source buffer for forwarding actions
+        let (focused_buffer_id, focused_pane_idx, other_buffer_id) = {
+            let composite = self.composite_buffers.get(&buffer_id)?;
+            let view_state = self.composite_view_states.get(&(split_id, buffer_id))?;
+            let focused = composite.sources.get(view_state.focused_pane)?.buffer_id;
+            let other_pane = if view_state.focused_pane == 0 { 1 } else { 0 };
+            let other = composite.sources.get(other_pane).map(|s| s.buffer_id);
+            (focused, view_state.focused_pane, other)
+        };
+        let _ = focused_pane_idx; // Used for Copy action mapping
 
+        // Actions that need special composite handling
         match action {
-            Action::MoveDown => {
-                if let (Some(composite), Some(view_state)) = (
-                    self.composite_buffers.get(&buffer_id),
-                    self.composite_view_states.get_mut(&(split_id, buffer_id)),
-                ) {
-                    let max_row = composite.row_count().saturating_sub(1);
-                    view_state.move_cursor_down(max_row, viewport_height);
-                }
-                Some(true)
-            }
-            Action::MoveUp => {
-                if let Some(view_state) = self.composite_view_states.get_mut(&(split_id, buffer_id))
-                {
-                    view_state.move_cursor_up();
-                }
-                Some(true)
-            }
-            Action::ScrollDown => {
-                self.composite_scroll(split_id, buffer_id, 1);
-                Some(true)
-            }
-            Action::ScrollUp => {
-                self.composite_scroll(split_id, buffer_id, -1);
-                Some(true)
-            }
-            Action::MovePageDown => {
-                if let (Some(composite), Some(view_state)) = (
-                    self.composite_buffers.get(&buffer_id),
-                    self.composite_view_states.get_mut(&(split_id, buffer_id)),
-                ) {
-                    let max_row = composite.row_count().saturating_sub(1);
-                    view_state.page_down(viewport_height, max_row);
-                    // Move cursor to follow scroll
-                    view_state.cursor_row = view_state.scroll_row;
-                }
-                Some(true)
-            }
-            Action::MovePageUp => {
-                if let Some(view_state) = self.composite_view_states.get_mut(&(split_id, buffer_id))
-                {
-                    view_state.page_up(viewport_height);
-                    // Move cursor to follow scroll
-                    view_state.cursor_row = view_state.scroll_row;
-                }
-                Some(true)
-            }
-            Action::MoveDocumentStart => {
-                if let Some(view_state) = self.composite_view_states.get_mut(&(split_id, buffer_id))
-                {
-                    view_state.move_cursor_to_top();
-                }
-                Some(true)
-            }
-            Action::MoveDocumentEnd => {
-                if let (Some(composite), Some(view_state)) = (
-                    self.composite_buffers.get(&buffer_id),
-                    self.composite_view_states.get_mut(&(split_id, buffer_id)),
-                ) {
-                    let max_row = composite.row_count().saturating_sub(1);
-                    view_state.move_cursor_to_bottom(max_row, viewport_height);
-                }
-                Some(true)
-            }
-            // Selection: Start visual mode
-            Action::SelectDown | Action::SelectUp => {
-                if let Some(view_state) = self.composite_view_states.get_mut(&(split_id, buffer_id))
-                {
-                    if !view_state.visual_mode {
-                        view_state.start_visual_selection();
-                    }
-                    // Move cursor to extend selection
-                    if matches!(action, Action::SelectDown) {
-                        if let Some(composite) = self.composite_buffers.get(&buffer_id) {
-                            let max_row = composite.row_count().saturating_sub(1);
-                            view_state.move_cursor_down(max_row, viewport_height);
-                        }
-                    } else {
-                        view_state.move_cursor_up();
-                    }
-                }
-                Some(true)
-            }
-
-            // Copy selected text from focused pane
+            // Copy from the focused pane (need to map aligned rows to source lines)
             Action::Copy => {
                 if let (Some(composite), Some(view_state)) = (
                     self.composite_buffers.get(&buffer_id),
@@ -336,6 +261,63 @@ impl Editor {
                         }
                     }
                 }
+                Some(true)
+            }
+
+            // Forward navigation/selection to focused source buffer
+            // The composite view handles visual scroll via CompositeViewState
+            Action::MoveDown
+            | Action::MoveUp
+            | Action::MoveLeft
+            | Action::MoveRight
+            | Action::MovePageDown
+            | Action::MovePageUp
+            | Action::MoveDocumentStart
+            | Action::MoveDocumentEnd
+            | Action::MoveLineStart
+            | Action::MoveLineEnd
+            | Action::MoveWordLeft
+            | Action::MoveWordRight
+            | Action::ScrollDown
+            | Action::ScrollUp
+            | Action::SelectDown
+            | Action::SelectUp
+            | Action::SelectLeft
+            | Action::SelectRight
+            | Action::SelectAll
+            | Action::SelectLine
+            | Action::SelectWord => {
+                // Get config values needed for action_to_events
+                let tab_size = self.config.editor.tab_size;
+                let auto_indent = self.config.editor.auto_indent;
+                let viewport_height = self
+                    .split_view_states
+                    .get(&split_id)
+                    .map(|vs| vs.viewport.height)
+                    .unwrap_or(24);
+
+                // Apply action to focused source buffer
+                if let Some(source_state) = self.buffers.get_mut(&focused_buffer_id) {
+                    let estimated_line_length = 80; // Default estimate
+                    // Convert action to events and apply
+                    if let Some(events) = crate::input::actions::action_to_events(
+                        source_state,
+                        action.clone(),
+                        tab_size,
+                        auto_indent,
+                        estimated_line_length,
+                        viewport_height,
+                    ) {
+                        for event in events {
+                            source_state.apply(&event);
+                        }
+                    }
+                }
+
+                // Note: Scroll sync between panes is visual-only and handled
+                // by CompositeViewState during rendering
+                let _ = other_buffer_id;
+
                 Some(true)
             }
 

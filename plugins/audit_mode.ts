@@ -1184,28 +1184,16 @@ globalThis.review_drill_down = async () => {
     }
 };
 
-// Define the diff-view mode with navigation keys
-editor.defineMode("diff-view", "special", [
+// Define the diff-view mode - inherits from "normal" for all standard navigation/selection/copy
+// Only adds diff-specific keybindings (close, hunk navigation)
+editor.defineMode("diff-view", "normal", [
+    // Close the diff view
     ["q", "close"],
-    ["j", "move_down"],
-    ["k", "move_up"],
-    ["h", "move_left"],
-    ["l", "move_right"],
-    ["g", "move_document_start"],
-    ["G", "move_document_end"],
-    ["C-d", "move_page_down"],
-    ["C-u", "move_page_up"],
-    ["Down", "move_down"],
-    ["Up", "move_up"],
-    ["PageDown", "move_page_down"],
-    ["PageUp", "move_page_up"],
-    // Selection and copy
-    ["S-Down", "select_down"],
-    ["S-Up", "select_up"],
-    ["J", "select_down"],
-    ["K", "select_up"],
-    ["C-c", "copy"],
-    ["y", "copy"],
+    // Hunk navigation (diff-specific)
+    ["n", "review_next_hunk"],
+    ["p", "review_prev_hunk"],
+    ["]", "review_next_hunk"],
+    ["[", "review_prev_hunk"],
 ], true);
 
 // --- Review Comment Actions ---
