@@ -22,6 +22,7 @@ fn reproduce_cursor_panic() {
         show_line_numbers: true,
         show_cursors: false, // <--- The trigger: hiding cursors
         editing_disabled: false,
+        hidden_from_tabs: false,
         request_id: None,
     };
 
