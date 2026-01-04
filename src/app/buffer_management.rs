@@ -1421,12 +1421,23 @@ impl Editor {
         }
     }
 
-    /// Switch to next buffer in current split's tabs
-    pub fn next_buffer(&mut self) {
-        // Get the current split's open buffers
+    /// Get visible (non-hidden) buffers for the current split.
+    /// This filters out buffers with hidden_from_tabs=true.
+    fn visible_buffers_for_active_split(&self) -> Vec<BufferId> {
         let active_split = self.split_manager.active_split();
-        let ids = if let Some(view_state) = self.split_view_states.get(&active_split) {
-            view_state.open_buffers.clone()
+        if let Some(view_state) = self.split_view_states.get(&active_split) {
+            view_state
+                .open_buffers
+                .iter()
+                .copied()
+                .filter(|id| {
+                    !self
+                        .buffer_metadata
+                        .get(id)
+                        .map(|m| m.hidden_from_tabs)
+                        .unwrap_or(false)
+                })
+                .collect()
         } else {
             // Fallback to all visible buffers if no view state
             let mut all_ids: Vec<_> = self
@@ -1443,7 +1454,12 @@ impl Editor {
                 .collect();
             all_ids.sort_by_key(|id| id.0);
             all_ids
-        };
+        }
+    }
+
+    /// Switch to next buffer in current split's tabs
+    pub fn next_buffer(&mut self) {
+        let ids = self.visible_buffers_for_active_split();
 
         if ids.is_empty() {
             return;
@@ -1470,27 +1486,7 @@ impl Editor {
 
     /// Switch to previous buffer in current split's tabs
     pub fn prev_buffer(&mut self) {
-        // Get the current split's open buffers
-        let active_split = self.split_manager.active_split();
-        let ids = if let Some(view_state) = self.split_view_states.get(&active_split) {
-            view_state.open_buffers.clone()
-        } else {
-            // Fallback to all visible buffers if no view state
-            let mut all_ids: Vec<_> = self
-                .buffers
-                .keys()
-                .copied()
-                .filter(|id| {
-                    !self
-                        .buffer_metadata
-                        .get(id)
-                        .map(|m| m.hidden_from_tabs)
-                        .unwrap_or(false)
-                })
-                .collect();
-            all_ids.sort_by_key(|id| id.0);
-            all_ids
-        };
+        let ids = self.visible_buffers_for_active_split();
 
         if ids.is_empty() {
             return;

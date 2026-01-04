@@ -469,3 +469,116 @@ fn test_click_tab_close_modified_cancel() {
         panic!("Could not find * modified indicator in tab bar");
     }
 }
+
+/// Test that next/previous buffer commands skip hidden buffers
+/// Bug: When cycling through buffers with next_buffer/prev_buffer,
+/// the editor would focus hidden buffers instead of skipping them
+#[test]
+fn test_next_buffer_skips_hidden_buffers() {
+    use fresh::primitives::text_property::TextPropertyEntry;
+    use fresh::services::plugins::api::PluginCommand;
+    use std::collections::HashMap;
+
+    let mut harness = EditorTestHarness::with_temp_project(80, 24).unwrap();
+    let project_dir = harness.project_dir().unwrap();
+
+    // Create two visible files
+    let file1_path = project_dir.join("visible1.txt");
+    let file2_path = project_dir.join("visible2.txt");
+    std::fs::write(&file1_path, "VISIBLE_BUFFER_1_CONTENT").unwrap();
+    std::fs::write(&file2_path, "VISIBLE_BUFFER_2_CONTENT").unwrap();
+
+    // Open first visible file
+    harness.open_file(&file1_path).unwrap();
+    harness.render().unwrap();
+
+    // Create a hidden buffer using the plugin API
+    let hidden_cmd = PluginCommand::CreateVirtualBufferWithContent {
+        name: "*Hidden*".to_string(),
+        mode: "hidden-test".to_string(),
+        read_only: true,
+        entries: vec![TextPropertyEntry {
+            text: "HIDDEN_BUFFER_CONTENT".to_string(),
+            properties: HashMap::new(),
+        }],
+        show_line_numbers: true,
+        show_cursors: true,
+        editing_disabled: true,
+        hidden_from_tabs: true, // <-- This makes it hidden
+        request_id: None,
+    };
+    harness
+        .editor_mut()
+        .handle_plugin_command(hidden_cmd)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Open second visible file
+    harness.open_file(&file2_path).unwrap();
+    harness.render().unwrap();
+
+    // Verify we're on visible2
+    harness.assert_screen_contains("VISIBLE_BUFFER_2_CONTENT");
+
+    // Now we have 3 buffers in open_buffers:
+    // - visible1.txt (VISIBLE_BUFFER_1_CONTENT)
+    // - *Hidden* (hidden_from_tabs=true, HIDDEN_BUFFER_CONTENT)
+    // - visible2.txt (VISIBLE_BUFFER_2_CONTENT) - currently active
+
+    // Cycle through buffers using next_buffer (Ctrl+PageDown)
+    // We should only ever see visible1.txt or visible2.txt content, never the hidden buffer
+    for i in 0..6 {
+        harness
+            .send_key(KeyCode::PageDown, KeyModifiers::CONTROL)
+            .unwrap();
+        harness.render().unwrap();
+
+        let screen = harness.screen_to_string();
+        println!("After next_buffer #{}: screen:\n{}", i + 1, screen);
+
+        // Should NEVER show the hidden buffer content
+        assert!(
+            !screen.contains("HIDDEN_BUFFER_CONTENT"),
+            "next_buffer should skip hidden buffer. Iteration {}. Screen:\n{}",
+            i + 1,
+            screen
+        );
+
+        // Should always show one of the visible buffer contents
+        assert!(
+            screen.contains("VISIBLE_BUFFER_1_CONTENT")
+                || screen.contains("VISIBLE_BUFFER_2_CONTENT"),
+            "Should be on a visible buffer. Iteration {}. Screen:\n{}",
+            i + 1,
+            screen
+        );
+    }
+
+    // Also test prev_buffer (Ctrl+PageUp)
+    for i in 0..6 {
+        harness
+            .send_key(KeyCode::PageUp, KeyModifiers::CONTROL)
+            .unwrap();
+        harness.render().unwrap();
+
+        let screen = harness.screen_to_string();
+        println!("After prev_buffer #{}: screen:\n{}", i + 1, screen);
+
+        // Should NEVER show the hidden buffer content
+        assert!(
+            !screen.contains("HIDDEN_BUFFER_CONTENT"),
+            "prev_buffer should skip hidden buffer. Iteration {}. Screen:\n{}",
+            i + 1,
+            screen
+        );
+
+        // Should always show one of the visible buffer contents
+        assert!(
+            screen.contains("VISIBLE_BUFFER_1_CONTENT")
+                || screen.contains("VISIBLE_BUFFER_2_CONTENT"),
+            "Should be on a visible buffer. Iteration {}. Screen:\n{}",
+            i + 1,
+            screen
+        );
+    }
+}
