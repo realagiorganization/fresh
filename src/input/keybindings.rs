@@ -529,6 +529,9 @@ pub enum Action {
     ToUpperCase, // Convert selection to uppercase
     ToLowerCase, // Convert selection to lowercase
 
+    // Input calibration
+    CalibrateInput, // Open input calibration wizard for hostile terminal environments
+
     // No-op
     None,
 }
@@ -850,6 +853,9 @@ impl Action {
             // Case conversion
             "to_upper_case" => Some(Action::ToUpperCase),
             "to_lower_case" => Some(Action::ToLowerCase),
+
+            // Input calibration
+            "calibrate_input" => Some(Action::CalibrateInput),
 
             // Settings actions
             "open_settings" => Some(Action::OpenSettings),
@@ -1822,6 +1828,7 @@ impl KeybindingResolver {
             Action::ShellCommandReplace => t!("action.shell_command_replace").to_string(),
             Action::ToUpperCase => t!("action.to_uppercase").to_string(),
             Action::ToLowerCase => t!("action.to_lowercase").to_string(),
+            Action::CalibrateInput => t!("action.calibrate_input").to_string(),
             Action::None => t!("action.none").to_string(),
         }
     }
