@@ -248,10 +248,22 @@ impl TabsRenderer {
         }
 
         // Add separators between tabs (we do this after the loop to handle hidden buffers correctly)
-        // We'll rebuild all_tab_spans with separators inserted
+        // We'll rebuild all_tab_spans with separators inserted, and fix up tab_ranges
+        // to account for the separator widths
         let mut final_spans: Vec<(Span<'static>, usize)> = Vec::new();
+        let mut separator_offset = 0usize;
         let spans_per_tab = 2; // name + close button
         for (tab_idx, chunk) in all_tab_spans.chunks(spans_per_tab).enumerate() {
+            // Adjust tab_ranges for this tab to account for separators before it
+            if separator_offset > 0 {
+                let (start, end, close_start) = tab_ranges[tab_idx];
+                tab_ranges[tab_idx] = (
+                    start + separator_offset,
+                    end + separator_offset,
+                    close_start + separator_offset,
+                );
+            }
+
             for span in chunk {
                 final_spans.push(span.clone());
             }
@@ -261,6 +273,7 @@ impl TabsRenderer {
                     Span::styled(" ", Style::default().bg(theme.tab_separator_bg)),
                     1,
                 ));
+                separator_offset += 1;
             }
         }
         #[allow(clippy::let_and_return)]
