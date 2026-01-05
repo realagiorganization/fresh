@@ -1422,8 +1422,7 @@ globalThis.onThemeEditorBufferClosed = function(data: {
   buffer_id: number;
 }): void {
   if (state.bufferId !== null && data.buffer_id === state.bufferId) {
-    // Unregister commands and reset state when our buffer is closed
-    unregisterThemeEditorCommands();
+    // Reset state when our buffer is closed
     state.isOpen = false;
     state.bufferId = null;
     state.splitId = null;
@@ -1434,32 +1433,6 @@ globalThis.onThemeEditorBufferClosed = function(data: {
 };
 
 editor.on("buffer_closed", "onThemeEditorBufferClosed");
-
-/**
- * Handle buffer activation - register commands when theme editor gains focus
- */
-globalThis.onThemeEditorBufferActivated = function(data: {
-  buffer_id: number;
-}): void {
-  if (state.bufferId !== null && data.buffer_id === state.bufferId) {
-    registerThemeEditorCommands();
-  }
-};
-
-editor.on("buffer_activated", "onThemeEditorBufferActivated");
-
-/**
- * Handle buffer deactivation - unregister commands when theme editor loses focus
- */
-globalThis.onThemeEditorBufferDeactivated = function(data: {
-  buffer_id: number;
-}): void {
-  if (state.bufferId !== null && data.buffer_id === state.bufferId) {
-    unregisterThemeEditorCommands();
-  }
-};
-
-editor.on("buffer_deactivated", "onThemeEditorBufferDeactivated");
 
 // =============================================================================
 // Smart Navigation - Skip Non-Selectable Lines
@@ -1743,9 +1716,6 @@ async function doOpenThemeEditor(): Promise<void> {
     state.bufferId = bufferId;
     state.splitId = null;
 
-    // Register theme editor commands now that buffer is active
-    registerThemeEditorCommands();
-
     applyHighlighting();
     editor.setStatus(editor.t("status.ready"));
   } else {
@@ -1777,9 +1747,6 @@ globalThis.theme_editor_close = function(): void {
  * Actually close the editor (called after confirmation or when no changes)
  */
 function doCloseEditor(): void {
-  // Unregister theme editor commands
-  unregisterThemeEditorCommands();
-
   // Close the buffer (this will switch to another buffer in the same split)
   if (state.bufferId !== null) {
     editor.closeBuffer(state.bufferId);
@@ -2073,34 +2040,21 @@ editor.registerCommand(
   "normal"
 );
 
-// Context-specific commands - registered/unregistered dynamically based on buffer focus
-const THEME_EDITOR_COMMANDS = [
-  { name: "%cmd.close_editor", desc: "%cmd.close_editor_desc", action: "theme_editor_close" },
-  { name: "%cmd.edit_color", desc: "%cmd.edit_color_desc", action: "theme_editor_edit_color" },
-  { name: "%cmd.toggle_section", desc: "%cmd.toggle_section_desc", action: "theme_editor_toggle_section" },
-  { name: "%cmd.open_theme", desc: "%cmd.open_theme_desc", action: "theme_editor_open" },
-  { name: "%cmd.save", desc: "%cmd.save_desc", action: "theme_editor_save" },
-  { name: "%cmd.save_as", desc: "%cmd.save_as_desc", action: "theme_editor_save_as" },
-  { name: "%cmd.reload", desc: "%cmd.reload_desc", action: "theme_editor_reload" },
-  { name: "%cmd.show_help", desc: "%cmd.show_help_desc", action: "theme_editor_show_help" },
-  { name: "%cmd.delete_theme", desc: "%cmd.delete_theme_desc", action: "theme_editor_delete" },
-  { name: "%cmd.nav_up", desc: "%cmd.nav_up_desc", action: "theme_editor_nav_up" },
-  { name: "%cmd.nav_down", desc: "%cmd.nav_down_desc", action: "theme_editor_nav_down" },
-  { name: "%cmd.nav_next", desc: "%cmd.nav_next_desc", action: "theme_editor_nav_next_section" },
-  { name: "%cmd.nav_prev", desc: "%cmd.nav_prev_desc", action: "theme_editor_nav_prev_section" },
-];
-
-function registerThemeEditorCommands(): void {
-  for (const cmd of THEME_EDITOR_COMMANDS) {
-    editor.registerCommand(cmd.name, cmd.desc, cmd.action, "normal");
-  }
-}
-
-function unregisterThemeEditorCommands(): void {
-  for (const cmd of THEME_EDITOR_COMMANDS) {
-    editor.unregisterCommand(editor.t(cmd.name.slice(1)));
-  }
-}
+// Buffer-scoped commands - only visible when a buffer with mode "theme-editor" is focused
+// The core automatically checks the focused buffer's mode against command contexts
+editor.registerCommand("%cmd.close_editor", "%cmd.close_editor_desc", "theme_editor_close", "theme-editor");
+editor.registerCommand("%cmd.edit_color", "%cmd.edit_color_desc", "theme_editor_edit_color", "theme-editor");
+editor.registerCommand("%cmd.toggle_section", "%cmd.toggle_section_desc", "theme_editor_toggle_section", "theme-editor");
+editor.registerCommand("%cmd.open_theme", "%cmd.open_theme_desc", "theme_editor_open", "theme-editor");
+editor.registerCommand("%cmd.save", "%cmd.save_desc", "theme_editor_save", "theme-editor");
+editor.registerCommand("%cmd.save_as", "%cmd.save_as_desc", "theme_editor_save_as", "theme-editor");
+editor.registerCommand("%cmd.reload", "%cmd.reload_desc", "theme_editor_reload", "theme-editor");
+editor.registerCommand("%cmd.show_help", "%cmd.show_help_desc", "theme_editor_show_help", "theme-editor");
+editor.registerCommand("%cmd.delete_theme", "%cmd.delete_theme_desc", "theme_editor_delete", "theme-editor");
+editor.registerCommand("%cmd.nav_up", "%cmd.nav_up_desc", "theme_editor_nav_up", "theme-editor");
+editor.registerCommand("%cmd.nav_down", "%cmd.nav_down_desc", "theme_editor_nav_down", "theme-editor");
+editor.registerCommand("%cmd.nav_next", "%cmd.nav_next_desc", "theme_editor_nav_next_section", "theme-editor");
+editor.registerCommand("%cmd.nav_prev", "%cmd.nav_prev_desc", "theme_editor_nav_prev_section", "theme-editor");
 
 // =============================================================================
 // Plugin Initialization

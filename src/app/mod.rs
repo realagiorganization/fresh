@@ -2824,6 +2824,10 @@ impl Editor {
         match prompt_type {
             PromptType::Command => {
                 let selection_active = self.has_active_selection();
+                let active_buffer_mode = self
+                    .buffer_metadata
+                    .get(&self.active_buffer())
+                    .and_then(|m| m.virtual_mode());
                 if let Some(prompt) = &mut self.prompt {
                     // Use the underlying context (not Prompt context) for filtering
                     prompt.suggestions = self.command_registry.read().unwrap().filter(
@@ -2832,6 +2836,7 @@ impl Editor {
                         &self.keybindings,
                         selection_active,
                         &self.active_custom_contexts,
+                        active_buffer_mode,
                     );
                     prompt.selected_suggestion = if prompt.suggestions.is_empty() {
                         None

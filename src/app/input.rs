@@ -375,12 +375,17 @@ impl Editor {
                 }
 
                 // Use the current context for filtering commands
+                let active_buffer_mode = self
+                    .buffer_metadata
+                    .get(&self.active_buffer())
+                    .and_then(|m| m.virtual_mode());
                 let suggestions = self.command_registry.read().unwrap().filter(
                     "",
                     self.key_context,
                     &self.keybindings,
                     self.has_active_selection(),
                     &self.active_custom_contexts,
+                    active_buffer_mode,
                 );
                 self.start_prompt_with_suggestions(
                     t!("file.command_prompt").to_string(),

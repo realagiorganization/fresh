@@ -117,17 +117,21 @@ impl CommandRegistry {
         keybinding_resolver: &crate::input::keybindings::KeybindingResolver,
         selection_active: bool,
         active_custom_contexts: &std::collections::HashSet<String>,
+        active_buffer_mode: Option<&str>,
     ) -> Vec<Suggestion> {
         let commands = self.get_all();
 
         // Helper function to check if command should be visible (custom context check)
         // Commands with unmet custom contexts are completely hidden, not just disabled
+        // A custom context is satisfied if:
+        // 1. It's in the global active_custom_contexts set, OR
+        // 2. It matches the focused buffer's mode (for buffer-scoped commands)
         let is_visible = |cmd: &Command| -> bool {
             cmd.custom_contexts.is_empty()
-                || cmd
-                    .custom_contexts
-                    .iter()
-                    .all(|ctx| active_custom_contexts.contains(ctx))
+                || cmd.custom_contexts.iter().all(|ctx| {
+                    active_custom_contexts.contains(ctx)
+                        || active_buffer_mode.map_or(false, |mode| mode == ctx)
+                })
         };
 
         // Helper function to check if command is available in current context
@@ -426,6 +430,7 @@ mod tests {
             &keybindings,
             false,
             &empty_contexts,
+            None,
         );
         assert!(results.len() >= 2); // At least "Save File" + "Test Save"
 
@@ -463,13 +468,27 @@ mod tests {
 
         // In normal context, "Popup Only" should be disabled
         let empty_contexts = std::collections::HashSet::new();
-        let results = registry.filter("", KeyContext::Normal, &keybindings, false, &empty_contexts);
+        let results = registry.filter(
+            "",
+            KeyContext::Normal,
+            &keybindings,
+            false,
+            &empty_contexts,
+            None,
+        );
         let popup_only = results.iter().find(|s| s.text == "Popup Only");
         assert!(popup_only.is_some());
         assert!(popup_only.unwrap().disabled);
 
         // In popup context, "Normal Only" should be disabled
-        let results = registry.filter("", KeyContext::Popup, &keybindings, false, &empty_contexts);
+        let results = registry.filter(
+            "",
+            KeyContext::Popup,
+            &keybindings,
+            false,
+            &empty_contexts,
+            None,
+        );
         let normal_only = results.iter().find(|s| s.text == "Normal Only");
         assert!(normal_only.is_some());
         assert!(normal_only.unwrap().disabled);
@@ -560,7 +579,14 @@ mod tests {
 
         // Filter with empty query should return history-sorted results
         let empty_contexts = std::collections::HashSet::new();
-        let results = registry.filter("", KeyContext::Normal, &keybindings, false, &empty_contexts);
+        let results = registry.filter(
+            "",
+            KeyContext::Normal,
+            &keybindings,
+            false,
+            &empty_contexts,
+            None,
+        );
 
         // Find positions of our test commands in results
         let open_pos = results.iter().position(|s| s.text == "Open File").unwrap();
@@ -629,7 +655,14 @@ mod tests {
         registry.record_usage("Save File");
 
         let empty_contexts = std::collections::HashSet::new();
-        let results = registry.filter("", KeyContext::Normal, &keybindings, false, &empty_contexts);
+        let results = registry.filter(
+            "",
+            KeyContext::Normal,
+            &keybindings,
+            false,
+            &empty_contexts,
+            None,
+        );
 
         let save_pos = results.iter().position(|s| s.text == "Save File").unwrap();
         let alpha_pos = results
