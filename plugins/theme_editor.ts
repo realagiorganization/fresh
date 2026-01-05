@@ -680,11 +680,11 @@ function buildDisplayEntries(): TextPropertyEntry[] {
         properties: { type: "description", path: field.path },
       });
 
-      // Color field with swatch
+      // Color field with swatch characters (X for fg preview, space for bg preview)
       const colorStr = formatColorValue(field.value);
 
       entries.push({
-        text: `${indent}  ${field.def.displayName}: ${colorStr}\n`,
+        text: `${indent}  ${field.def.displayName}: X  ${colorStr}\n`,
         properties: {
           type: "field",
           path: field.path,
@@ -790,8 +790,26 @@ function applyHighlighting(): void {
         const nameEnd = byteOffset + getUtf8ByteLength(text.substring(0, colonPos));
         addColorOverlay(bufferId, byteOffset, nameEnd, colors.fieldName);
 
-        // Value - custom color (green)
-        const valueStart = nameEnd + getUtf8ByteLength(": ");
+        // Color the swatch characters with the field's actual color
+        // Text format: "FieldName: X  #RRGGBB" (X=fg, space=bg)
+        const colorValue = props.colorValue as ColorValue;
+        const rgb = parseColorToRgb(colorValue);
+        if (rgb) {
+          // "X" is at colon + 2 (": " = 2 bytes), and is 1 byte
+          const swatchFgStart = nameEnd + getUtf8ByteLength(": ");
+          const swatchFgEnd = swatchFgStart + 1; // "X" is 1 byte
+          addColorOverlay(bufferId, swatchFgStart, swatchFgEnd, rgb);
+
+          // First space after "X" is the bg swatch, 1 byte
+          const swatchBgStart = swatchFgEnd;
+          const swatchBgEnd = swatchBgStart + 1;
+          // Use background color for the space
+          editor.addOverlay(bufferId, "theme", swatchBgStart, swatchBgEnd, -1, -1, -1, false, false, false, rgb[0], rgb[1], rgb[2], false);
+        }
+
+        // Value (hex code) - custom color (green)
+        // Format: ": X  #RRGGBB" - value starts after "X  " (X + 2 spaces)
+        const valueStart = nameEnd + getUtf8ByteLength(": X  ");
         addColorOverlay(bufferId, valueStart, byteOffset + textLen, colors.customValue);
       }
     } else if (entryType === "separator" || entryType === "footer") {
@@ -800,9 +818,6 @@ function applyHighlighting(): void {
 
     byteOffset += textLen;
   }
-
-  // Color swatches are now added via the lines_changed hook (onThemeEditorLinesChanged)
-  // This ensures they are rendered correctly after buffer content is set
 }
 
 /**
@@ -846,44 +861,47 @@ function getFieldAtCursor(): ThemeField | null {
 }
 
 /**
+ * Get field by path
+ */
+function getFieldByPath(path: string): ThemeField | null {
+  return state.visibleFields.find(f => f.path === path) || null;
+}
+
+/**
+ * Build color suggestions for a field
+ */
+function buildColorSuggestions(field: ThemeField): PromptSuggestion[] {
+  const currentValue = formatColorValue(field.value);
+  const suggestions: PromptSuggestion[] = [
+    { text: currentValue, description: editor.t("suggestion.current"), value: currentValue },
+  ];
+
+  // Add special colors (Default/Reset for terminal transparency)
+  for (const name of SPECIAL_COLORS) {
+    suggestions.push({ text: name, description: editor.t("suggestion.terminal_native"), value: name });
+  }
+
+  // Add named colors with hex format
+  for (const name of NAMED_COLOR_LIST) {
+    const rgb = NAMED_COLORS[name];
+    const hexValue = rgbToHex(rgb[0], rgb[1], rgb[2]);
+    suggestions.push({ text: name, description: hexValue, value: name });
+  }
+
+  return suggestions;
+}
+
+/**
  * Start color editing prompt
  */
 function editColorField(field: ThemeField): void {
   const currentValue = formatColorValue(field.value);
-
-  // Use startPromptWithInitial to pre-fill with current value
-  editor.startPromptWithInitial(editor.t("prompt.color_input", { field: field.def.displayName }), `theme-color-${field.path}`, currentValue);
-
-  // Build suggestions with named colors and current value
-  const suggestions: PromptSuggestion[] = [
-    {
-      text: currentValue,
-      description: editor.t("suggestion.current"),
-      value: currentValue,
-    },
-  ];
-
-  // Add special colors first (Default/Reset for terminal transparency)
-  for (const name of SPECIAL_COLORS) {
-    suggestions.push({
-      text: name,
-      description: editor.t("suggestion.terminal_native"),
-      value: name,
-    });
-  }
-
-  // Add named colors as suggestions with hex format
-  for (const name of NAMED_COLOR_LIST) {
-    const rgb = NAMED_COLORS[name];
-    const hexValue = rgbToHex(rgb[0], rgb[1], rgb[2]);
-    suggestions.push({
-      text: name,
-      description: hexValue,
-      value: name,
-    });
-  }
-
-  editor.setPromptSuggestions(suggestions);
+  editor.startPromptWithInitial(
+    editor.t("prompt.color_input", { field: field.def.displayName }),
+    `theme-color-${field.path}`,
+    currentValue
+  );
+  editor.setPromptSuggestions(buildColorSuggestions(field));
 }
 
 interface ParseColorResult {
@@ -947,6 +965,32 @@ function parseColorInput(input: string): ParseColorResult {
 // =============================================================================
 
 /**
+ * Find best matching color name for partial input
+ */
+function findMatchingColor(input: string): string | null {
+  const lower = input.toLowerCase();
+  // First try exact match
+  for (const name of Object.keys(NAMED_COLORS)) {
+    if (name.toLowerCase() === lower) return name;
+  }
+  for (const name of SPECIAL_COLORS) {
+    if (name.toLowerCase() === lower) return name;
+  }
+  // Then try prefix match
+  for (const name of Object.keys(NAMED_COLORS)) {
+    if (name.toLowerCase().startsWith(lower)) return name;
+  }
+  for (const name of SPECIAL_COLORS) {
+    if (name.toLowerCase().startsWith(lower)) return name;
+  }
+  // Then try contains match
+  for (const name of Object.keys(NAMED_COLORS)) {
+    if (name.toLowerCase().includes(lower)) return name;
+  }
+  return null;
+}
+
+/**
  * Handle color prompt confirmation
  */
 globalThis.onThemeColorPromptConfirmed = function(args: {
@@ -957,31 +1001,50 @@ globalThis.onThemeColorPromptConfirmed = function(args: {
   if (!args.prompt_type.startsWith("theme-color-")) return true;
 
   const path = args.prompt_type.replace("theme-color-", "");
+  const field = getFieldByPath(path);
+  if (!field) return true;
+
   const result = parseColorInput(args.input);
 
   if (result.value !== undefined) {
+    // Valid color - apply it
     setNestedValue(state.themeData, path, result.value);
     state.hasChanges = !deepEqual(state.themeData, state.originalThemeData);
 
-    // Update display (this will try to preserve current cursor position)
     const entries = buildDisplayEntries();
     if (state.bufferId !== null) {
       editor.setVirtualBufferContent(state.bufferId, entries);
       applyHighlighting();
     }
-
-    // Explicitly restore cursor to the edited field
     moveCursorToField(path);
-
     editor.setStatus(editor.t("status.updated", { path }));
   } else {
-    // Show specific error message based on error type
-    const errorKey = `error.color_${result.error}`;
-    const errorMsg = editor.t(errorKey, { input: args.input });
-    editor.setStatus(errorMsg);
+    // Invalid input - try to find a matching color name
+    const matchedColor = findMatchingColor(args.input);
+    if (matchedColor) {
+      // Found a match - reopen prompt with the matched value
+      editor.startPromptWithInitial(
+        editor.t("prompt.color_input", { field: field.def.displayName }),
+        `theme-color-${path}`,
+        matchedColor
+      );
+      // Rebuild suggestions
+      const suggestions: PromptSuggestion[] = buildColorSuggestions(field);
+      editor.setPromptSuggestions(suggestions);
+      editor.setStatus(editor.t("status.autocompleted", { value: matchedColor }));
+    } else {
+      // No match found - reopen prompt with original input
+      editor.startPromptWithInitial(
+        editor.t("prompt.color_input", { field: field.def.displayName }),
+        `theme-color-${path}`,
+        args.input
+      );
+      const suggestions: PromptSuggestion[] = buildColorSuggestions(field);
+      editor.setPromptSuggestions(suggestions);
 
-    // Restore cursor to the field even on error
-    moveCursorToField(path);
+      const errorKey = `error.color_${result.error}`;
+      editor.setStatus(editor.t(errorKey, { input: args.input }));
+    }
   }
 
   return true;
@@ -1341,81 +1404,6 @@ globalThis.onThemeEditorCursorMoved = function(data: {
 editor.on("cursor_moved", "onThemeEditorCursorMoved");
 
 /**
- * Handle lines_changed event to add color swatches as virtual text
- * This is triggered during rendering when new lines become visible
- */
-globalThis.onThemeEditorLinesChanged = function(data: {
-  buffer_id: number;
-  lines: Array<{
-    line_number: number;
-    byte_start: number;
-    byte_end: number;
-    content: string;
-  }>;
-}): void {
-  // Only process if this is the theme editor buffer
-  if (!state.isOpen || state.bufferId === null || data.buffer_id !== state.bufferId) {
-    return;
-  }
-
-  // Process each line to find and highlight color fields
-  for (const line of data.lines) {
-    // Find color value patterns in the line content
-    // Pattern: "FieldName: #RRGGBB" or "FieldName: ColorName"
-    const match = line.content.match(/:\s+(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}|\w+)\s*$/);
-    if (match) {
-      const colorStr = match[1];
-      const colorStartIdx = line.content.lastIndexOf(colorStr);
-      if (colorStartIdx >= 0) {
-        // Position before the color value
-        const swatchPos = line.byte_start + colorStartIdx;
-        const swatchId = `theme-swatch-line-${line.line_number}`;
-
-        // Parse the color to get RGB values
-        let rgb: RGB | null = null;
-        if (colorStr.startsWith("#")) {
-          // Hex color
-          const hex = colorStr.slice(1);
-          if (hex.length === 6) {
-            rgb = [
-              parseInt(hex.slice(0, 2), 16),
-              parseInt(hex.slice(2, 4), 16),
-              parseInt(hex.slice(4, 6), 16),
-            ];
-          } else if (hex.length === 3) {
-            rgb = [
-              parseInt(hex[0] + hex[0], 16),
-              parseInt(hex[1] + hex[1], 16),
-              parseInt(hex[2] + hex[2], 16),
-            ];
-          }
-        } else if (NAMED_COLORS[colorStr]) {
-          rgb = NAMED_COLORS[colorStr];
-        }
-
-        if (rgb && !isNaN(rgb[0]) && !isNaN(rgb[1]) && !isNaN(rgb[2])) {
-          // Check if this is a background color field - show sample with bg color
-          const isBgField = line.content.toLowerCase().includes("_bg:");
-
-          // Add virtual text sample character before the hex value
-          editor.addVirtualText(
-            state.bufferId,
-            swatchId,
-            swatchPos,
-            isBgField ? " Ab " : "■ ",  // Sample text for bg, block for fg
-            rgb[0], rgb[1], rgb[2],
-            true,      // prepend before position
-            isBgField  // use as background color for bg fields
-          );
-        }
-      }
-    }
-  }
-};
-
-editor.on("lines_changed", "onThemeEditorLinesChanged");
-
-/**
  * Handle buffer_closed event to reset state when buffer is closed by any means
  */
 globalThis.onThemeEditorBufferClosed = function(data: {
@@ -1461,13 +1449,13 @@ function getSelectableEntries(): SelectableEntry[] {
 
     // Only fields and sections are selectable (they have index property)
     if ((entryType === "field" || entryType === "section") && typeof props.index === "number") {
-      // For fields, calculate position at the value (after "FieldName: ")
+      // For fields, calculate position at the color value (after "FieldName: X  ")
       let valueByteOffset = byteOffset;
       if (entryType === "field") {
         const colonIdx = entry.text.indexOf(":");
         if (colonIdx >= 0) {
-          // Position after the colon and space
-          valueByteOffset = byteOffset + getUtf8ByteLength(entry.text.substring(0, colonIdx + 2));
+          // Position at the hex value, after ": X  " (colon + space + X + 2 spaces = 5 chars)
+          valueByteOffset = byteOffset + getUtf8ByteLength(entry.text.substring(0, colonIdx + 5));
         }
       }
 

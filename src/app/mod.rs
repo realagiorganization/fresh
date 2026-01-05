@@ -2883,51 +2883,20 @@ impl Editor {
                         input,
                     },
                 );
-            }
-            PromptType::SwitchToTab
-            | PromptType::SelectTheme
-            | PromptType::SelectLocale
-            | PromptType::StopLspServer => {
-                // Filter suggestions using fuzzy matching
-                use crate::input::fuzzy::{fuzzy_match, FuzzyMatch};
-
+                // Apply fuzzy filtering if original_suggestions is set
                 if let Some(prompt) = &mut self.prompt {
-                    let match_description = matches!(prompt.prompt_type, PromptType::SelectLocale);
-
-                    if let Some(original) = &prompt.original_suggestions {
-                        // Apply fuzzy filtering with scoring
-                        let mut filtered: Vec<(crate::input::commands::Suggestion, i32)> = original
-                            .iter()
-                            .filter_map(|s| {
-                                let text_result = fuzzy_match(&input, &s.text);
-                                // For locale selection, also match on description (language names)
-                                let desc_result = if match_description {
-                                    s.description
-                                        .as_ref()
-                                        .map(|d| fuzzy_match(&input, d))
-                                        .unwrap_or_else(FuzzyMatch::no_match)
-                                } else {
-                                    FuzzyMatch::no_match()
-                                };
-                                // Use the best score from either text or description match
-                                if text_result.matched || desc_result.matched {
-                                    Some((s.clone(), text_result.score.max(desc_result.score)))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-
-                        // Sort by score (best matches first)
-                        filtered.sort_by(|a, b| b.1.cmp(&a.1));
-
-                        prompt.suggestions = filtered.into_iter().map(|(s, _)| s).collect();
-                        prompt.selected_suggestion = if prompt.suggestions.is_empty() {
-                            None
-                        } else {
-                            Some(0)
-                        };
-                    }
+                    prompt.filter_suggestions(false);
+                }
+            }
+            PromptType::SwitchToTab | PromptType::SelectTheme | PromptType::StopLspServer => {
+                if let Some(prompt) = &mut self.prompt {
+                    prompt.filter_suggestions(false);
+                }
+            }
+            PromptType::SelectLocale => {
+                // Locale selection also matches on description (language names)
+                if let Some(prompt) = &mut self.prompt {
+                    prompt.filter_suggestions(true);
                 }
             }
             _ => {}

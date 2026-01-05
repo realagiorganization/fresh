@@ -32,7 +32,6 @@
     "cmd.reload_desc": "Reload theme from file",
     "cmd.show_help": "Theme: Show Help",
     "cmd.show_help_desc": "Show theme editor help",
-
     "status.already_open": "Theme editor already open",
     "status.loading": "Loading theme editor...",
     "status.ready": "Theme Editor | c: copy from builtin | s: save | d: set as default | q: quit",
@@ -43,6 +42,7 @@
     "status.not_section": "Not a section",
     "status.no_changes": "No changes to save",
     "status.updated": "Updated %{path}",
+    "status.autocompleted": "Auto-completed to: %{value}",
     "status.invalid_color": "Invalid color format. Use #RRGGBB, [r,g,b], or named color.",
     "status.name_set": "Theme name set to: %{name}",
     "status.copied": "Copied from %{theme}. Edit and save as new theme.",
@@ -63,27 +63,23 @@
     "status.loaded": "Loaded theme: %{name}",
     "status.opened_builtin": "Opened built-in theme: %{name} (use Save As to create your own)",
     "status.builtin_requires_save_as": "Built-in themes cannot be modified in place. Use Save As.",
-
     "error.color_empty": "Please enter a color value",
     "error.color_hex_length": "Hex color must be 6 characters: #RRGGBB (e.g., #FF0000)",
     "error.color_hex_invalid": "Invalid hex characters in '%{input}': use only 0-9 and A-F",
     "error.color_rgb_range": "RGB values must be 0-255. Got invalid values in '%{input}'",
     "error.color_unknown": "Unknown color format '%{input}'. Use #RRGGBB, [r,g,b], or a color name",
-
     "status.cannot_delete_unsaved": "Cannot delete: theme not saved yet",
     "status.deleted": "Theme '%{name}' deleted",
     "status.delete_failed": "Failed to delete theme: %{error}",
     "prompt.delete_confirm": "Delete theme '%{name}'? ",
     "prompt.delete_yes": "Delete permanently",
     "prompt.delete_no": "Cancel",
-
     "panel.title": "Theme Editor: %{name}",
     "panel.modified": "[modified]",
     "panel.file": "File: %{path}",
     "panel.new_theme": "New theme (not yet saved)",
     "panel.nav_hint": "up/down/TAB/S-TAB: navigate | RET/SPC: edit field or toggle section",
     "panel.action_hint": "%{open}: open | %{save}: save | %{save_as}: save as | %{delete}: delete | %{close}: quit | %{help}: help",
-
     "prompt.open_theme": "Open theme: ",
     "prompt.select_theme_to_edit": "Select theme to edit: ",
     "prompt.theme_name": "Theme name: ",
@@ -95,7 +91,6 @@
     "prompt.overwrite_confirm": "Theme '%{name}' already exists: ",
     "prompt.overwrite_yes": "Overwrite existing theme",
     "prompt.overwrite_no": "Cancel",
-
     "suggestion.current": "(current)",
     "suggestion.builtin_theme": "Built-in theme",
     "suggestion.builtin_theme_current": "Built-in theme (current)",
@@ -103,7 +98,6 @@
     "suggestion.user_theme_current": "User theme (current)",
     "suggestion.builtin": "Built-in",
     "suggestion.terminal_native": "Use terminal's native color",
-
     "section.editor": "Editor",
     "section.editor_desc": "Main editor area colors",
     "section.ui": "UI Elements",
@@ -114,7 +108,6 @@
     "section.diagnostic_desc": "LSP diagnostic colors (errors, warnings, etc.)",
     "section.syntax": "Syntax Highlighting",
     "section.syntax_desc": "Code syntax highlighting colors",
-
     "field.bg": "Background",
     "field.bg_desc": "Editor background color",
     "field.fg": "Foreground",
@@ -131,7 +124,6 @@
     "field.line_number_fg_desc": "Line number text color",
     "field.line_number_bg": "Line Number Background",
     "field.line_number_bg_desc": "Line number gutter background",
-
     "field.tab_active_fg": "Active Tab Foreground",
     "field.tab_active_fg_desc": "Active tab text color",
     "field.tab_active_bg": "Active Tab Background",
@@ -232,12 +224,10 @@
     "field.terminal_bg_desc": "Embedded terminal background (use Default for transparency)",
     "field.terminal_fg": "Terminal Foreground",
     "field.terminal_fg_desc": "Embedded terminal default text color",
-
     "field.match_bg": "Match Background",
     "field.match_bg_desc": "Search match background color",
     "field.match_fg": "Match Foreground",
     "field.match_fg_desc": "Search match text color",
-
     "field.error_fg": "Error Foreground",
     "field.error_fg_desc": "Error message text color",
     "field.error_bg": "Error Background",
@@ -254,7 +244,6 @@
     "field.hint_fg_desc": "Hint message text color",
     "field.hint_bg": "Hint Background",
     "field.hint_bg_desc": "Hint highlight background",
-
     "field.keyword": "Keyword",
     "field.keyword_desc": "Language keywords (if, for, fn, etc.)",
     "field.string": "String",
@@ -272,7 +261,6 @@
     "field.operator": "Operator",
     "field.operator_desc": "Operators (+, -, =, etc.)"
   },
-
   "es": {
     "cmd.edit_theme": "Editar tema",
     "cmd.edit_theme_desc": "Abrir el editor de colores del tema",
@@ -294,7 +282,6 @@
     "cmd.reload_desc": "Recargar tema desde archivo",
     "cmd.show_help": "Tema: Mostrar ayuda",
     "cmd.show_help_desc": "Mostrar ayuda del editor de temas",
-
     "status.already_open": "El editor de temas ya esta abierto",
     "status.loading": "Cargando editor de temas...",
     "status.ready": "Editor de temas | c: copiar de predefinido | s: guardar | d: predeterminado | q: salir",
@@ -305,6 +292,7 @@
     "status.not_section": "No es una seccion",
     "status.no_changes": "No hay cambios que guardar",
     "status.updated": "Actualizado %{path}",
+    "status.autocompleted": "Auto-completado a: %{value}",
     "status.invalid_color": "Formato de color invalido. Use #RRGGBB, [r,g,b] o color con nombre.",
     "status.name_set": "Nombre del tema establecido: %{name}",
     "status.copied": "Copiado de %{theme}. Edite y guarde como nuevo tema.",
@@ -325,14 +313,12 @@
     "status.loaded": "Tema cargado: %{name}",
     "status.opened_builtin": "Tema predefinido abierto: %{name} (use Guardar como para crear el suyo)",
     "status.builtin_requires_save_as": "Los temas predefinidos no se pueden modificar. Use Guardar como.",
-
     "panel.title": "Editor de temas: %{name}",
     "panel.modified": "[modificado]",
     "panel.file": "Archivo: %{path}",
     "panel.new_theme": "Nuevo tema (aun no guardado)",
     "panel.nav_hint": "arriba/abajo: navegar | RET/SPC: editar color | TAB: expandir/contraer",
     "panel.action_hint": "%{open}: abrir | %{save}: guardar | %{save_as}: guardar como | %{delete}: eliminar | %{close}: salir | %{help}: ayuda",
-
     "prompt.open_theme": "Abrir tema: ",
     "prompt.select_theme_to_edit": "Seleccionar tema para editar: ",
     "prompt.copy_theme": "Copiar de tema: ",
@@ -347,7 +333,6 @@
     "prompt.overwrite_confirm": "El tema '%{name}' ya existe: ",
     "prompt.overwrite_yes": "Sobrescribir tema existente",
     "prompt.overwrite_no": "Cancelar",
-
     "suggestion.current": "(actual)",
     "suggestion.builtin_theme": "Tema predefinido",
     "suggestion.builtin_theme_current": "Tema predefinido (actual)",
@@ -355,7 +340,6 @@
     "suggestion.user_theme_current": "Tema de usuario (actual)",
     "suggestion.builtin": "Predefinido",
     "suggestion.terminal_native": "Usar color nativo de la terminal",
-
     "section.editor": "Editor",
     "section.editor_desc": "Colores del area principal del editor",
     "section.ui": "Elementos de interfaz",
@@ -366,7 +350,6 @@
     "section.diagnostic_desc": "Colores de diagnosticos LSP (errores, advertencias, etc.)",
     "section.syntax": "Resaltado de sintaxis",
     "section.syntax_desc": "Colores de resaltado de sintaxis de codigo",
-
     "field.bg": "Fondo",
     "field.bg_desc": "Color de fondo del editor",
     "field.fg": "Primer plano",
@@ -383,7 +366,6 @@
     "field.line_number_fg_desc": "Color de texto del numero de linea",
     "field.line_number_bg": "Fondo de numero de linea",
     "field.line_number_bg_desc": "Fondo del margen de numeros de linea",
-
     "field.tab_active_fg": "Primer plano de pestana activa",
     "field.tab_active_fg_desc": "Color de texto de pestana activa",
     "field.tab_active_bg": "Fondo de pestana activa",
@@ -484,12 +466,10 @@
     "field.terminal_bg_desc": "Fondo de terminal integrada (use Default para transparencia)",
     "field.terminal_fg": "Primer plano de terminal",
     "field.terminal_fg_desc": "Color de texto predeterminado de terminal integrada",
-
     "field.match_bg": "Fondo de coincidencia",
     "field.match_bg_desc": "Color de fondo de coincidencia de busqueda",
     "field.match_fg": "Primer plano de coincidencia",
     "field.match_fg_desc": "Color de texto de coincidencia de busqueda",
-
     "field.error_fg": "Primer plano de error",
     "field.error_fg_desc": "Color de texto de mensaje de error",
     "field.error_bg": "Fondo de error",
@@ -506,7 +486,6 @@
     "field.hint_fg_desc": "Color de texto de mensaje de sugerencia",
     "field.hint_bg": "Fondo de sugerencia",
     "field.hint_bg_desc": "Fondo de resaltado de sugerencia",
-
     "field.keyword": "Palabra clave",
     "field.keyword_desc": "Palabras clave del lenguaje (if, for, fn, etc.)",
     "field.string": "Cadena",
@@ -524,7 +503,6 @@
     "field.operator": "Operador",
     "field.operator_desc": "Operadores (+, -, =, etc.)"
   },
-
   "de": {
     "cmd.edit_theme": "Theme bearbeiten",
     "cmd.edit_theme_desc": "Theme-Farbeditor oeffnen",
@@ -546,7 +524,6 @@
     "cmd.reload_desc": "Theme aus Datei neu laden",
     "cmd.show_help": "Theme: Hilfe anzeigen",
     "cmd.show_help_desc": "Hilfe zum Theme-Editor anzeigen",
-
     "status.already_open": "Theme-Editor ist bereits geoeffnet",
     "status.loading": "Lade Theme-Editor...",
     "status.ready": "Theme-Editor | c: von eingebaut kopieren | s: speichern | d: als Standard | q: beenden",
@@ -557,6 +534,7 @@
     "status.not_section": "Kein Abschnitt",
     "status.no_changes": "Keine Aenderungen zum Speichern",
     "status.updated": "%{path} aktualisiert",
+    "status.autocompleted": "Automatisch vervollständigt zu: %{value}",
     "status.invalid_color": "Ungueltiges Farbformat. Verwenden Sie #RRGGBB, [r,g,b] oder Farbname.",
     "status.name_set": "Theme-Name festgelegt: %{name}",
     "status.copied": "Von %{theme} kopiert. Bearbeiten und als neues Theme speichern.",
@@ -577,14 +555,12 @@
     "status.loaded": "Theme geladen: %{name}",
     "status.opened_builtin": "Eingebautes Theme geoeffnet: %{name} (verwenden Sie Speichern unter)",
     "status.builtin_requires_save_as": "Eingebaute Themes koennen nicht ueberschrieben werden. Verwenden Sie Speichern unter.",
-
     "panel.title": "Theme-Editor: %{name}",
     "panel.modified": "[geaendert]",
     "panel.file": "Datei: %{path}",
     "panel.new_theme": "Neues Theme (noch nicht gespeichert)",
     "panel.nav_hint": "Auf/Ab: navigieren | RET/SPC: Farbe bearbeiten | TAB: erweitern/reduzieren",
     "panel.action_hint": "%{open}: oeffnen | %{save}: speichern | %{save_as}: speichern unter | %{delete}: loeschen | %{close}: beenden | %{help}: Hilfe",
-
     "prompt.open_theme": "Theme oeffnen: ",
     "prompt.select_theme_to_edit": "Theme zum Bearbeiten auswählen: ",
     "prompt.theme_name": "Theme-Name: ",
@@ -597,7 +573,6 @@
     "prompt.overwrite_confirm": "Theme '%{name}' existiert bereits: ",
     "prompt.overwrite_yes": "Vorhandenes Theme ueberschreiben",
     "prompt.overwrite_no": "Abbrechen",
-
     "suggestion.current": "(aktuell)",
     "suggestion.builtin_theme": "Eingebautes Theme",
     "suggestion.builtin_theme_current": "Eingebautes Theme (aktuell)",
@@ -605,7 +580,6 @@
     "suggestion.user_theme_current": "Benutzer-Theme (aktuell)",
     "suggestion.builtin": "Eingebaut",
     "suggestion.terminal_native": "Native Terminal-Farbe verwenden",
-
     "section.editor": "Editor",
     "section.editor_desc": "Farben des Haupteditorbereichs",
     "section.ui": "Oberflaeche",
@@ -616,7 +590,6 @@
     "section.diagnostic_desc": "LSP-Diagnosefarben (Fehler, Warnungen, usw.)",
     "section.syntax": "Syntaxhervorhebung",
     "section.syntax_desc": "Farben fuer Code-Syntaxhervorhebung",
-
     "field.bg": "Hintergrund",
     "field.bg_desc": "Editor-Hintergrundfarbe",
     "field.fg": "Vordergrund",
@@ -633,7 +606,6 @@
     "field.line_number_fg_desc": "Textfarbe der Zeilennummern",
     "field.line_number_bg": "Zeilennummer Hintergrund",
     "field.line_number_bg_desc": "Hintergrund des Zeilennummern-Bereichs",
-
     "field.tab_active_fg": "Aktiver Tab Vordergrund",
     "field.tab_active_fg_desc": "Textfarbe des aktiven Tabs",
     "field.tab_active_bg": "Aktiver Tab Hintergrund",
@@ -734,12 +706,10 @@
     "field.terminal_bg_desc": "Hintergrund des integrierten Terminals (Default fuer Transparenz)",
     "field.terminal_fg": "Terminal Vordergrund",
     "field.terminal_fg_desc": "Standard-Textfarbe des integrierten Terminals",
-
     "field.match_bg": "Treffer Hintergrund",
     "field.match_bg_desc": "Hintergrundfarbe des Suchtreffers",
     "field.match_fg": "Treffer Vordergrund",
     "field.match_fg_desc": "Textfarbe des Suchtreffers",
-
     "field.error_fg": "Fehler Vordergrund",
     "field.error_fg_desc": "Textfarbe der Fehlermeldung",
     "field.error_bg": "Fehler Hintergrund",
@@ -756,7 +726,6 @@
     "field.hint_fg_desc": "Textfarbe der Hinweismeldung",
     "field.hint_bg": "Hinweis Hintergrund",
     "field.hint_bg_desc": "Hintergrund der Hinweis-Hervorhebung",
-
     "field.keyword": "Schluesselwort",
     "field.keyword_desc": "Sprach-Schluesselwoerter (if, for, fn, usw.)",
     "field.string": "Zeichenkette",
@@ -774,7 +743,6 @@
     "field.operator": "Operator",
     "field.operator_desc": "Operatoren (+, -, =, usw.)"
   },
-
   "fr": {
     "cmd.edit_theme": "Modifier le theme",
     "cmd.edit_theme_desc": "Ouvrir l'editeur de couleurs du theme",
@@ -796,7 +764,6 @@
     "cmd.reload_desc": "Recharger le theme depuis le fichier",
     "cmd.show_help": "Theme: Afficher l'aide",
     "cmd.show_help_desc": "Afficher l'aide de l'editeur de themes",
-
     "status.already_open": "L'editeur de themes est deja ouvert",
     "status.loading": "Chargement de l'editeur de themes...",
     "status.ready": "Editeur de themes | c: copier de integre | s: enregistrer | d: par defaut | q: quitter",
@@ -807,6 +774,7 @@
     "status.not_section": "Ce n'est pas une section",
     "status.no_changes": "Aucune modification a enregistrer",
     "status.updated": "%{path} mis a jour",
+    "status.autocompleted": "Complété automatiquement : %{value}",
     "status.invalid_color": "Format de couleur invalide. Utilisez #RRGGBB, [r,g,b] ou un nom de couleur.",
     "status.name_set": "Nom du theme defini: %{name}",
     "status.copied": "Copie de %{theme}. Modifiez et enregistrez comme nouveau theme.",
@@ -827,14 +795,12 @@
     "status.loaded": "Theme charge: %{name}",
     "status.opened_builtin": "Theme integre ouvert: %{name} (utilisez Enregistrer sous)",
     "status.builtin_requires_save_as": "Les themes integres ne peuvent pas etre modifies. Utilisez Enregistrer sous.",
-
     "panel.title": "Editeur de themes: %{name}",
     "panel.modified": "[modifie]",
     "panel.file": "Fichier: %{path}",
     "panel.new_theme": "Nouveau theme (pas encore enregistre)",
     "panel.nav_hint": "haut/bas: naviguer | RET/SPC: modifier couleur | TAB: developper/reduire",
     "panel.action_hint": "%{open}: ouvrir | %{save}: enregistrer | %{save_as}: enregistrer sous | %{delete}: supprimer | %{close}: quitter | %{help}: aide",
-
     "prompt.open_theme": "Ouvrir le theme: ",
     "prompt.select_theme_to_edit": "Sélectionner le thème à modifier: ",
     "prompt.theme_name": "Nom du theme: ",
@@ -847,7 +813,6 @@
     "prompt.overwrite_confirm": "Le theme '%{name}' existe deja: ",
     "prompt.overwrite_yes": "Ecraser le theme existant",
     "prompt.overwrite_no": "Annuler",
-
     "suggestion.current": "(actuel)",
     "suggestion.builtin_theme": "Theme integre",
     "suggestion.builtin_theme_current": "Theme integre (actuel)",
@@ -855,7 +820,6 @@
     "suggestion.user_theme_current": "Theme utilisateur (actuel)",
     "suggestion.builtin": "Integre",
     "suggestion.terminal_native": "Utiliser la couleur native du terminal",
-
     "section.editor": "Editeur",
     "section.editor_desc": "Couleurs de la zone principale de l'editeur",
     "section.ui": "Interface",
@@ -866,7 +830,6 @@
     "section.diagnostic_desc": "Couleurs de diagnostics LSP (erreurs, avertissements, etc.)",
     "section.syntax": "Coloration syntaxique",
     "section.syntax_desc": "Couleurs de coloration syntaxique du code",
-
     "field.bg": "Arriere-plan",
     "field.bg_desc": "Couleur d'arriere-plan de l'editeur",
     "field.fg": "Premier plan",
@@ -883,7 +846,6 @@
     "field.line_number_fg_desc": "Couleur du texte des numeros de ligne",
     "field.line_number_bg": "Arriere-plan des numeros de ligne",
     "field.line_number_bg_desc": "Arriere-plan de la gouttiere des numeros",
-
     "field.tab_active_fg": "Premier plan onglet actif",
     "field.tab_active_fg_desc": "Couleur du texte de l'onglet actif",
     "field.tab_active_bg": "Arriere-plan onglet actif",
@@ -984,12 +946,10 @@
     "field.terminal_bg_desc": "Arriere-plan du terminal integre (utilisez Default pour la transparence)",
     "field.terminal_fg": "Premier plan terminal",
     "field.terminal_fg_desc": "Couleur de texte par defaut du terminal integre",
-
     "field.match_bg": "Arriere-plan correspondance",
     "field.match_bg_desc": "Couleur d'arriere-plan de la correspondance de recherche",
     "field.match_fg": "Premier plan correspondance",
     "field.match_fg_desc": "Couleur du texte de la correspondance de recherche",
-
     "field.error_fg": "Premier plan erreur",
     "field.error_fg_desc": "Couleur du texte du message d'erreur",
     "field.error_bg": "Arriere-plan erreur",
@@ -1006,7 +966,6 @@
     "field.hint_fg_desc": "Couleur du texte du message d'indice",
     "field.hint_bg": "Arriere-plan indice",
     "field.hint_bg_desc": "Arriere-plan du surlignage d'indice",
-
     "field.keyword": "Mot-cle",
     "field.keyword_desc": "Mots-cles du langage (if, for, fn, etc.)",
     "field.string": "Chaine",
@@ -1024,7 +983,6 @@
     "field.operator": "Operateur",
     "field.operator_desc": "Operateurs (+, -, =, etc.)"
   },
-
   "ja": {
     "cmd.edit_theme": "テーマを編集",
     "cmd.edit_theme_desc": "テーマカラーエディタを開く",
@@ -1046,7 +1004,6 @@
     "cmd.reload_desc": "ファイルからテーマを再読み込みする",
     "cmd.show_help": "テーマ: ヘルプを表示",
     "cmd.show_help_desc": "テーマエディタのヘルプを表示する",
-
     "status.already_open": "テーマエディタは既に開いています",
     "status.loading": "テーマエディタを読み込み中...",
     "status.ready": "テーマエディタ | c: 組み込みからコピー | s: 保存 | d: デフォルト設定 | q: 終了",
@@ -1057,6 +1014,7 @@
     "status.not_section": "セクションではありません",
     "status.no_changes": "保存する変更がありません",
     "status.updated": "%{path}を更新しました",
+    "status.autocompleted": "%{value}に自動補完しました",
     "status.invalid_color": "無効な色形式です。#RRGGBB、[r,g,b]、または色名を使用してください。",
     "status.name_set": "テーマ名を設定しました: %{name}",
     "status.copied": "%{theme}からコピーしました。編集して新しいテーマとして保存してください。",
@@ -1077,14 +1035,12 @@
     "status.loaded": "テーマを読み込みました: %{name}",
     "status.opened_builtin": "組み込みテーマを開きました: %{name} (別名保存を使用してください)",
     "status.builtin_requires_save_as": "組み込みテーマは直接変更できません。別名保存を使用してください。",
-
     "panel.title": "テーマエディタ: %{name}",
     "panel.modified": "[変更あり]",
     "panel.file": "ファイル: %{path}",
     "panel.new_theme": "新しいテーマ (未保存)",
     "panel.nav_hint": "上/下: 移動 | RET/SPC: 色を編集 | TAB: 展開/折りたたみ",
     "panel.action_hint": "%{open}: 開く | %{save}: 保存 | %{save_as}: 別名保存 | %{delete}: 削除 | %{close}: 終了 | %{help}: ヘルプ",
-
     "prompt.open_theme": "テーマを開く: ",
     "prompt.select_theme_to_edit": "編集するテーマを選択: ",
     "prompt.theme_name": "テーマ名: ",
@@ -1097,7 +1053,6 @@
     "prompt.overwrite_confirm": "テーマ '%{name}' は既に存在します: ",
     "prompt.overwrite_yes": "既存のテーマを上書き",
     "prompt.overwrite_no": "キャンセル",
-
     "suggestion.current": "(現在)",
     "suggestion.builtin_theme": "組み込みテーマ",
     "suggestion.builtin_theme_current": "組み込みテーマ (現在)",
@@ -1105,7 +1060,6 @@
     "suggestion.user_theme_current": "ユーザーテーマ (現在)",
     "suggestion.builtin": "組み込み",
     "suggestion.terminal_native": "ターミナルのネイティブカラーを使用",
-
     "section.editor": "エディタ",
     "section.editor_desc": "メインエディタ領域の色",
     "section.ui": "UI要素",
@@ -1116,7 +1070,6 @@
     "section.diagnostic_desc": "LSP診断の色 (エラー、警告など)",
     "section.syntax": "シンタックスハイライト",
     "section.syntax_desc": "コードのシンタックスハイライト色",
-
     "field.bg": "背景",
     "field.bg_desc": "エディタの背景色",
     "field.fg": "前景",
@@ -1133,7 +1086,6 @@
     "field.line_number_fg_desc": "行番号のテキスト色",
     "field.line_number_bg": "行番号背景",
     "field.line_number_bg_desc": "行番号ガターの背景",
-
     "field.tab_active_fg": "アクティブタブ前景",
     "field.tab_active_fg_desc": "アクティブタブのテキスト色",
     "field.tab_active_bg": "アクティブタブ背景",
@@ -1234,12 +1186,10 @@
     "field.terminal_bg_desc": "組み込みターミナルの背景 (透過にはDefaultを使用)",
     "field.terminal_fg": "ターミナル前景",
     "field.terminal_fg_desc": "組み込みターミナルのデフォルトテキスト色",
-
     "field.match_bg": "一致背景",
     "field.match_bg_desc": "検索一致の背景色",
     "field.match_fg": "一致前景",
     "field.match_fg_desc": "検索一致のテキスト色",
-
     "field.error_fg": "エラー前景",
     "field.error_fg_desc": "エラーメッセージのテキスト色",
     "field.error_bg": "エラー背景",
@@ -1256,7 +1206,6 @@
     "field.hint_fg_desc": "ヒントメッセージのテキスト色",
     "field.hint_bg": "ヒント背景",
     "field.hint_bg_desc": "ヒントハイライトの背景",
-
     "field.keyword": "キーワード",
     "field.keyword_desc": "言語キーワード (if、for、fnなど)",
     "field.string": "文字列",
@@ -1274,7 +1223,6 @@
     "field.operator": "演算子",
     "field.operator_desc": "演算子 (+、-、=など)"
   },
-
   "zh": {
     "cmd.edit_theme": "编辑主题",
     "cmd.edit_theme_desc": "打开主题颜色编辑器",
@@ -1296,7 +1244,6 @@
     "cmd.reload_desc": "从文件重新加载主题",
     "cmd.show_help": "主题: 显示帮助",
     "cmd.show_help_desc": "显示主题编辑器帮助",
-
     "status.already_open": "主题编辑器已打开",
     "status.loading": "正在加载主题编辑器...",
     "status.ready": "主题编辑器 | c: 从内置复制 | s: 保存 | d: 设为默认 | q: 退出",
@@ -1307,6 +1254,7 @@
     "status.not_section": "不是分区",
     "status.no_changes": "没有需要保存的更改",
     "status.updated": "已更新 %{path}",
+    "status.autocompleted": "自动补全为: %{value}",
     "status.invalid_color": "无效的颜色格式。请使用 #RRGGBB、[r,g,b] 或颜色名称。",
     "status.name_set": "主题名称已设置: %{name}",
     "status.copied": "已从 %{theme} 复制。编辑并保存为新主题。",
@@ -1327,14 +1275,12 @@
     "status.loaded": "已加载主题: %{name}",
     "status.opened_builtin": "已打开内置主题: %{name} (请使用另存为)",
     "status.builtin_requires_save_as": "内置主题不能直接修改。请使用另存为。",
-
     "panel.title": "主题编辑器: %{name}",
     "panel.modified": "[已修改]",
     "panel.file": "文件: %{path}",
     "panel.new_theme": "新主题 (尚未保存)",
     "panel.nav_hint": "上/下: 导航 | RET/SPC: 编辑颜色 | TAB: 展开/折叠",
     "panel.action_hint": "%{open}: 打开 | %{save}: 保存 | %{save_as}: 另存为 | %{delete}: 删除 | %{close}: 退出 | %{help}: 帮助",
-
     "prompt.open_theme": "打开主题: ",
     "prompt.select_theme_to_edit": "选择要编辑的主题: ",
     "prompt.theme_name": "主题名称: ",
@@ -1347,7 +1293,6 @@
     "prompt.overwrite_confirm": "主题 '%{name}' 已存在: ",
     "prompt.overwrite_yes": "覆盖现有主题",
     "prompt.overwrite_no": "取消",
-
     "suggestion.current": "(当前)",
     "suggestion.builtin_theme": "内置主题",
     "suggestion.builtin_theme_current": "内置主题 (当前)",
@@ -1355,7 +1300,6 @@
     "suggestion.user_theme_current": "用户主题 (当前)",
     "suggestion.builtin": "内置",
     "suggestion.terminal_native": "使用终端原生颜色",
-
     "section.editor": "编辑器",
     "section.editor_desc": "主编辑区颜色",
     "section.ui": "界面元素",
@@ -1366,7 +1310,6 @@
     "section.diagnostic_desc": "LSP诊断颜色 (错误、警告等)",
     "section.syntax": "语法高亮",
     "section.syntax_desc": "代码语法高亮颜色",
-
     "field.bg": "背景",
     "field.bg_desc": "编辑器背景颜色",
     "field.fg": "前景",
@@ -1383,7 +1326,6 @@
     "field.line_number_fg_desc": "行号文本颜色",
     "field.line_number_bg": "行号背景",
     "field.line_number_bg_desc": "行号区域背景",
-
     "field.tab_active_fg": "活动标签页前景",
     "field.tab_active_fg_desc": "活动标签页文本颜色",
     "field.tab_active_bg": "活动标签页背景",
@@ -1484,12 +1426,10 @@
     "field.terminal_bg_desc": "内置终端背景 (使用 Default 实现透明)",
     "field.terminal_fg": "终端前景",
     "field.terminal_fg_desc": "内置终端默认文本颜色",
-
     "field.match_bg": "匹配背景",
     "field.match_bg_desc": "搜索匹配背景颜色",
     "field.match_fg": "匹配前景",
     "field.match_fg_desc": "搜索匹配文本颜色",
-
     "field.error_fg": "错误前景",
     "field.error_fg_desc": "错误消息文本颜色",
     "field.error_bg": "错误背景",
@@ -1506,7 +1446,6 @@
     "field.hint_fg_desc": "提示消息文本颜色",
     "field.hint_bg": "提示背景",
     "field.hint_bg_desc": "提示高亮背景",
-
     "field.keyword": "关键字",
     "field.keyword_desc": "语言关键字 (if、for、fn等)",
     "field.string": "字符串",

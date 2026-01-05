@@ -167,13 +167,19 @@ impl Prompt {
         }
     }
 
-    /// Create a new prompt with initial text
+    /// Create a new prompt with initial text (selected so typing replaces it)
     pub fn with_initial_text(
         message: String,
         prompt_type: PromptType,
         initial_text: String,
     ) -> Self {
         let cursor_pos = initial_text.len();
+        // Select all initial text so typing immediately replaces it
+        let selection_anchor = if initial_text.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
         Self {
             message,
             input: initial_text,
@@ -182,7 +188,7 @@ impl Prompt {
             suggestions: Vec::new(),
             original_suggestions: None,
             selected_suggestion: None,
-            selection_anchor: None,
+            selection_anchor,
         }
     }
 
@@ -305,6 +311,47 @@ impl Prompt {
     /// Get the final input (use selected suggestion if available, otherwise raw input)
     pub fn get_final_input(&self) -> String {
         self.selected_value().unwrap_or_else(|| self.input.clone())
+    }
+
+    /// Apply fuzzy filtering to suggestions based on current input
+    ///
+    /// If `match_description` is true, also matches against suggestion descriptions.
+    /// Updates `suggestions` with filtered and sorted results.
+    pub fn filter_suggestions(&mut self, match_description: bool) {
+        use crate::input::fuzzy::{fuzzy_match, FuzzyMatch};
+
+        let Some(original) = &self.original_suggestions else {
+            return;
+        };
+
+        let input = &self.input;
+        let mut filtered: Vec<(crate::input::commands::Suggestion, i32)> = original
+            .iter()
+            .filter_map(|s| {
+                let text_result = fuzzy_match(input, &s.text);
+                let desc_result = if match_description {
+                    s.description
+                        .as_ref()
+                        .map(|d| fuzzy_match(input, d))
+                        .unwrap_or_else(FuzzyMatch::no_match)
+                } else {
+                    FuzzyMatch::no_match()
+                };
+                if text_result.matched || desc_result.matched {
+                    Some((s.clone(), text_result.score.max(desc_result.score)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        filtered.sort_by(|a, b| b.1.cmp(&a.1));
+        self.suggestions = filtered.into_iter().map(|(s, _)| s).collect();
+        self.selected_suggestion = if self.suggestions.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
     }
 
     // ========================================================================

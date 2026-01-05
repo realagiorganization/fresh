@@ -1002,13 +1002,15 @@ impl Editor {
         &mut self,
         suggestions: Vec<crate::input::commands::Suggestion>,
     ) {
-        // Update the current prompt's suggestions
         if let Some(prompt) = &mut self.prompt {
+            // Set original_suggestions for auto-filtering
+            prompt.original_suggestions = Some(suggestions.clone());
             prompt.suggestions = suggestions;
+            // Select first suggestion by default
             prompt.selected_suggestion = if prompt.suggestions.is_empty() {
                 None
             } else {
-                Some(0) // Select first suggestion by default
+                Some(0)
             };
         }
     }
