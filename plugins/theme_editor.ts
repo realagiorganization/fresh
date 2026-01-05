@@ -1435,6 +1435,32 @@ globalThis.onThemeEditorBufferClosed = function(data: {
 
 editor.on("buffer_closed", "onThemeEditorBufferClosed");
 
+/**
+ * Handle buffer activation - set context when theme editor gains focus
+ */
+globalThis.onThemeEditorBufferActivated = function(data: {
+  buffer_id: number;
+}): void {
+  if (state.bufferId !== null && data.buffer_id === state.bufferId) {
+    editor.setContext("theme-editor", true);
+  }
+};
+
+editor.on("buffer_activated", "onThemeEditorBufferActivated");
+
+/**
+ * Handle buffer deactivation - clear context when theme editor loses focus
+ */
+globalThis.onThemeEditorBufferDeactivated = function(data: {
+  buffer_id: number;
+}): void {
+  if (state.bufferId !== null && data.buffer_id === state.bufferId) {
+    editor.setContext("theme-editor", false);
+  }
+};
+
+editor.on("buffer_deactivated", "onThemeEditorBufferDeactivated");
+
 // =============================================================================
 // Smart Navigation - Skip Non-Selectable Lines
 // =============================================================================
