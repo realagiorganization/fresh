@@ -89,122 +89,108 @@ interface ThemeField {
 }
 
 // =============================================================================
-// Theme Field Metadata
+// Theme Schema (loaded dynamically from Rust)
 // =============================================================================
 
-const THEME_SECTIONS: ThemeSection[] = [
-  {
-    name: "editor",
-    displayName: "Editor",
-    description: "Main editor area colors",
-    fields: [
-      { key: "bg", displayName: "Background", description: "Editor background color", section: "editor" },
-      { key: "fg", displayName: "Foreground", description: "Default text color", section: "editor" },
-      { key: "cursor", displayName: "Cursor", description: "Cursor color", section: "editor" },
-      { key: "inactive_cursor", displayName: "Inactive Cursor", description: "Cursor color in unfocused splits", section: "editor" },
-      { key: "selection_bg", displayName: "Selection Background", description: "Selected text background", section: "editor" },
-      { key: "current_line_bg", displayName: "Current Line Background", description: "Background of the line containing cursor", section: "editor" },
-      { key: "line_number_fg", displayName: "Line Number Foreground", description: "Line number text color", section: "editor" },
-      { key: "line_number_bg", displayName: "Line Number Background", description: "Line number gutter background", section: "editor" },
-    ],
-  },
-  {
-    name: "ui",
-    displayName: "UI Elements",
-    description: "User interface colors (tabs, menus, status bar, etc.)",
-    fields: [
-      { key: "tab_active_fg", displayName: "Active Tab Foreground", description: "Active tab text color", section: "ui" },
-      { key: "tab_active_bg", displayName: "Active Tab Background", description: "Active tab background color", section: "ui" },
-      { key: "tab_inactive_fg", displayName: "Inactive Tab Foreground", description: "Inactive tab text color", section: "ui" },
-      { key: "tab_inactive_bg", displayName: "Inactive Tab Background", description: "Inactive tab background color", section: "ui" },
-      { key: "tab_separator_bg", displayName: "Tab Separator", description: "Tab bar separator color", section: "ui" },
-      { key: "tab_close_hover_fg", displayName: "Tab Close Hover", description: "Tab close button hover color", section: "ui" },
-      { key: "tab_hover_bg", displayName: "Tab Hover Background", description: "Tab hover background color", section: "ui" },
-      { key: "menu_bg", displayName: "Menu Background", description: "Menu bar background", section: "ui" },
-      { key: "menu_fg", displayName: "Menu Foreground", description: "Menu bar text color", section: "ui" },
-      { key: "menu_active_bg", displayName: "Menu Active Background", description: "Active menu item background", section: "ui" },
-      { key: "menu_active_fg", displayName: "Menu Active Foreground", description: "Active menu item text color", section: "ui" },
-      { key: "menu_dropdown_bg", displayName: "Menu Dropdown Background", description: "Dropdown menu background", section: "ui" },
-      { key: "menu_dropdown_fg", displayName: "Menu Dropdown Foreground", description: "Dropdown menu text color", section: "ui" },
-      { key: "menu_highlight_bg", displayName: "Menu Highlight Background", description: "Highlighted menu item background", section: "ui" },
-      { key: "menu_highlight_fg", displayName: "Menu Highlight Foreground", description: "Highlighted menu item text color", section: "ui" },
-      { key: "menu_border_fg", displayName: "Menu Border", description: "Menu border color", section: "ui" },
-      { key: "menu_separator_fg", displayName: "Menu Separator", description: "Menu separator line color", section: "ui" },
-      { key: "menu_hover_bg", displayName: "Menu Hover Background", description: "Menu item hover background", section: "ui" },
-      { key: "menu_hover_fg", displayName: "Menu Hover Foreground", description: "Menu item hover text color", section: "ui" },
-      { key: "menu_disabled_fg", displayName: "Menu Disabled Foreground", description: "Disabled menu item text color", section: "ui" },
-      { key: "menu_disabled_bg", displayName: "Menu Disabled Background", description: "Disabled menu item background", section: "ui" },
-      { key: "status_bar_fg", displayName: "Status Bar Foreground", description: "Status bar text color", section: "ui" },
-      { key: "status_bar_bg", displayName: "Status Bar Background", description: "Status bar background color", section: "ui" },
-      { key: "prompt_fg", displayName: "Prompt Foreground", description: "Command prompt text color", section: "ui" },
-      { key: "prompt_bg", displayName: "Prompt Background", description: "Command prompt background", section: "ui" },
-      { key: "prompt_selection_fg", displayName: "Prompt Selection Foreground", description: "Prompt selected text color", section: "ui" },
-      { key: "prompt_selection_bg", displayName: "Prompt Selection Background", description: "Prompt selection background", section: "ui" },
-      { key: "popup_border_fg", displayName: "Popup Border", description: "Popup window border color", section: "ui" },
-      { key: "popup_bg", displayName: "Popup Background", description: "Popup window background", section: "ui" },
-      { key: "popup_selection_bg", displayName: "Popup Selection Background", description: "Popup selected item background", section: "ui" },
-      { key: "popup_text_fg", displayName: "Popup Text Foreground", description: "Popup window text color", section: "ui" },
-      { key: "suggestion_bg", displayName: "Suggestion Background", description: "Autocomplete suggestion background", section: "ui" },
-      { key: "suggestion_selected_bg", displayName: "Suggestion Selected Background", description: "Selected suggestion background", section: "ui" },
-      { key: "help_bg", displayName: "Help Background", description: "Help panel background", section: "ui" },
-      { key: "help_fg", displayName: "Help Foreground", description: "Help panel text color", section: "ui" },
-      { key: "help_key_fg", displayName: "Help Key Foreground", description: "Help keybinding text color", section: "ui" },
-      { key: "help_separator_fg", displayName: "Help Separator", description: "Help panel separator color", section: "ui" },
-      { key: "help_indicator_fg", displayName: "Help Indicator Foreground", description: "Help indicator text color", section: "ui" },
-      { key: "help_indicator_bg", displayName: "Help Indicator Background", description: "Help indicator background", section: "ui" },
-      { key: "inline_code_bg", displayName: "Inline Code Background", description: "Inline code block background", section: "ui" },
-      { key: "split_separator_fg", displayName: "Split Separator", description: "Split pane separator color", section: "ui" },
-      { key: "split_separator_hover_fg", displayName: "Split Separator Hover", description: "Split separator hover color", section: "ui" },
-      { key: "scrollbar_track_fg", displayName: "Scrollbar Track", description: "Scrollbar track color", section: "ui" },
-      { key: "scrollbar_thumb_fg", displayName: "Scrollbar Thumb", description: "Scrollbar thumb color", section: "ui" },
-      { key: "scrollbar_track_hover_fg", displayName: "Scrollbar Track Hover", description: "Scrollbar track hover color", section: "ui" },
-      { key: "scrollbar_thumb_hover_fg", displayName: "Scrollbar Thumb Hover", description: "Scrollbar thumb hover color", section: "ui" },
-      { key: "compose_margin_bg", displayName: "Compose Margin Background", description: "Compose mode margin background", section: "ui" },
-      { key: "semantic_highlight_bg", displayName: "Semantic Highlight Background", description: "Word under cursor highlight", section: "ui" },
-      { key: "terminal_bg", displayName: "Terminal Background", description: "Embedded terminal background (use Default for transparency)", section: "ui" },
-      { key: "terminal_fg", displayName: "Terminal Foreground", description: "Embedded terminal default text color", section: "ui" },
-    ],
-  },
-  {
-    name: "search",
-    displayName: "Search",
-    description: "Search result highlighting colors",
-    fields: [
-      { key: "match_bg", displayName: "Match Background", description: "Search match background color", section: "search" },
-      { key: "match_fg", displayName: "Match Foreground", description: "Search match text color", section: "search" },
-    ],
-  },
-  {
-    name: "diagnostic",
-    displayName: "Diagnostics",
-    description: "LSP diagnostic colors (errors, warnings, etc.)",
-    fields: [
-      { key: "error_fg", displayName: "Error Foreground", description: "Error message text color", section: "diagnostic" },
-      { key: "error_bg", displayName: "Error Background", description: "Error highlight background", section: "diagnostic" },
-      { key: "warning_fg", displayName: "Warning Foreground", description: "Warning message text color", section: "diagnostic" },
-      { key: "warning_bg", displayName: "Warning Background", description: "Warning highlight background", section: "diagnostic" },
-      { key: "info_fg", displayName: "Info Foreground", description: "Info message text color", section: "diagnostic" },
-      { key: "info_bg", displayName: "Info Background", description: "Info highlight background", section: "diagnostic" },
-      { key: "hint_fg", displayName: "Hint Foreground", description: "Hint message text color", section: "diagnostic" },
-      { key: "hint_bg", displayName: "Hint Background", description: "Hint highlight background", section: "diagnostic" },
-    ],
-  },
-  {
-    name: "syntax",
-    displayName: "Syntax Highlighting",
-    description: "Code syntax highlighting colors",
-    fields: [
-      { key: "keyword", displayName: "Keyword", description: "Language keywords (if, for, fn, etc.)", section: "syntax" },
-      { key: "string", displayName: "String", description: "String literals", section: "syntax" },
-      { key: "comment", displayName: "Comment", description: "Code comments", section: "syntax" },
-      { key: "function", displayName: "Function", description: "Function names", section: "syntax" },
-      { key: "type", displayName: "Type", description: "Type names", section: "syntax" },
-      { key: "variable", displayName: "Variable", description: "Variable names", section: "syntax" },
-      { key: "constant", displayName: "Constant", description: "Constants and literals", section: "syntax" },
-      { key: "operator", displayName: "Operator", description: "Operators (+, -, =, etc.)", section: "syntax" },
-    ],
-  },
-];
+/**
+ * Cached theme sections loaded from the API.
+ * This is populated on first use and reflects the actual theme structure from Rust.
+ */
+let cachedThemeSections: ThemeSection[] | null = null;
+
+/**
+ * Load theme sections from the Rust API.
+ * Parses the raw JSON Schema and resolves $ref references.
+ * Uses i18n keys for localized display names.
+ */
+function loadThemeSections(): ThemeSection[] {
+  if (cachedThemeSections !== null) {
+    return cachedThemeSections;
+  }
+
+  const schema = editor.getThemeSchema();
+  const defs = schema.$defs || {};
+
+  // Helper to resolve $ref and get the referenced schema
+  const resolveRef = (refStr: string): Record<string, unknown> | null => {
+    // $ref format: "#/$defs/TypeName"
+    const prefix = "#/$defs/";
+    if (refStr.startsWith(prefix)) {
+      const typeName = refStr.slice(prefix.length);
+      return defs[typeName] as Record<string, unknown> || null;
+    }
+    return null;
+  };
+
+  const sections: ThemeSection[] = [];
+  const properties = schema.properties || {};
+
+  // Section ordering
+  const sectionOrder = ["editor", "ui", "search", "diagnostic", "syntax"];
+
+  for (const [sectionName, sectionSchema] of Object.entries(properties)) {
+    // Skip "name" field - it's not a color section
+    if (sectionName === "name") continue;
+
+    const sectionObj = sectionSchema as Record<string, unknown>;
+    const sectionDesc = (sectionObj.description as string) || "";
+
+    // Resolve $ref to get the actual type definition
+    const refStr = sectionObj.$ref as string | undefined;
+    const resolvedSchema = refStr ? resolveRef(refStr) : sectionObj;
+    if (!resolvedSchema) continue;
+
+    const sectionProps = resolvedSchema.properties as Record<string, unknown> || {};
+    const fields: ThemeFieldDef[] = [];
+
+    for (const [fieldName, fieldSchema] of Object.entries(sectionProps)) {
+      const fieldObj = fieldSchema as Record<string, unknown>;
+      const fieldDesc = (fieldObj.description as string) || "";
+
+      // Generate i18n keys from field names
+      const i18nName = `field.${fieldName}`;
+      const i18nDesc = `field.${fieldName}_desc`;
+
+      fields.push({
+        key: fieldName,
+        displayName: editor.t(i18nName) || fieldDesc || fieldName,
+        description: editor.t(i18nDesc) || fieldDesc,
+        section: sectionName,
+      });
+    }
+
+    // Sort fields alphabetically (use simple comparison to avoid ICU issues in Deno)
+    fields.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+    // Generate i18n keys for section
+    const sectionI18nName = `section.${sectionName}`;
+    const sectionI18nDesc = `section.${sectionName}_desc`;
+
+    sections.push({
+      name: sectionName,
+      displayName: editor.t(sectionI18nName) || sectionDesc || sectionName,
+      description: editor.t(sectionI18nDesc) || sectionDesc,
+      fields,
+    });
+  }
+
+  // Sort sections in logical order
+  sections.sort((a, b) => {
+    const aIdx = sectionOrder.indexOf(a.name);
+    const bIdx = sectionOrder.indexOf(b.name);
+    return (aIdx === -1 ? 99 : aIdx) - (bIdx === -1 ? 99 : bIdx);
+  });
+
+  cachedThemeSections = sections;
+  return cachedThemeSections;
+}
+
+/**
+ * Get theme sections (loads from API if not cached)
+ */
+function getThemeSections(): ThemeSection[] {
+  return loadThemeSections();
+}
 
 // =============================================================================
 // State Management
@@ -556,16 +542,17 @@ function getUserThemesDir(): string {
  */
 function buildVisibleFields(): ThemeField[] {
   const fields: ThemeField[] = [];
+  const themeSections = getThemeSections();
 
-  for (const section of THEME_SECTIONS) {
+  for (const section of themeSections) {
     const expanded = state.expandedSections.has(section.name);
 
-    // Section header
+    // Section header - displayName and description are already translated in getThemeSections()
     fields.push({
       def: {
         key: section.name,
-        displayName: editor.t(`section.${section.name}`),
-        description: editor.t(`section.${section.name}_desc`),
+        displayName: section.displayName,
+        description: section.description,
         section: section.name,
       },
       value: [0, 0, 0], // Placeholder
@@ -581,12 +568,9 @@ function buildVisibleFields(): ThemeField[] {
         const path = `${section.name}.${fieldDef.key}`;
         const value = getNestedValue(state.themeData, path) as ColorValue || [128, 128, 128];
 
+        // fieldDef displayName and description are already translated in getThemeSections()
         fields.push({
-          def: {
-            ...fieldDef,
-            displayName: editor.t(`field.${fieldDef.key}`),
-            description: editor.t(`field.${fieldDef.key}_desc`),
-          },
+          def: fieldDef,
           value,
           path,
           depth: 1,
