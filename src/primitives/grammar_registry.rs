@@ -71,11 +71,7 @@ impl GrammarRegistry {
                     tracing::debug!("Loaded user grammar: {}", grammar.scope_name);
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "Failed to load user grammar {}: {}",
-                        grammar.scope_name,
-                        e
-                    );
+                    tracing::warn!("Failed to load user grammar {}: {}", grammar.scope_name, e);
                 }
             }
         }
@@ -138,7 +134,11 @@ impl GrammarRegistry {
         // Add user grammars from config directory
         if let Some(grammars_dir) = Self::grammars_directory() {
             if grammars_dir.exists() {
-                Self::load_user_grammars_from_dir(&grammars_dir, &mut builder, &mut user_extensions);
+                Self::load_user_grammars_from_dir(
+                    &grammars_dir,
+                    &mut builder,
+                    &mut user_extensions,
+                );
             }
         }
 

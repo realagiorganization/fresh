@@ -1,8 +1,12 @@
+//! Pure theme types (WASM-compatible)
+//!
+//! This module contains the core theme types and built-in theme definitions.
+//! These types have no I/O dependencies and can be used in WASM builds.
+//!
+//! For loading themes from files, see the `loader` module (runtime-only).
+
 use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "runtime")]
-use std::path::Path;
 
 /// Convert a ratatui Color to RGB values.
 /// Returns None for Reset or Indexed colors.
@@ -31,7 +35,7 @@ pub fn color_to_rgb(color: Color) -> Option<(u8, u8, u8)> {
 
 /// Brighten a color by adding an amount to each RGB component.
 /// Clamps values to 255.
-fn brighten_color(color: Color, amount: u8) -> Color {
+pub(crate) fn brighten_color(color: Color, amount: u8) -> Color {
     if let Some((r, g, b)) = color_to_rgb(color) {
         Color::Rgb(
             r.saturating_add(amount),
@@ -46,7 +50,7 @@ fn brighten_color(color: Color, amount: u8) -> Color {
 /// Serializable color representation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-enum ColorDef {
+pub enum ColorDef {
     /// RGB color as [r, g, b]
     Rgb(u8, u8, u8),
     /// Named color
@@ -84,39 +88,39 @@ impl From<ColorDef> for Color {
 
 /// Serializable theme definition (matches JSON structure)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ThemeFile {
-    name: String,
-    editor: EditorColors,
-    ui: UiColors,
-    search: SearchColors,
-    diagnostic: DiagnosticColors,
-    syntax: SyntaxColors,
+pub struct ThemeFile {
+    pub name: String,
+    pub editor: EditorColors,
+    pub ui: UiColors,
+    pub search: SearchColors,
+    pub diagnostic: DiagnosticColors,
+    pub syntax: SyntaxColors,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct EditorColors {
+pub struct EditorColors {
     #[serde(default = "default_editor_bg")]
-    bg: ColorDef,
+    pub bg: ColorDef,
     #[serde(default = "default_editor_fg")]
-    fg: ColorDef,
+    pub fg: ColorDef,
     #[serde(default = "default_cursor")]
-    cursor: ColorDef,
+    pub cursor: ColorDef,
     #[serde(default = "default_inactive_cursor")]
-    inactive_cursor: ColorDef,
+    pub inactive_cursor: ColorDef,
     #[serde(default = "default_selection_bg")]
-    selection_bg: ColorDef,
+    pub selection_bg: ColorDef,
     #[serde(default = "default_current_line_bg")]
-    current_line_bg: ColorDef,
+    pub current_line_bg: ColorDef,
     #[serde(default = "default_line_number_fg")]
-    line_number_fg: ColorDef,
+    pub line_number_fg: ColorDef,
     #[serde(default = "default_line_number_bg")]
-    line_number_bg: ColorDef,
+    pub line_number_bg: ColorDef,
     #[serde(default = "default_diff_add_bg")]
-    diff_add_bg: ColorDef,
+    pub diff_add_bg: ColorDef,
     #[serde(default = "default_diff_remove_bg")]
-    diff_remove_bg: ColorDef,
+    pub diff_remove_bg: ColorDef,
     #[serde(default = "default_diff_modify_bg")]
-    diff_modify_bg: ColorDef,
+    pub diff_modify_bg: ColorDef,
 }
 
 // Default editor colors (for minimal themes)
@@ -155,127 +159,127 @@ fn default_diff_modify_bg() -> ColorDef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct UiColors {
+pub struct UiColors {
     #[serde(default = "default_tab_active_fg")]
-    tab_active_fg: ColorDef,
+    pub tab_active_fg: ColorDef,
     #[serde(default = "default_tab_active_bg")]
-    tab_active_bg: ColorDef,
+    pub tab_active_bg: ColorDef,
     #[serde(default = "default_tab_inactive_fg")]
-    tab_inactive_fg: ColorDef,
+    pub tab_inactive_fg: ColorDef,
     #[serde(default = "default_tab_inactive_bg")]
-    tab_inactive_bg: ColorDef,
+    pub tab_inactive_bg: ColorDef,
     #[serde(default = "default_tab_separator_bg")]
-    tab_separator_bg: ColorDef,
+    pub tab_separator_bg: ColorDef,
     #[serde(default = "default_tab_close_hover_fg")]
-    tab_close_hover_fg: ColorDef,
+    pub tab_close_hover_fg: ColorDef,
     #[serde(default = "default_tab_hover_bg")]
-    tab_hover_bg: ColorDef,
+    pub tab_hover_bg: ColorDef,
     #[serde(default = "default_menu_bg")]
-    menu_bg: ColorDef,
+    pub menu_bg: ColorDef,
     #[serde(default = "default_menu_fg")]
-    menu_fg: ColorDef,
+    pub menu_fg: ColorDef,
     #[serde(default = "default_menu_active_bg")]
-    menu_active_bg: ColorDef,
+    pub menu_active_bg: ColorDef,
     #[serde(default = "default_menu_active_fg")]
-    menu_active_fg: ColorDef,
+    pub menu_active_fg: ColorDef,
     #[serde(default = "default_menu_dropdown_bg")]
-    menu_dropdown_bg: ColorDef,
+    pub menu_dropdown_bg: ColorDef,
     #[serde(default = "default_menu_dropdown_fg")]
-    menu_dropdown_fg: ColorDef,
+    pub menu_dropdown_fg: ColorDef,
     #[serde(default = "default_menu_highlight_bg")]
-    menu_highlight_bg: ColorDef,
+    pub menu_highlight_bg: ColorDef,
     #[serde(default = "default_menu_highlight_fg")]
-    menu_highlight_fg: ColorDef,
+    pub menu_highlight_fg: ColorDef,
     #[serde(default = "default_menu_border_fg")]
-    menu_border_fg: ColorDef,
+    pub menu_border_fg: ColorDef,
     #[serde(default = "default_menu_separator_fg")]
-    menu_separator_fg: ColorDef,
+    pub menu_separator_fg: ColorDef,
     #[serde(default = "default_menu_hover_bg")]
-    menu_hover_bg: ColorDef,
+    pub menu_hover_bg: ColorDef,
     #[serde(default = "default_menu_hover_fg")]
-    menu_hover_fg: ColorDef,
+    pub menu_hover_fg: ColorDef,
     #[serde(default = "default_menu_disabled_fg")]
-    menu_disabled_fg: ColorDef,
+    pub menu_disabled_fg: ColorDef,
     #[serde(default = "default_menu_disabled_bg")]
-    menu_disabled_bg: ColorDef,
+    pub menu_disabled_bg: ColorDef,
     #[serde(default = "default_status_bar_fg")]
-    status_bar_fg: ColorDef,
+    pub status_bar_fg: ColorDef,
     #[serde(default = "default_status_bar_bg")]
-    status_bar_bg: ColorDef,
+    pub status_bar_bg: ColorDef,
     #[serde(default = "default_prompt_fg")]
-    prompt_fg: ColorDef,
+    pub prompt_fg: ColorDef,
     #[serde(default = "default_prompt_bg")]
-    prompt_bg: ColorDef,
+    pub prompt_bg: ColorDef,
     #[serde(default = "default_prompt_selection_fg")]
-    prompt_selection_fg: ColorDef,
+    pub prompt_selection_fg: ColorDef,
     #[serde(default = "default_prompt_selection_bg")]
-    prompt_selection_bg: ColorDef,
+    pub prompt_selection_bg: ColorDef,
     #[serde(default = "default_popup_border_fg")]
-    popup_border_fg: ColorDef,
+    pub popup_border_fg: ColorDef,
     #[serde(default = "default_popup_bg")]
-    popup_bg: ColorDef,
+    pub popup_bg: ColorDef,
     #[serde(default = "default_popup_selection_bg")]
-    popup_selection_bg: ColorDef,
+    pub popup_selection_bg: ColorDef,
     #[serde(default = "default_popup_text_fg")]
-    popup_text_fg: ColorDef,
+    pub popup_text_fg: ColorDef,
     #[serde(default = "default_suggestion_bg")]
-    suggestion_bg: ColorDef,
+    pub suggestion_bg: ColorDef,
     #[serde(default = "default_suggestion_selected_bg")]
-    suggestion_selected_bg: ColorDef,
+    pub suggestion_selected_bg: ColorDef,
     #[serde(default = "default_help_bg")]
-    help_bg: ColorDef,
+    pub help_bg: ColorDef,
     #[serde(default = "default_help_fg")]
-    help_fg: ColorDef,
+    pub help_fg: ColorDef,
     #[serde(default = "default_help_key_fg")]
-    help_key_fg: ColorDef,
+    pub help_key_fg: ColorDef,
     #[serde(default = "default_help_separator_fg")]
-    help_separator_fg: ColorDef,
+    pub help_separator_fg: ColorDef,
     #[serde(default = "default_help_indicator_fg")]
-    help_indicator_fg: ColorDef,
+    pub help_indicator_fg: ColorDef,
     #[serde(default = "default_help_indicator_bg")]
-    help_indicator_bg: ColorDef,
+    pub help_indicator_bg: ColorDef,
     #[serde(default = "default_inline_code_bg")]
-    inline_code_bg: ColorDef,
+    pub inline_code_bg: ColorDef,
     #[serde(default = "default_split_separator_fg")]
-    split_separator_fg: ColorDef,
+    pub split_separator_fg: ColorDef,
     #[serde(default = "default_split_separator_hover_fg")]
-    split_separator_hover_fg: ColorDef,
+    pub split_separator_hover_fg: ColorDef,
     #[serde(default = "default_scrollbar_track_fg")]
-    scrollbar_track_fg: ColorDef,
+    pub scrollbar_track_fg: ColorDef,
     #[serde(default = "default_scrollbar_thumb_fg")]
-    scrollbar_thumb_fg: ColorDef,
+    pub scrollbar_thumb_fg: ColorDef,
     #[serde(default = "default_scrollbar_track_hover_fg")]
-    scrollbar_track_hover_fg: ColorDef,
+    pub scrollbar_track_hover_fg: ColorDef,
     #[serde(default = "default_scrollbar_thumb_hover_fg")]
-    scrollbar_thumb_hover_fg: ColorDef,
+    pub scrollbar_thumb_hover_fg: ColorDef,
     #[serde(default = "default_compose_margin_bg")]
-    compose_margin_bg: ColorDef,
+    pub compose_margin_bg: ColorDef,
     #[serde(default = "default_semantic_highlight_bg")]
-    semantic_highlight_bg: ColorDef,
+    pub semantic_highlight_bg: ColorDef,
     #[serde(default = "default_terminal_bg")]
-    terminal_bg: ColorDef,
+    pub terminal_bg: ColorDef,
     #[serde(default = "default_terminal_fg")]
-    terminal_fg: ColorDef,
+    pub terminal_fg: ColorDef,
     #[serde(default = "default_status_warning_indicator_bg")]
-    status_warning_indicator_bg: ColorDef,
+    pub status_warning_indicator_bg: ColorDef,
     #[serde(default = "default_status_warning_indicator_fg")]
-    status_warning_indicator_fg: ColorDef,
+    pub status_warning_indicator_fg: ColorDef,
     #[serde(default = "default_status_error_indicator_bg")]
-    status_error_indicator_bg: ColorDef,
+    pub status_error_indicator_bg: ColorDef,
     #[serde(default = "default_status_error_indicator_fg")]
-    status_error_indicator_fg: ColorDef,
+    pub status_error_indicator_fg: ColorDef,
     #[serde(default = "default_status_warning_indicator_hover_bg")]
-    status_warning_indicator_hover_bg: ColorDef,
+    pub status_warning_indicator_hover_bg: ColorDef,
     #[serde(default = "default_status_warning_indicator_hover_fg")]
-    status_warning_indicator_hover_fg: ColorDef,
+    pub status_warning_indicator_hover_fg: ColorDef,
     #[serde(default = "default_status_error_indicator_hover_bg")]
-    status_error_indicator_hover_bg: ColorDef,
+    pub status_error_indicator_hover_bg: ColorDef,
     #[serde(default = "default_status_error_indicator_hover_fg")]
-    status_error_indicator_hover_fg: ColorDef,
+    pub status_error_indicator_hover_fg: ColorDef,
     #[serde(default = "default_tab_drop_zone_bg")]
-    tab_drop_zone_bg: ColorDef,
+    pub tab_drop_zone_bg: ColorDef,
     #[serde(default = "default_tab_drop_zone_border")]
-    tab_drop_zone_border: ColorDef,
+    pub tab_drop_zone_border: ColorDef,
 }
 
 // Default tab close hover color (for backward compatibility with existing themes)
@@ -476,11 +480,11 @@ fn default_tab_drop_zone_border() -> ColorDef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SearchColors {
+pub struct SearchColors {
     #[serde(default = "default_search_match_bg")]
-    match_bg: ColorDef,
+    pub match_bg: ColorDef,
     #[serde(default = "default_search_match_fg")]
-    match_fg: ColorDef,
+    pub match_fg: ColorDef,
 }
 
 // Default search colors
@@ -492,23 +496,23 @@ fn default_search_match_fg() -> ColorDef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DiagnosticColors {
+pub struct DiagnosticColors {
     #[serde(default = "default_diagnostic_error_fg")]
-    error_fg: ColorDef,
+    pub error_fg: ColorDef,
     #[serde(default = "default_diagnostic_error_bg")]
-    error_bg: ColorDef,
+    pub error_bg: ColorDef,
     #[serde(default = "default_diagnostic_warning_fg")]
-    warning_fg: ColorDef,
+    pub warning_fg: ColorDef,
     #[serde(default = "default_diagnostic_warning_bg")]
-    warning_bg: ColorDef,
+    pub warning_bg: ColorDef,
     #[serde(default = "default_diagnostic_info_fg")]
-    info_fg: ColorDef,
+    pub info_fg: ColorDef,
     #[serde(default = "default_diagnostic_info_bg")]
-    info_bg: ColorDef,
+    pub info_bg: ColorDef,
     #[serde(default = "default_diagnostic_hint_fg")]
-    hint_fg: ColorDef,
+    pub hint_fg: ColorDef,
     #[serde(default = "default_diagnostic_hint_bg")]
-    hint_bg: ColorDef,
+    pub hint_bg: ColorDef,
 }
 
 // Default diagnostic colors
@@ -538,23 +542,23 @@ fn default_diagnostic_hint_bg() -> ColorDef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SyntaxColors {
+pub struct SyntaxColors {
     #[serde(default = "default_syntax_keyword")]
-    keyword: ColorDef,
+    pub keyword: ColorDef,
     #[serde(default = "default_syntax_string")]
-    string: ColorDef,
+    pub string: ColorDef,
     #[serde(default = "default_syntax_comment")]
-    comment: ColorDef,
+    pub comment: ColorDef,
     #[serde(default = "default_syntax_function")]
-    function: ColorDef,
+    pub function: ColorDef,
     #[serde(rename = "type", default = "default_syntax_type")]
-    type_: ColorDef,
+    pub type_: ColorDef,
     #[serde(default = "default_syntax_variable")]
-    variable: ColorDef,
+    pub variable: ColorDef,
     #[serde(default = "default_syntax_constant")]
-    constant: ColorDef,
+    pub constant: ColorDef,
     #[serde(default = "default_syntax_operator")]
-    operator: ColorDef,
+    pub operator: ColorDef,
 }
 
 // Default syntax colors (VSCode Dark+ inspired)
@@ -818,44 +822,6 @@ impl From<ThemeFile> for Theme {
 }
 
 impl Theme {
-    /// Load theme from a JSON file (runtime only)
-    #[cfg(feature = "runtime")]
-    fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read theme file: {}", e))?;
-        let theme_file: ThemeFile = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse theme file: {}", e))?;
-        Ok(theme_file.into())
-    }
-
-    /// Load builtin theme from the themes directory (runtime only)
-    #[cfg(feature = "runtime")]
-    fn load_builtin_theme(name: &str) -> Option<Self> {
-        // Build list of paths to search
-        let mut theme_paths = vec![
-            format!("themes/{}.json", name),
-            format!("../themes/{}.json", name),
-            format!("../../themes/{}.json", name),
-        ];
-
-        // Also check user config themes directory
-        if let Some(config_dir) = dirs::config_dir() {
-            let user_theme_path = config_dir
-                .join("fresh")
-                .join("themes")
-                .join(format!("{}.json", name));
-            theme_paths.insert(0, user_theme_path.to_string_lossy().to_string());
-        }
-
-        for path in &theme_paths {
-            if let Ok(theme) = Self::from_file(path) {
-                return Some(theme);
-            }
-        }
-
-        None
-    }
-
     /// Default dark theme (VSCode Dark+ inspired)
     /// Fallback if JSON file cannot be loaded
     pub fn dark() -> Self {
@@ -1250,100 +1216,6 @@ impl Theme {
         }
     }
 
-    /// Get a theme by name, defaults to dark if not found
-    /// Runtime version: tries to load from JSON file first, falls back to hardcoded themes
-    #[cfg(feature = "runtime")]
-    pub fn from_name(name: &str) -> Self {
-        let normalized_name = name.to_lowercase().replace('_', "-");
-
-        // Try to load from JSON file first
-        if let Some(theme) = Self::load_builtin_theme(&normalized_name) {
-            return theme;
-        }
-
-        // Fall back to hardcoded themes
-        Self::from_name_embedded(&normalized_name)
-    }
-
-    /// Get a theme by name, defaults to dark if not found
-    /// Non-runtime version: only uses hardcoded themes
-    #[cfg(not(feature = "runtime"))]
-    pub fn from_name(name: &str) -> Self {
-        let normalized_name = name.to_lowercase().replace('_', "-");
-        Self::from_name_embedded(&normalized_name)
-    }
-
-    /// Get a theme from embedded/hardcoded themes only
-    fn from_name_embedded(normalized_name: &str) -> Self {
-        match normalized_name {
-            "light" => Self::light(),
-            "high-contrast" => Self::high_contrast(),
-            "nostalgia" => Self::nostalgia(),
-            _ => Self::dark(),
-        }
-    }
-
-    /// Get all available theme names (builtin + user themes)
-    /// Runtime version: scans user themes directory
-    #[cfg(feature = "runtime")]
-    pub fn available_themes() -> Vec<String> {
-        let mut themes = Self::embedded_themes();
-
-        // Scan built-in themes directory (themes/*.json in the project)
-        if let Ok(entries) = std::fs::read_dir("themes") {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "json") {
-                    if let Some(stem) = path.file_stem() {
-                        let name = stem.to_string_lossy().to_string();
-                        // Avoid duplicates
-                        if !themes.iter().any(|t| t == &name) {
-                            themes.push(name);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Scan user themes directory (user themes can override built-ins)
-        if let Some(config_dir) = dirs::config_dir() {
-            let user_themes_dir = config_dir.join("fresh").join("themes");
-            if let Ok(entries) = std::fs::read_dir(&user_themes_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|ext| ext == "json") {
-                        if let Some(stem) = path.file_stem() {
-                            let name = stem.to_string_lossy().to_string();
-                            // Avoid duplicates (user theme overriding builtin)
-                            if !themes.iter().any(|t| t == &name) {
-                                themes.push(name);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        themes
-    }
-
-    /// Get all available theme names (embedded only)
-    /// Non-runtime version: only returns hardcoded themes
-    #[cfg(not(feature = "runtime"))]
-    pub fn available_themes() -> Vec<String> {
-        Self::embedded_themes()
-    }
-
-    /// Get embedded/hardcoded theme names
-    pub fn embedded_themes() -> Vec<String> {
-        vec![
-            "dark".to_string(),
-            "light".to_string(),
-            "high-contrast".to_string(),
-            "nostalgia".to_string(),
-        ]
-    }
-
     /// Nostalgia theme (Turbo Pascal 5 / WordPerfect 5 inspired)
     pub fn nostalgia() -> Self {
         Self {
@@ -1475,6 +1347,26 @@ impl Theme {
         }
     }
 
+    /// Get embedded/hardcoded theme names
+    pub fn embedded_themes() -> Vec<String> {
+        vec![
+            "dark".to_string(),
+            "light".to_string(),
+            "high-contrast".to_string(),
+            "nostalgia".to_string(),
+        ]
+    }
+
+    /// Get a theme from embedded/hardcoded themes only
+    pub fn from_name_embedded(normalized_name: &str) -> Self {
+        match normalized_name {
+            "light" => Self::light(),
+            "high-contrast" => Self::high_contrast(),
+            "nostalgia" => Self::nostalgia(),
+            _ => Self::dark(),
+        }
+    }
+
     /// Set the terminal cursor color using OSC 12 escape sequence.
     /// This makes the hardware cursor visible on any background.
     pub fn set_terminal_cursor_color(&self) {
@@ -1524,22 +1416,21 @@ mod tests {
     }
 
     #[test]
-    fn test_theme_from_name() {
-        let theme = Theme::from_name("light");
+    fn test_theme_from_name_embedded() {
+        let theme = Theme::from_name_embedded("light");
         assert_eq!(theme.name, "light");
 
-        let theme = Theme::from_name("high-contrast");
+        let theme = Theme::from_name_embedded("high-contrast");
         assert_eq!(theme.name, "high-contrast");
 
-        let theme = Theme::from_name("unknown");
+        let theme = Theme::from_name_embedded("unknown");
         assert_eq!(theme.name, "dark");
     }
 
     #[test]
-    fn test_available_themes() {
-        let themes = Theme::available_themes();
-        // At minimum, should have the 4 builtin themes
-        assert!(themes.len() >= 4);
+    fn test_embedded_themes() {
+        let themes = Theme::embedded_themes();
+        assert_eq!(themes.len(), 4);
         assert!(themes.contains(&"dark".to_string()));
         assert!(themes.contains(&"light".to_string()));
         assert!(themes.contains(&"high-contrast".to_string()));

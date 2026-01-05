@@ -273,10 +273,7 @@ impl TextBuffer {
     }
 
     /// Load a small file with full eager loading and line indexing
-    fn load_small_file(
-        fs: &Arc<dyn FileSystem + Send + Sync>,
-        path: &Path,
-    ) -> io::Result<Self> {
+    fn load_small_file(fs: &Arc<dyn FileSystem + Send + Sync>, path: &Path) -> io::Result<Self> {
         let contents = fs.read_file(path)?;
 
         // Detect if this is a binary file
@@ -2496,7 +2493,8 @@ impl TextContentProvider for TextBuffer {
             if start >= total {
                 Vec::new()
             } else {
-                self.get_text_range(start, total - start).unwrap_or_default()
+                self.get_text_range(start, total - start)
+                    .unwrap_or_default()
             }
         };
 

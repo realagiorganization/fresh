@@ -15,7 +15,6 @@ use std::path::Path;
 use std::sync::Arc;
 use syntect::parsing::SyntaxSet;
 
-
 // =============================================================================
 // Shared Types (WASM-compatible)
 // =============================================================================
@@ -681,11 +680,7 @@ impl HighlightEngine {
                 .iter()
                 .position(|s| s.name == syntax.name)
             {
-                return Self::TextMate(TextMateEngine::with_language(
-                    syntax_set,
-                    index,
-                    language,
-                ));
+                return Self::TextMate(TextMateEngine::with_language(syntax_set, index, language));
             }
         }
 
@@ -711,11 +706,7 @@ impl HighlightEngine {
                 .iter()
                 .position(|s| s.name == syntax.name)
             {
-                return Self::TextMate(TextMateEngine::with_language(
-                    syntax_set,
-                    index,
-                    language,
-                ));
+                return Self::TextMate(TextMateEngine::with_language(syntax_set, index, language));
             }
         }
 

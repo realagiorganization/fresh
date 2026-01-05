@@ -644,7 +644,7 @@ mod tests {
     #[test]
     fn test_code_block_syntax_highlighting() {
         let theme = Theme::dark();
-        let registry = GrammarRegistry::load();
+        let registry = GrammarRegistry::builtin_only();
         // Rust code with keywords and strings that should get different colors
         let markdown = "```rust\nfn main() {\n    println!(\"Hello\");\n}\n```";
         let lines = parse_markdown(markdown, &theme, Some(&registry));

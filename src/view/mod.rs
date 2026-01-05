@@ -22,6 +22,7 @@ pub mod semantic_highlight_cache;
 pub mod settings;
 pub mod split;
 pub mod stream;
+pub mod text_content;
 pub mod theme;
 pub mod ui;
 pub mod viewport;

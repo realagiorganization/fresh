@@ -2,6 +2,7 @@
 //!
 //! This module handles the input-to-action-to-event translation.
 
+pub mod action;
 pub mod actions;
 pub mod buffer_mode;
 pub mod command_registry;
