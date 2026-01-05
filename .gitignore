@@ -39,3 +39,5 @@ proptest-regressions/
 # Flatpak build artifacts
 .flatpak-builder/
 repo/
+/dist/
+/pkg/

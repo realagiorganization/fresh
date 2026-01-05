@@ -18,19 +18,16 @@ pub mod types;
 pub mod config_io;
 #[cfg(feature = "runtime")]
 pub mod session;
-#[cfg(feature = "runtime")]
-pub mod state;
 
-// Organized modules (runtime-only)
-#[cfg(feature = "runtime")]
+// Modules with internal gating (pure types ungated, runtime code gated internally)
 pub mod app;
-#[cfg(feature = "runtime")]
 pub mod input;
-#[cfg(feature = "runtime")]
 pub mod model;
-#[cfg(feature = "runtime")]
 pub mod primitives;
-#[cfg(feature = "runtime")]
 pub mod services;
-#[cfg(feature = "runtime")]
+pub mod state;
 pub mod view;
+
+// WASM browser build modules
+#[cfg(feature = "wasm")]
+pub mod wasm;

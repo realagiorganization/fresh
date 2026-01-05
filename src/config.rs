@@ -155,6 +155,7 @@ impl CursorStyle {
     ];
 
     /// Convert to crossterm cursor style
+    #[cfg(feature = "runtime")]
     pub fn to_crossterm_style(self) -> crossterm::cursor::SetCursorStyle {
         use crossterm::cursor::SetCursorStyle;
         match self {
@@ -265,6 +266,7 @@ impl Default for LineEndingOption {
 
 impl LineEndingOption {
     /// Convert to the buffer's LineEnding type
+    #[cfg(feature = "runtime")]
     pub fn to_line_ending(&self) -> crate::model::buffer::LineEnding {
         match self {
             Self::Lf => crate::model::buffer::LineEnding::LF,
@@ -1070,6 +1072,7 @@ impl MenuItem {
     }
 
     /// Generate menu items for a dynamic source
+    #[cfg(feature = "runtime")]
     pub fn generate_dynamic_items(source: &str) -> Vec<Self> {
         match source {
             "copy_with_theme" => {
@@ -1093,6 +1096,15 @@ impl MenuItem {
                 info: format!("Unknown source: {}", source),
             }],
         }
+    }
+
+    /// Generate menu items for a dynamic source (WASM/non-runtime builds)
+    #[cfg(not(feature = "runtime"))]
+    pub fn generate_dynamic_items(source: &str) -> Vec<MenuItem> {
+        // Dynamic menu items not available in non-runtime builds
+        vec![MenuItem::Label {
+            info: format!("Dynamic source '{}' not available", source),
+        }]
     }
 }
 
@@ -2258,7 +2270,14 @@ impl Config {
         languages
     }
 
+    /// Create default LSP configurations (non-runtime builds return empty)
+    #[cfg(not(feature = "runtime"))]
+    fn default_lsp_config() -> HashMap<String, LspServerConfig> {
+        HashMap::new()
+    }
+
     /// Create default LSP configurations
+    #[cfg(feature = "runtime")]
     fn default_lsp_config() -> HashMap<String, LspServerConfig> {
         let mut lsp = HashMap::new();
 

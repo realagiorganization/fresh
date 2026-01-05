@@ -5,8 +5,7 @@
 //! wrapping utilities for styled text.
 
 use crate::primitives::grammar_registry::GrammarRegistry;
-use crate::primitives::highlight_engine::highlight_string;
-use crate::primitives::highlighter::HighlightSpan;
+use crate::primitives::highlight_engine::{highlight_string, HighlightSpan};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 
