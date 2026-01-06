@@ -5106,12 +5106,13 @@ fn test_hover_popup_follows_mouse_when_lsp_returns_no_range() -> std::io::Result
     eprintln!("Initial popup position: row={}, col={}", row_before, col_before);
     eprintln!("Screen before:\n{}", screen_before);
 
-    // BUG REPRODUCTION: Move mouse multiple times and check if popup follows
-    // Try several positions to ensure we capture the behavior
+    // Test mouse movements within the same word/symbol
+    // The popup should stay stable when moving within the word
+    // (Moving to a completely different word/line is expected to trigger a new hover)
     let test_positions = [
-        (initial_col + 10, initial_row), // Move right only
-        (initial_col, initial_row + 3),  // Move down only
-        (initial_col + 15, initial_row + 5), // Move diagonally
+        (initial_col + 2, initial_row),  // Move slightly right, same word
+        (initial_col + 5, initial_row),  // Move more right, still in function name
+        (initial_col - 2, initial_row),  // Move slightly left, same word
     ];
 
     let mut any_position_changed = false;

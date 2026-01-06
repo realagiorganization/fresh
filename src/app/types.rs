@@ -598,8 +598,9 @@ pub(crate) struct CachedLayout {
     /// (split_id, direction, x, y, length)
     pub separator_areas: Vec<(SplitId, SplitDirection, u16, u16, u16)>,
     /// Popup areas for mouse hit testing
-    /// (popup_index, rect, inner_rect, scroll_offset, num_items)
-    pub popup_areas: Vec<(usize, Rect, Rect, usize, usize)>,
+    /// (popup_index, rect, inner_rect, scroll_offset, num_items, scrollbar_rect, total_lines)
+    /// scrollbar_rect is Some if popup has a scrollbar
+    pub popup_areas: Vec<(usize, Rect, Rect, usize, usize, Option<Rect>, usize)>,
     /// Suggestions area for mouse hit testing
     /// (inner_rect, scroll_start_idx, visible_count, total_count)
     pub suggestions_area: Option<(Rect, usize, usize, usize)>,

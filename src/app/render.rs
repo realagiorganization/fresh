@@ -691,12 +691,29 @@ impl Editor {
                             _ => 0,
                         };
 
+                        // Calculate total content lines and scrollbar rect
+                        let total_lines = popup.item_count();
+                        let visible_lines = inner_area.height as usize;
+                        let scrollbar_rect = if total_lines > visible_lines && inner_area.width > 2
+                        {
+                            Some(ratatui::layout::Rect {
+                                x: inner_area.x + inner_area.width - 1,
+                                y: inner_area.y,
+                                width: 1,
+                                height: inner_area.height,
+                            })
+                        } else {
+                            None
+                        };
+
                         (
                             popup_idx,
                             popup_area,
                             inner_area,
                             popup.scroll_offset,
                             num_items,
+                            scrollbar_rect,
+                            total_lines,
                         )
                     })
                     .collect()
@@ -712,7 +729,7 @@ impl Editor {
         let state = self.active_state_mut();
         if state.popups.is_visible() {
             for (popup_idx, popup) in state.popups.all().iter().enumerate() {
-                if let Some((_, popup_area, _, _, _)) = popup_info.get(popup_idx) {
+                if let Some((_, popup_area, _, _, _, _, _)) = popup_info.get(popup_idx) {
                     popup.render_with_hover(
                         frame,
                         *popup_area,

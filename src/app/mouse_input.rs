@@ -500,7 +500,7 @@ impl Editor {
         }
 
         // Check if mouse is over any popup area
-        for (_popup_idx, popup_rect, _inner_rect, _scroll_offset, _num_items) in
+        for (_popup_idx, popup_rect, _inner_rect, _scroll_offset, _num_items, _, _) in
             self.cached_layout.popup_areas.iter()
         {
             if col >= popup_rect.x
@@ -557,7 +557,7 @@ impl Editor {
 
         // Check popups (they're rendered on top)
         // Check from top to bottom (reverse order since last popup is on top)
-        for (popup_idx, _popup_rect, inner_rect, scroll_offset, num_items) in
+        for (popup_idx, _popup_rect, inner_rect, scroll_offset, num_items, _, _) in
             self.cached_layout.popup_areas.iter().rev()
         {
             if col >= inner_rect.x
@@ -887,8 +887,54 @@ impl Editor {
             }
         }
 
-        // Check if click is on a popup (they're rendered on top)
-        for (_popup_idx, _popup_rect, inner_rect, scroll_offset, num_items) in
+        // Check if click is on a popup scrollbar first (they're rendered on top)
+        // Collect scroll info first to avoid borrow conflicts
+        let scrollbar_scroll_info: Option<(usize, i32)> = self
+            .cached_layout
+            .popup_areas
+            .iter()
+            .rev()
+            .find_map(
+                |(popup_idx, _popup_rect, inner_rect, _scroll_offset, _num_items, scrollbar_rect, total_lines)| {
+                    let sb_rect = scrollbar_rect.as_ref()?;
+                    if col >= sb_rect.x
+                        && col < sb_rect.x + sb_rect.width
+                        && row >= sb_rect.y
+                        && row < sb_rect.y + sb_rect.height
+                    {
+                        let relative_row = (row - sb_rect.y) as usize;
+                        let track_height = sb_rect.height as usize;
+                        let visible_lines = inner_rect.height as usize;
+
+                        if track_height > 0 && *total_lines > visible_lines {
+                            let max_scroll = total_lines.saturating_sub(visible_lines);
+                            let target_scroll = if track_height > 1 {
+                                (relative_row * max_scroll) / (track_height.saturating_sub(1))
+                            } else {
+                                0
+                            };
+                            Some((*popup_idx, target_scroll as i32))
+                        } else {
+                            Some((*popup_idx, 0))
+                        }
+                    } else {
+                        None
+                    }
+                },
+            );
+
+        if let Some((popup_idx, target_scroll)) = scrollbar_scroll_info {
+            let state = self.active_state_mut();
+            if let Some(popup) = state.popups.get_mut(popup_idx) {
+                let current_scroll = popup.scroll_offset as i32;
+                let delta = target_scroll - current_scroll;
+                popup.scroll_by(delta);
+            }
+            return Ok(());
+        }
+
+        // Check if click is on a popup content area (they're rendered on top)
+        for (_popup_idx, _popup_rect, inner_rect, scroll_offset, num_items, _, _) in
             self.cached_layout.popup_areas.iter().rev()
         {
             if col >= inner_rect.x

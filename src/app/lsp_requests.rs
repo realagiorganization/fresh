@@ -16,6 +16,7 @@ use std::io;
 use lsp_types::TextDocumentContentChangeEvent;
 
 use crate::model::event::{BufferId, Event};
+use crate::primitives::word_navigation::{find_word_end, find_word_start};
 use crate::services::lsp::manager::detect_language;
 use crate::view::prompt::{Prompt, PromptType};
 
@@ -596,8 +597,25 @@ impl Editor {
                 self.hover_symbol_overlay = state.overlays.all().last().map(|o| o.handle.clone());
             }
         } else {
-            // No range provided by LSP, clear any previous highlight
-            self.hover_symbol_range = None;
+            // No range provided by LSP - compute word boundaries at hover position
+            // This prevents the popup from following the mouse within the same word
+            if let Some((hover_byte_pos, _, _, _)) = self.mouse_state.lsp_hover_state {
+                let state = self.active_state();
+                let start_byte = find_word_start(&state.buffer, hover_byte_pos);
+                let end_byte = find_word_end(&state.buffer, hover_byte_pos);
+                if start_byte < end_byte {
+                    self.hover_symbol_range = Some((start_byte, end_byte));
+                    tracing::debug!(
+                        "Hover symbol range (computed from word boundaries): {}..{}",
+                        start_byte,
+                        end_byte
+                    );
+                } else {
+                    self.hover_symbol_range = None;
+                }
+            } else {
+                self.hover_symbol_range = None;
+            }
         }
 
         // Create a popup with the hover contents
