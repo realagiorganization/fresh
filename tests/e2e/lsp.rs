@@ -5014,3 +5014,230 @@ fn test_typing_does_not_autostart_lsp_when_disabled() -> std::io::Result<()> {
 
     Ok(())
 }
+
+/// Test that hover popup stays stable when mouse moves (no range from LSP)
+///
+/// When the LSP server doesn't return a symbol range in the hover response (like pyrefly),
+/// the popup should remain stable at its original position when the mouse moves.
+///
+/// Expected behavior: Popup stays at original position regardless of mouse movement.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "FakeLspServer uses a Bash script which is not available on Windows"
+)]
+fn test_hover_popup_follows_mouse_when_lsp_returns_no_range() -> std::io::Result<()> {
+    use crate::common::fake_lsp::FakeLspServer;
+    use std::time::Duration;
+
+    // Spawn fake LSP server that does NOT return range in hover response
+    let _fake_server = FakeLspServer::spawn_without_range()?;
+
+    // Create temp dir and test file with multiple lines of code
+    // This allows testing both horizontal and vertical mouse movement
+    let temp_dir = tempfile::tempdir()?;
+    let test_file = temp_dir.path().join("test.rs");
+    // Multiple lines with content so we can move mouse both horizontally and vertically
+    let file_content = "fn example_function_name() {}\n\
+                        fn another_function_here() {}\n\
+                        fn third_function_name() {}\n\
+                        fn fourth_function_name() {}\n\
+                        fn fifth_function_name() {}\n\
+                        \n\n\n\n\n\n\n\n\n\n";
+    std::fs::write(&test_file, file_content)?;
+
+    // Configure editor to use the no-range fake LSP server
+    let mut config = fresh::config::Config::default();
+    config.lsp.insert(
+        "rust".to_string(),
+        fresh::services::lsp::LspServerConfig {
+            command: FakeLspServer::no_range_script_path()
+                .to_string_lossy()
+                .to_string(),
+            args: vec![],
+            enabled: true,
+            auto_start: true,
+            process_limits: fresh::services::process_limits::ProcessLimits::default(),
+            initialization_options: None,
+        },
+    );
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        120,
+        30,
+        config,
+        temp_dir.path().to_path_buf(),
+    )?;
+
+    harness.open_file(&test_file)?;
+    harness.render()?;
+
+    // Find the popup position (both row and column)
+    fn find_popup_position(screen: &str, content: &str) -> Option<(usize, usize)> {
+        for (row, line) in screen.lines().enumerate() {
+            if let Some(col) = line.find(content) {
+                return Some((row, col));
+            }
+        }
+        None
+    }
+
+    // Move mouse over the first symbol and get initial popup position
+    let initial_col = 10u16;
+    let initial_row = 2u16;
+    harness.mouse_move(initial_col, initial_row)?;
+    harness.render()?;
+
+    // Advance time past the hover debounce (500ms) and force check
+    harness.sleep(Duration::from_millis(600));
+    harness.editor_mut().force_check_mouse_hover();
+
+    // Wait for hover popup to appear
+    harness.wait_until(|h| h.screen_to_string().contains("Hover without range"))?;
+    harness.render()?;
+
+    let screen_before = harness.screen_to_string();
+    let pos_before = find_popup_position(&screen_before, "Hover without range");
+    assert!(
+        pos_before.is_some(),
+        "Hover popup should be visible initially"
+    );
+    let (row_before, col_before) = pos_before.unwrap();
+    eprintln!("Initial popup position: row={}, col={}", row_before, col_before);
+    eprintln!("Screen before:\n{}", screen_before);
+
+    // BUG REPRODUCTION: Move mouse multiple times and check if popup follows
+    // Try several positions to ensure we capture the behavior
+    let test_positions = [
+        (initial_col + 10, initial_row), // Move right only
+        (initial_col, initial_row + 3),  // Move down only
+        (initial_col + 15, initial_row + 5), // Move diagonally
+    ];
+
+    let mut any_position_changed = false;
+
+    for (new_col, new_row) in test_positions {
+        // Move mouse to new position
+        harness.mouse_move(new_col, new_row)?;
+        harness.render()?;
+
+        // Advance time past debounce and force hover check
+        harness.sleep(Duration::from_millis(600));
+        harness.editor_mut().force_check_mouse_hover();
+
+        // Wait for hover response
+        harness.wait_until(|h| h.screen_to_string().contains("Hover without range"))?;
+        harness.render()?;
+
+        let screen_after = harness.screen_to_string();
+        if let Some((row_after, col_after)) =
+            find_popup_position(&screen_after, "Hover without range")
+        {
+            eprintln!(
+                "Mouse at ({}, {}): popup at row={}, col={}",
+                new_col, new_row, row_after, col_after
+            );
+
+            if row_after != row_before || col_after != col_before {
+                any_position_changed = true;
+                eprintln!(
+                    "Popup MOVED from ({}, {}) to ({}, {})",
+                    row_before, col_before, row_after, col_after
+                );
+            }
+        }
+    }
+
+    // The popup should NOT follow the mouse - it should stay at the original position
+    assert!(
+        !any_position_changed,
+        "Hover popup moved when it should have stayed in place. \
+         Initial position: row={}, col={}. \
+         When LSP returns no range, the popup should remain stable, not follow the mouse.",
+        row_before, col_before
+    );
+
+    Ok(())
+}
+
+/// Test that clicking on popup scrollbar scrolls the popup content
+///
+/// Expected behavior: Clicking on scrollbar should scroll the popup content.
+#[test]
+fn test_hover_popup_scrollbar_click_scrolls_content() -> std::io::Result<()> {
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use fresh::model::event::{Event, PopupContentData, PopupData, PopupPositionData};
+
+    let mut harness = EditorTestHarness::new(100, 30)?;
+
+    // Create content that exceeds the visible area
+    // With max_height=10 and borders=2, we have 8 visible lines
+    // So 20 lines of content should trigger a scrollbar
+    let long_content: Vec<String> = (1..=20)
+        .map(|i| format!("Documentation line {}", i))
+        .collect();
+
+    let state = harness.editor_mut().active_state_mut();
+    state.apply(&Event::ShowPopup {
+        popup: PopupData {
+            title: Some("Hover".to_string()),
+            description: None,
+            transient: true,
+            content: PopupContentData::Text(long_content),
+            position: PopupPositionData::Centered,
+            width: 50,
+            max_height: 10, // Only 8 lines of content visible
+            bordered: true,
+        },
+    });
+
+    harness.render()?;
+
+    // Verify first lines are visible
+    harness.assert_screen_contains("Documentation line 1");
+    harness.assert_screen_contains("Documentation line 2");
+
+    // Later lines should NOT be visible initially
+    harness.assert_screen_not_contains("Documentation line 15");
+
+    // Find the scrollbar position (right edge of popup, which is centered)
+    // Popup is 50 wide, centered in 100-width = starts around col 25, ends around col 74
+    // Scrollbar should be at the right edge of the popup
+    let scrollbar_col = 73u16; // Right edge minus border
+    let scrollbar_row = 17u16; // Bottom area of popup to click below thumb
+
+    // Click on the scrollbar track (below the thumb) to scroll down
+    let click_event = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: scrollbar_col,
+        row: scrollbar_row,
+        modifiers: crossterm::event::KeyModifiers::empty(),
+    };
+    harness.send_mouse(click_event)?;
+
+    // Release the mouse button
+    let release_event = MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: scrollbar_col,
+        row: scrollbar_row,
+        modifiers: crossterm::event::KeyModifiers::empty(),
+    };
+    harness.send_mouse(release_event)?;
+    harness.render()?;
+
+    // Popup should still be visible after clicking
+    harness.assert_screen_contains("Hover");
+
+    // Clicking the scrollbar should scroll the content
+    // After clicking below the thumb, later lines should become visible
+    assert!(
+        harness.screen_to_string().contains("Documentation line 15")
+            || harness.screen_to_string().contains("Documentation line 10"),
+        "Clicking popup scrollbar should scroll the content. \
+         Expected to see later documentation lines after clicking scrollbar track. \
+         Screen:\n{}",
+        harness.screen_to_string()
+    );
+
+    Ok(())
+}
