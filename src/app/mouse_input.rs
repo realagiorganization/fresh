@@ -543,10 +543,19 @@ impl Editor {
             .is_some_and(|p| p.transient);
 
         if !has_transient_popup {
+            tracing::trace!(col, row, "is_mouse_over_transient_popup: no transient popup");
             return false;
         }
 
-        self.is_mouse_over_any_popup(col, row)
+        let is_over = self.is_mouse_over_any_popup(col, row);
+        tracing::trace!(col, row, is_over, popup_areas_count = self.cached_layout.popup_areas.len(), "is_mouse_over_transient_popup");
+        if !is_over && !self.cached_layout.popup_areas.is_empty() {
+            // Log the popup areas for debugging
+            for (idx, (_, popup_rect, _, _, _, _, _)) in self.cached_layout.popup_areas.iter().enumerate() {
+                tracing::trace!(idx, x = popup_rect.x, y = popup_rect.y, w = popup_rect.width, h = popup_rect.height, "popup_area");
+            }
+        }
+        is_over
     }
 
     /// Check if mouse position is over any popup (including non-transient ones like completion)

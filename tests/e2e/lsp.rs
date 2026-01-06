@@ -5547,3 +5547,126 @@ fn test_hover_no_duplicate_popup_when_moving_within_symbol() -> std::io::Result<
 
     Ok(())
 }
+
+/// Test that clicking inside a hover popup does NOT dismiss it
+///
+/// When a hover popup is visible, clicking inside its content area should NOT
+/// dismiss the popup. The click should be consumed by the popup.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "FakeLspServer uses a Bash script which is not available on Windows"
+)]
+fn test_click_inside_hover_popup_does_not_dismiss() -> std::io::Result<()> {
+    use crate::common::fake_lsp::FakeLspServer;
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    use std::time::Duration;
+
+    // Spawn fake LSP server (without range, like pyrefly)
+    let _fake_server = FakeLspServer::spawn_without_range()?;
+
+    // Create temp dir and test file
+    let temp_dir = tempfile::tempdir()?;
+    let test_file = temp_dir.path().join("test.rs");
+    let file_content = "fn example_function() {}\n";
+    std::fs::write(&test_file, file_content)?;
+
+    // Configure editor to use the fake LSP server
+    let mut config = fresh::config::Config::default();
+    config.lsp.insert(
+        "rust".to_string(),
+        fresh::services::lsp::LspServerConfig {
+            command: FakeLspServer::no_range_script_path()
+                .to_string_lossy()
+                .to_string(),
+            args: vec![],
+            enabled: true,
+            auto_start: true,
+            process_limits: fresh::services::process_limits::ProcessLimits::default(),
+            initialization_options: None,
+        },
+    );
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        120,
+        30,
+        config,
+        temp_dir.path().to_path_buf(),
+    )?;
+
+    harness.open_file(&test_file)?;
+    harness.render()?;
+
+    // Trigger hover by moving mouse over symbol
+    let symbol_col = 10u16;
+    let symbol_row = 2u16; // First line after tab bar
+    harness.mouse_move(symbol_col, symbol_row)?;
+    harness.render()?;
+    harness.sleep(Duration::from_millis(600)); // Wait for debounce
+    harness.editor_mut().force_check_mouse_hover();
+
+    // Wait for hover popup to appear
+    harness.wait_until(|h| h.screen_to_string().contains("Hover without range"))?;
+    harness.render()?;
+
+    let screen_initial = harness.screen_to_string();
+    eprintln!("Screen with popup:\n{}", screen_initial);
+
+    // Find the popup row
+    let popup_row = screen_initial
+        .lines()
+        .enumerate()
+        .find(|(_, line)| line.contains("Hover without range"))
+        .map(|(row, _)| row as u16)
+        .expect("Popup should be visible");
+
+    let popup_content_col = symbol_col + 5;
+    let popup_content_row = popup_row;
+
+    // Move mouse inside the popup content area
+    eprintln!("Moving inside popup at ({}, {})...", popup_content_col, popup_content_row);
+    harness.mouse_move(popup_content_col, popup_content_row)?;
+    harness.render()?;
+    harness.sleep(Duration::from_millis(100));
+
+    let screen_before_click = harness.screen_to_string();
+    assert!(
+        screen_before_click.contains("Hover without range"),
+        "Popup should be visible before clicking. Screen:\n{}",
+        screen_before_click
+    );
+    eprintln!("  Popup visible, about to click inside");
+
+    // Click INSIDE the popup
+    eprintln!("Clicking inside popup...");
+    let click_event = MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: popup_content_col,
+        row: popup_content_row,
+        modifiers: crossterm::event::KeyModifiers::empty(),
+    };
+    harness.send_mouse(click_event)?;
+    harness.render()?;
+
+    let release_event = MouseEvent {
+        kind: MouseEventKind::Up(MouseButton::Left),
+        column: popup_content_col,
+        row: popup_content_row,
+        modifiers: crossterm::event::KeyModifiers::empty(),
+    };
+    harness.send_mouse(release_event)?;
+    harness.render()?;
+
+    let screen_after_click = harness.screen_to_string();
+    eprintln!("Screen after click:\n{}", screen_after_click);
+
+    assert!(
+        screen_after_click.contains("Hover without range"),
+        "Popup should remain visible after clicking inside it. \
+         Bug: clicking inside the popup dismissed it. \
+         Screen after click:\n{}",
+        screen_after_click
+    );
+
+    Ok(())
+}
