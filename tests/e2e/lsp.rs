@@ -5437,3 +5437,106 @@ fn test_hover_does_not_trigger_on_empty_line() -> std::io::Result<()> {
 
     Ok(())
 }
+
+/// Test that moving mouse within symbol during hover request does not create duplicate popups
+///
+/// This reproduces a race condition:
+/// 1. Mouse at position A, hover request sent
+/// 2. Mouse moves to position B (within same symbol) BEFORE response arrives
+/// 3. Code sees position change, starts new hover state with request_sent=false
+/// 4. First response arrives, shows popup, sets symbol_range
+/// 5. After debounce, SECOND request sent because request_sent is still false
+/// 6. Second response creates duplicate popup
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "FakeLspServer uses a Bash script which is not available on Windows"
+)]
+fn test_hover_no_duplicate_popup_when_moving_within_symbol() -> std::io::Result<()> {
+    use crate::common::fake_lsp::FakeLspServer;
+    use std::time::Duration;
+
+    // Spawn fake LSP server
+    let _fake_server = FakeLspServer::spawn()?;
+
+    // Create temp dir and test file
+    let temp_dir = tempfile::tempdir()?;
+    let test_file = temp_dir.path().join("test.rs");
+    // "array_equal" is a long symbol - we'll hover on different columns within it
+    let file_content = "fn array_equal() {}\n";
+    std::fs::write(&test_file, file_content)?;
+
+    // Configure editor to use the fake LSP server
+    let mut config = fresh::config::Config::default();
+    config.lsp.insert(
+        "rust".to_string(),
+        fresh::services::lsp::LspServerConfig {
+            command: FakeLspServer::script_path().to_string_lossy().to_string(),
+            args: vec![],
+            enabled: true,
+            auto_start: true,
+            process_limits: fresh::services::process_limits::ProcessLimits::default(),
+            initialization_options: None,
+        },
+    );
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        120,
+        30,
+        config,
+        temp_dir.path().to_path_buf(),
+    )?;
+
+    harness.open_file(&test_file)?;
+    harness.render()?;
+
+    let symbol_row = 2u16; // First line after tab bar
+
+    // Step 1: Move mouse to first position within symbol
+    let first_col = 10u16;
+    harness.mouse_move(first_col, symbol_row)?;
+    harness.render()?;
+
+    // Step 2: Wait for debounce and trigger first hover request
+    harness.sleep(Duration::from_millis(600));
+    harness.editor_mut().force_check_mouse_hover();
+    // DON'T process async yet - we want to move mouse before response arrives
+
+    // Step 3: Move mouse to different column within same symbol BEFORE processing response
+    let second_col = 12u16; // Still within "array_equal"
+    harness.mouse_move(second_col, symbol_row)?;
+    harness.render()?;
+
+    // Step 4: Now process the first response (this sets symbol_range and shows popup)
+    harness.process_async_and_render()?;
+    harness.wait_until(|h| h.screen_to_string().contains("Test hover content"))?;
+
+    // Step 5: Wait for another debounce period (which would trigger second request if buggy)
+    harness.sleep(Duration::from_millis(600));
+    harness.editor_mut().force_check_mouse_hover();
+
+    // Step 6: Process any second response
+    for _ in 0..10 {
+        harness.process_async_and_render()?;
+        harness.sleep(Duration::from_millis(50));
+    }
+
+    // Count corners - should have exactly 1 popup, not 2
+    let screen = harness.screen_to_string();
+    let corners = (
+        screen.matches('┌').count(),
+        screen.matches('┐').count(),
+        screen.matches('└').count(),
+        screen.matches('┘').count(),
+    );
+    assert_eq!(
+        corners, (1, 1, 1, 1),
+        "Should have exactly 1 popup (one of each corner). \
+         Got corners (┌={}, ┐={}, └={}, ┘={}). This indicates duplicate hover popups. \
+         Screen:\n{}",
+        corners.0, corners.1, corners.2, corners.3,
+        screen
+    );
+
+    Ok(())
+}
