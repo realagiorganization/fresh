@@ -5338,3 +5338,102 @@ fn test_hover_does_not_trigger_past_end_of_line() -> std::io::Result<()> {
 
     Ok(())
 }
+
+/// Test that hover does not trigger when mouse is on an empty line
+///
+/// Expected behavior: Hovering on an empty line (even if it's beneath a symbol)
+/// should not trigger an LSP hover popup.
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "FakeLspServer uses a Bash script which is not available on Windows"
+)]
+fn test_hover_does_not_trigger_on_empty_line() -> std::io::Result<()> {
+    use crate::common::fake_lsp::FakeLspServer;
+    use std::time::Duration;
+
+    // Spawn fake LSP server
+    let _fake_server = FakeLspServer::spawn()?;
+
+    // Create temp dir and test file matching user's scenario:
+    // Line 1: import statement
+    // Line 2: empty
+    // Line 3: symbol (hover target)
+    // Line 4: empty (this is where hover should NOT trigger)
+    let temp_dir = tempfile::tempdir()?;
+    let test_file = temp_dir.path().join("test.rs");
+    let file_content = "use std;\n\nfn foo() {}\n\n";
+    std::fs::write(&test_file, file_content)?;
+
+    // Configure editor to use the fake LSP server
+    let mut config = fresh::config::Config::default();
+    config.lsp.insert(
+        "rust".to_string(),
+        fresh::services::lsp::LspServerConfig {
+            command: FakeLspServer::script_path().to_string_lossy().to_string(),
+            args: vec![],
+            enabled: true,
+            auto_start: true,
+            process_limits: fresh::services::process_limits::ProcessLimits::default(),
+            initialization_options: None,
+        },
+    );
+
+    let mut harness = EditorTestHarness::with_config_and_working_dir(
+        120,
+        30,
+        config,
+        temp_dir.path().to_path_buf(),
+    )?;
+
+    harness.open_file(&test_file)?;
+    harness.render()?;
+
+    // First verify hover DOES work on the symbol (to prove LSP is connected)
+    // Row 4 = Line 3 (fn foo() {}) after tab bar at row 0-1
+    let symbol_row = 4u16;
+    let symbol_col = 10u16;
+    harness.mouse_move(symbol_col, symbol_row)?;
+    harness.render()?;
+    harness.sleep(Duration::from_millis(600));
+    harness.editor_mut().force_check_mouse_hover();
+    harness.wait_until(|h| h.screen_to_string().contains("Test hover content"))?;
+
+    // Dismiss hover
+    harness.mouse_move(0, 0)?;
+    harness.render()?;
+    harness.sleep(Duration::from_millis(100));
+    harness.editor_mut().force_check_mouse_hover();
+    harness.wait_until(|h| !h.screen_to_string().contains("Test hover content"))?;
+
+    // Now move mouse to a row FAR BELOW the file content - hover should NEVER appear
+    // The bug: when visual_row has no mapping, we default to false (don't block hover)
+    // and screen_to_buffer_position falls back to last line's position
+    let empty_line_row = 20u16; // Way below the 4-line file
+    let empty_line_col = 10u16; // Same column as the symbol
+    harness.mouse_move(empty_line_col, empty_line_row)?;
+    harness.render()?;
+
+    // Wait for hover debounce and force check
+    harness.sleep(Duration::from_millis(600));
+    harness.editor_mut().force_check_mouse_hover();
+
+    // Process LSP response
+    for _ in 0..10 {
+        harness.process_async_and_render()?;
+        harness.sleep(Duration::from_millis(100));
+    }
+
+    // Hover should NEVER appear because mouse is on an empty line
+    assert!(
+        !harness.screen_to_string().contains("Test hover content"),
+        "Hover popup should NEVER appear when mouse is on an empty line. \
+         Mouse was at ({}, {}) which is an empty line. \
+         Screen:\n{}",
+        empty_line_col,
+        empty_line_row,
+        harness.screen_to_string()
+    );
+
+    Ok(())
+}
