@@ -463,7 +463,12 @@ impl Editor {
         let line_info = cached_mappings
             .as_ref()
             .and_then(|mappings| mappings.get(visual_row))
-            .map(|line_mapping| (line_mapping.visual_to_char.len(), line_mapping.line_end_byte));
+            .map(|line_mapping| {
+                (
+                    line_mapping.visual_to_char.len(),
+                    line_mapping.line_end_byte,
+                )
+            });
 
         let is_past_line_end_or_empty = line_info
             .map(|(line_len, _)| {
@@ -490,7 +495,9 @@ impl Editor {
         );
 
         if is_past_line_end_or_empty {
-            tracing::trace!("update_lsp_hover_state: mouse past line end or empty line, clearing hover");
+            tracing::trace!(
+                "update_lsp_hover_state: mouse past line end or empty line, clearing hover"
+            );
             // Mouse is past end of line content - clear hover state and don't trigger new hover
             if self.mouse_state.lsp_hover_state.is_some() {
                 self.mouse_state.lsp_hover_state = None;
@@ -936,13 +943,17 @@ impl Editor {
 
         // Check if click is on a popup scrollbar first (they're rendered on top)
         // Collect scroll info first to avoid borrow conflicts
-        let scrollbar_scroll_info: Option<(usize, i32)> = self
-            .cached_layout
-            .popup_areas
-            .iter()
-            .rev()
-            .find_map(
-                |(popup_idx, _popup_rect, inner_rect, _scroll_offset, _num_items, scrollbar_rect, total_lines)| {
+        let scrollbar_scroll_info: Option<(usize, i32)> =
+            self.cached_layout.popup_areas.iter().rev().find_map(
+                |(
+                    popup_idx,
+                    _popup_rect,
+                    inner_rect,
+                    _scroll_offset,
+                    _num_items,
+                    scrollbar_rect,
+                    total_lines,
+                )| {
                     let sb_rect = scrollbar_rect.as_ref()?;
                     if col >= sb_rect.x
                         && col < sb_rect.x + sb_rect.width

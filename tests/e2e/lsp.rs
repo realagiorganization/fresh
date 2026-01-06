@@ -5103,16 +5103,19 @@ fn test_hover_popup_follows_mouse_when_lsp_returns_no_range() -> std::io::Result
         "Hover popup should be visible initially"
     );
     let (row_before, col_before) = pos_before.unwrap();
-    eprintln!("Initial popup position: row={}, col={}", row_before, col_before);
+    eprintln!(
+        "Initial popup position: row={}, col={}",
+        row_before, col_before
+    );
     eprintln!("Screen before:\n{}", screen_before);
 
     // Test mouse movements within the same word/symbol
     // The popup should stay stable when moving within the word
     // (Moving to a completely different word/line is expected to trigger a new hover)
     let test_positions = [
-        (initial_col + 2, initial_row),  // Move slightly right, same word
-        (initial_col + 5, initial_row),  // Move more right, still in function name
-        (initial_col - 2, initial_row),  // Move slightly left, same word
+        (initial_col + 2, initial_row), // Move slightly right, same word
+        (initial_col + 5, initial_row), // Move more right, still in function name
+        (initial_col - 2, initial_row), // Move slightly left, same word
     ];
 
     let mut any_position_changed = false;
@@ -5530,11 +5533,15 @@ fn test_hover_no_duplicate_popup_when_moving_within_symbol() -> std::io::Result<
         screen.matches('┘').count(),
     );
     assert_eq!(
-        corners, (1, 1, 1, 1),
+        corners,
+        (1, 1, 1, 1),
         "Should have exactly 1 popup (one of each corner). \
          Got corners (┌={}, ┐={}, └={}, ┘={}). This indicates duplicate hover popups. \
          Screen:\n{}",
-        corners.0, corners.1, corners.2, corners.3,
+        corners.0,
+        corners.1,
+        corners.2,
+        corners.3,
         screen
     );
 
