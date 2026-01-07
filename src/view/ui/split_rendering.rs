@@ -334,6 +334,7 @@ struct LineRenderOutput {
     cursor: Option<(u16, u16)>,
     last_line_end: Option<LastLineEnd>,
     content_lines_rendered: usize,
+    view_line_mappings: Vec<ViewLineMapping>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2995,6 +2996,7 @@ impl SplitRenderer {
         let line_indicators = &decorations.line_indicators;
 
         let mut lines = Vec::new();
+        let mut view_line_mappings = Vec::new();
         let mut lines_rendered = 0usize;
         let mut view_iter_idx = view_anchor.start_line_idx;
         let mut cursor_screen_x = 0u16;
@@ -3308,7 +3310,9 @@ impl SplitRenderer {
                             {
                                 // Flush accumulated text before inserting virtual text
                                 span_acc.flush(&mut line_spans, &mut line_view_map);
-                                let text_with_space = format!("{} ", vtext.text);
+                                // Add extra space if at end of line (before newline)
+                                let extra_space = if ch == '\n' { " " } else { "" };
+                                let text_with_space = format!("{}{} ", extra_space, vtext.text);
                                 push_span_with_map(
                                     &mut line_spans,
                                     &mut line_view_map,
@@ -3598,6 +3602,48 @@ impl SplitRenderer {
                 }
             }
 
+            // Calculate line_end_byte for this line
+            let line_end_byte = if current_view_line.ends_with_newline {
+                // Position ON the newline - find the last source byte (the newline's position)
+                current_view_line
+                    .char_source_bytes
+                    .iter()
+                    .rev()
+                    .find_map(|m| *m)
+                    .unwrap_or(0)
+            } else {
+                // Position AFTER the last character - find last source byte and add char length
+                if let Some((char_idx, &Some(last_byte_start))) = current_view_line
+                    .char_source_bytes
+                    .iter()
+                    .enumerate()
+                    .rev()
+                    .find(|(_, m)| m.is_some())
+                {
+                    // Get the character at this index to find its UTF-8 byte length
+                    if let Some(last_char) = current_view_line.text.chars().nth(char_idx) {
+                        last_byte_start + last_char.len_utf8()
+                    } else {
+                        last_byte_start
+                    }
+                } else {
+                    0
+                }
+            };
+
+            // Capture accurate view line mapping for mouse clicks
+            // Content mapping starts after the gutter
+            let content_map = if line_view_map.len() >= gutter_width {
+                line_view_map[gutter_width..].to_vec()
+            } else {
+                Vec::new()
+            };
+            view_line_mappings.push(ViewLineMapping {
+                char_source_bytes: content_map.clone(),
+                visual_to_char: (0..content_map.len()).collect(),
+                line_end_byte,
+            });
+
             // Track if line was empty before moving line_spans
             let line_was_empty = line_spans.is_empty();
             lines.push(Line::from(line_spans));
@@ -3686,6 +3732,16 @@ impl SplitRenderer {
                 lines.push(Line::from(implicit_line_spans));
                 lines_rendered += 1;
 
+                // Add mapping for implicit line
+                // It has no content, so map is empty (gutter is handled by offset in screen_to_buffer_position)
+                let buffer_len = state.buffer.len();
+
+                view_line_mappings.push(ViewLineMapping {
+                    char_source_bytes: Vec::new(),
+                    visual_to_char: Vec::new(),
+                    line_end_byte: buffer_len,
+                });
+
                 // NOTE: We intentionally do NOT update last_line_end here.
                 // The implicit empty line is a visual display aid, not an actual content line.
                 // last_line_end should track the last actual content line for cursor placement logic.
@@ -3724,6 +3780,7 @@ impl SplitRenderer {
             cursor: have_cursor.then_some((cursor_screen_x, cursor_screen_y)),
             last_line_end,
             content_lines_rendered: lines_rendered,
+            view_line_mappings,
         }
     }
 
@@ -4021,71 +4078,7 @@ impl SplitRenderer {
 
         // Extract view line mappings for mouse click handling
         // This maps screen coordinates to buffer byte positions
-        Self::extract_view_line_mappings(view_lines_to_render)
-    }
-
-    /// Extract ViewLineMapping from rendered view lines
-    /// This captures the char_source_bytes and visual_to_char from each ViewLine
-    /// for accurate mouse click positioning with O(1) lookup
-    fn extract_view_line_mappings(view_lines: &[ViewLine]) -> Vec<ViewLineMapping> {
-        tracing::trace!(
-            "extract_view_line_mappings: {} view_lines",
-            view_lines.len()
-        );
-        for (i, vl) in view_lines.iter().enumerate().take(5) {
-            let first_bytes: Vec<_> = vl.char_source_bytes.iter().take(5).collect();
-            tracing::trace!(
-                "  ViewLine {}: text={:?} (len={}), first_source_bytes={:?}",
-                i,
-                vl.text.chars().take(20).collect::<String>(),
-                vl.text.len(),
-                first_bytes
-            );
-        }
-        view_lines
-            .iter()
-            .map(|vl| {
-                // Calculate line_end_byte: where the cursor should go when clicking past end of line
-                //
-                // For lines ending with newline: position ON the newline (so clicking past
-                // "hello\n" positions at byte 5, not byte 6 which would be next line)
-                //
-                // For lines NOT ending with newline (e.g., last line of file, or wrapped segments):
-                // position AFTER the last character (so clicking past "你好" positions at byte 6)
-                let line_end_byte = if vl.ends_with_newline {
-                    // Position ON the newline - find the last source byte (the newline's position)
-                    vl.char_source_bytes
-                        .iter()
-                        .rev()
-                        .find_map(|m| *m)
-                        .unwrap_or(0)
-                } else {
-                    // Position AFTER the last character - find last source byte and add char length
-                    if let Some((char_idx, &Some(last_byte_start))) = vl
-                        .char_source_bytes
-                        .iter()
-                        .enumerate()
-                        .rev()
-                        .find(|(_, m)| m.is_some())
-                    {
-                        // Get the character at this index to find its UTF-8 byte length
-                        if let Some(last_char) = vl.text.chars().nth(char_idx) {
-                            last_byte_start + last_char.len_utf8()
-                        } else {
-                            last_byte_start
-                        }
-                    } else {
-                        0
-                    }
-                };
-
-                ViewLineMapping {
-                    char_source_bytes: vl.char_source_bytes.clone(),
-                    visual_to_char: vl.visual_to_char.clone(),
-                    line_end_byte,
-                }
-            })
-            .collect()
+        render_output.view_line_mappings
     }
 
     /// Apply styles from original line_spans to a wrapped segment
