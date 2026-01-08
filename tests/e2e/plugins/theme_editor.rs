@@ -252,6 +252,60 @@ fn test_theme_editor_open_close_reopen() {
     );
 }
 
+/// Test that the theme editor can be closed with "Close Buffer" (Ctrl+W) and reopened
+/// BUG: After closing with Close Buffer, the theme editor cannot be reopened
+#[test]
+fn test_theme_editor_reopen_after_close_buffer() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let project_root = temp_dir.path().join("project_root");
+    fs::create_dir(&project_root).unwrap();
+
+    let plugins_dir = project_root.join("plugins");
+    fs::create_dir(&plugins_dir).unwrap();
+
+    copy_plugin(&plugins_dir, "theme_editor");
+
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 40, Default::default(), project_root)
+            .unwrap();
+
+    harness.render().unwrap();
+
+    // === Step 1: Open theme editor ===
+    open_theme_editor(&mut harness);
+
+    // Wait for theme editor to be visible
+    harness
+        .wait_until(|h| h.screen_to_string().contains("*Theme Editor*"))
+        .unwrap();
+
+    // === Step 2: Close with Ctrl+W (Close Buffer) ===
+    harness
+        .send_key(KeyCode::Char('w'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Wait for theme editor buffer to disappear from tabs
+    harness
+        .wait_until(|h| !h.screen_to_string().contains("*Theme Editor*"))
+        .unwrap();
+
+    // === Step 3: Try to reopen - this is where the bug manifests ===
+    open_theme_editor(&mut harness);
+
+    // Wait for theme editor to reappear
+    harness
+        .wait_until(|h| h.screen_to_string().contains("*Theme Editor*"))
+        .unwrap();
+
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("Theme Editor"),
+        "Theme editor should reopen after Close Buffer. Screen:\n{}",
+        screen
+    );
+}
+
 /// Test that the theme editor displays color fields with swatches
 #[test]
 fn test_theme_editor_shows_color_sections() {
