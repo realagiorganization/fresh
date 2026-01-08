@@ -184,6 +184,74 @@ fn test_theme_editor_opens_without_error() {
     );
 }
 
+/// Test that the theme editor can be opened, closed, and reopened
+#[test]
+fn test_theme_editor_open_close_reopen() {
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let project_root = temp_dir.path().join("project_root");
+    fs::create_dir(&project_root).unwrap();
+
+    let plugins_dir = project_root.join("plugins");
+    fs::create_dir(&plugins_dir).unwrap();
+
+    copy_plugin(&plugins_dir, "theme_editor");
+
+    let mut harness =
+        EditorTestHarness::with_config_and_working_dir(120, 40, Default::default(), project_root)
+            .unwrap();
+
+    harness.render().unwrap();
+
+    // === First open ===
+    open_theme_editor(&mut harness);
+
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("Theme Editor"),
+        "Theme editor should be open. Screen:\n{}",
+        screen
+    );
+
+    // === Close via command palette ===
+    harness
+        .send_key(KeyCode::Char('p'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    harness.type_text("Close Theme Editor").unwrap();
+    harness.render().unwrap();
+
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Wait for theme editor to close
+    harness
+        .wait_until(|h| {
+            let screen = h.screen_to_string();
+            !screen.contains("Theme Editor:")
+        })
+        .unwrap();
+
+    let screen = harness.screen_to_string();
+    assert!(
+        !screen.contains("Theme Editor:"),
+        "Theme editor should be closed after Escape. Screen:\n{}",
+        screen
+    );
+
+    // === Reopen ===
+    open_theme_editor(&mut harness);
+
+    let screen = harness.screen_to_string();
+    assert!(
+        screen.contains("Theme Editor"),
+        "Theme editor should reopen successfully. Screen:\n{}",
+        screen
+    );
+}
+
 /// Test that the theme editor displays color fields with swatches
 #[test]
 fn test_theme_editor_shows_color_sections() {
