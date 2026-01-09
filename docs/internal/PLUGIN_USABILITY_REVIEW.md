@@ -115,11 +115,65 @@ Navigation with arrow keys works (cursor moves), but all action keys fail. Users
 
 ---
 
-## Design Principle
+## Design Principles
 
-**Plugins should prioritize normal keys (arrow keys, Enter) for selecting and activating items.**
+### 1. Use standard, discoverable keybindings
 
-This is partially implemented - arrow keys work for navigation. However, Enter doesn't work due to the mode keybinding bug (P0 #1).
+**Problem:** Current plugins use obscure single-letter keybindings that users must memorize:
+- `a` - select all
+- `n` - select none
+- `r` - replace
+- `q` - close
+
+These are not discoverable and conflict with potential text input.
+
+**Recommendation:** Follow VSCode-style patterns using standard keys:
+
+| Action | Recommended Key | Rationale |
+|--------|----------------|-----------|
+| Navigate items | `Up` / `Down` | Universal, already works |
+| Activate/confirm | `Enter` | Universal standard |
+| Close/cancel | `Escape` | Universal standard |
+| Toggle selection | `Space` | Common in checkbox UIs |
+| Select all | `Ctrl+A` | Universal shortcut |
+| Execute action | `Ctrl+Enter` | VSCode pattern for "do it" |
+
+### 2. Minimize required keybindings
+
+**Current Search Replace keybindings (too many):**
+```
+[SPC] toggle  [a] all  [n] none  [r] REPLACE  [RET] preview  [q] close
+```
+
+**Recommended minimal set:**
+```
+[Up/Down] navigate  [Space] toggle  [Enter] replace selected  [Esc] close
+```
+
+Changes:
+- Remove `a` (select all) - use `Ctrl+A` or remove entirely (start with all selected)
+- Remove `n` (select none) - rarely needed, can use toggle repeatedly
+- Remove `r` - use `Enter` to execute (it's the primary action)
+- Remove `q` - `Escape` is sufficient and standard
+
+### 3. Consistent keybindings across all plugins
+
+All result-list plugins should use the same keys:
+
+| Key | Action |
+|-----|--------|
+| `Up` / `Down` | Navigate between items |
+| `Enter` | Activate selected item (open file, execute replace, jump to reference) |
+| `Escape` | Close panel |
+| `Space` | Toggle selection (only for multi-select plugins like Search Replace) |
+
+### 4. Arrow keys and Enter must always work
+
+These are the primary interaction keys. Users expect:
+- Arrow keys to move selection
+- Enter to activate/confirm
+
+This is partially implemented - arrow keys work but Enter doesn't due to the mode keybinding bug.
 
 ---
 
@@ -128,8 +182,47 @@ This is partially implemented - arrow keys work for navigation. However, Enter d
 1. **Fix `editor.defineMode()` keybinding activation** - Unblocks all panel interactions
 2. **Fix `editor.t()` parameter substitution** - Restores status visibility
 3. **Add visual selection indicator** - Fundamental UX requirement
-4. **Fix Live Grep preview update** - Core feature broken
-5. **Fix Git Grep cursor positioning** - Core feature broken
+4. **Simplify plugin keybindings** - Remove obscure keys, standardize on arrows/Enter/Escape
+5. **Fix Live Grep preview update** - Core feature broken
+6. **Fix Git Grep cursor positioning** - Core feature broken
+
+---
+
+## Keybinding Refactoring Plan
+
+### Find References
+Current:
+```typescript
+["Return", "references_goto"],
+["q", "references_close"],
+["Escape", "references_close"],
+```
+Recommended: Keep as-is (already minimal), just remove `q`.
+
+### Search Replace
+Current:
+```typescript
+["Return", "search_replace_preview"],
+["space", "search_replace_toggle_item"],
+["a", "search_replace_select_all"],
+["n", "search_replace_select_none"],
+["r", "search_replace_execute"],
+["q", "search_replace_close"],
+["Escape", "search_replace_close"],
+```
+Recommended:
+```typescript
+["Return", "search_replace_execute"],  // Primary action
+["space", "search_replace_toggle_item"],
+["Escape", "search_replace_close"],
+["Ctrl+a", "search_replace_select_all"],  // Optional, use standard shortcut
+```
+
+### Live Grep / Git Grep / Git Find File
+These use the prompt system with suggestions - keybindings are handled by the prompt, not custom modes. Ensure:
+- `Up` / `Down` navigate suggestions
+- `Enter` confirms selection
+- `Escape` cancels
 
 ---
 
@@ -140,3 +233,5 @@ This is partially implemented - arrow keys work for navigation. However, Enter d
 - `src/i18n.rs` or plugin i18n handling - Template substitution logic
 - `plugins/live_grep.ts:331-345` - `onLiveGrepSelectionChanged` handler
 - `plugins/git_grep.ts` - File opening logic
+- `plugins/find_references.ts:35-44` - Mode keybinding definition
+- `plugins/search_replace.ts:35-48` - Mode keybinding definition
