@@ -100,6 +100,7 @@
     "status.hash_copied": "Kopiert: %{short} (%{full})",
     "status.hash_display": "Hash: %{hash}",
     "status.git_error": "Git blame Fehler: %{error}",
+    "status.ready": "Git Blame bereit",
 
     "time.just_now": "gerade eben",
     "time.minutes_ago": "vor %{count} Minute",
@@ -138,6 +139,7 @@
     "status.hash_copied": "Copiado: %{short} (%{full})",
     "status.hash_display": "Hash: %{hash}",
     "status.git_error": "Error de git blame: %{error}",
+    "status.ready": "Git Blame listo",
 
     "time.just_now": "ahora mismo",
     "time.minutes_ago": "hace %{count} minuto",
@@ -176,6 +178,7 @@
     "status.hash_copied": "Copie: %{short} (%{full})",
     "status.hash_display": "Hash: %{hash}",
     "status.git_error": "Erreur git blame: %{error}",
+    "status.ready": "Git Blame pret",
 
     "time.just_now": "a l'instant",
     "time.minutes_ago": "il y a %{count} minute",
@@ -214,6 +217,7 @@
     "status.hash_copied": "Copiato: %{short} (%{full})",
     "status.hash_display": "Hash: %{hash}",
     "status.git_error": "Errore git blame: %{error}",
+    "status.ready": "Git Blame pronto",
 
     "time.just_now": "proprio ora",
     "time.minutes_ago": "%{count} minuto fa",
@@ -252,6 +256,7 @@
     "status.hash_copied": "コピーしました: %{short} (%{full})",
     "status.hash_display": "ハッシュ: %{hash}",
     "status.git_error": "Git blameエラー: %{error}",
+    "status.ready": "Git Blame準備完了",
 
     "time.just_now": "たった今",
     "time.minutes_ago": "%{count}分前",
@@ -290,6 +295,7 @@
     "status.hash_copied": "복사됨: %{short} (%{full})",
     "status.hash_display": "해시: %{hash}",
     "status.git_error": "Git blame 오류: %{error}",
+    "status.ready": "Git Blame 준비됨",
 
     "time.just_now": "방금",
     "time.minutes_ago": "%{count}분 전",
@@ -328,6 +334,7 @@
     "status.hash_copied": "Copiado: %{short} (%{full})",
     "status.hash_display": "Hash: %{hash}",
     "status.git_error": "Erro git blame: %{error}",
+    "status.ready": "Git Blame pronto",
 
     "time.just_now": "agora mesmo",
     "time.minutes_ago": "ha %{count} minuto",
@@ -366,6 +373,7 @@
     "status.hash_copied": "Skopirovano: %{short} (%{full})",
     "status.hash_display": "Khesh: %{hash}",
     "status.git_error": "Oshibka git blame: %{error}",
+    "status.ready": "Git Blame gotov",
 
     "time.just_now": "tol'ko chto",
     "time.minutes_ago": "%{count} minutu nazad",
@@ -404,6 +412,7 @@
     "status.hash_copied": "คัดลอกแล้ว: %{short} (%{full})",
     "status.hash_display": "แฮช: %{hash}",
     "status.git_error": "ข้อผิดพลาด Git blame: %{error}",
+    "status.ready": "Git Blame พร้อม",
 
     "time.just_now": "เมื่อกี้",
     "time.minutes_ago": "%{count} นาทีที่แล้ว",
@@ -442,6 +451,7 @@
     "status.hash_copied": "Skopiyovano: %{short} (%{full})",
     "status.hash_display": "Khesh: %{hash}",
     "status.git_error": "Pomylka git blame: %{error}",
+    "status.ready": "Git Blame hotovyy",
 
     "time.just_now": "shchoyno",
     "time.minutes_ago": "%{count} khvylynu tomu",
@@ -480,6 +490,7 @@
     "status.hash_copied": "已复制: %{short} (%{full})",
     "status.hash_display": "哈希: %{hash}",
     "status.git_error": "Git blame错误: %{error}",
+    "status.ready": "Git Blame就绪",
 
     "time.just_now": "刚刚",
     "time.minutes_ago": "%{count}分钟前",
