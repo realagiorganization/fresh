@@ -236,10 +236,35 @@ The key insight is: **Let the editor own the UI.** Plugins should provide data a
 
 ---
 
+## Known Bugs (Discovered During Implementation)
+
+### `openFile` doesn't position cursor when file is already open
+
+**Severity:** High
+
+**Description:** When calling `editor.openFile(path, line, column)` or `editor.openFileInSplit(...)` and the file is already open in the target split, the view scrolls to show the line but the cursor does NOT move to that position.
+
+**Affected Functions:**
+- `handle_open_file_at_location` in `src/app/plugin_commands.rs`
+- `handle_open_file_in_split` in `src/app/plugin_commands.rs`
+
+**Expected Behavior:** The cursor should move to the specified line/column position.
+
+**Actual Behavior:** The cursor stays at its previous position. The view scrolls (viewport centers on the line) but the cursor doesn't follow.
+
+**Investigation Notes:**
+- Both `openFile` and `openFileInSplit` call `jump_to_line_column(line, column)` after `open_file`
+- `jump_to_line_column` uses `self.active_state_mut()` to get the buffer state
+- The issue may be that when the file is already open, `active_state_mut()` returns stale state
+
+**Workaround:** None currently. This affects both Find References and Diagnostics Panel jump-to functionality.
+
+---
+
 ## Immediate Actions (Phase 1)
 
-1. Fix Live Grep preview update issue
-2. Fix Git Grep cursor positioning
-3. Verify Find References works with `"normal"` parent mode
+1. **Fix openFile cursor positioning bug** (blocking issue for panels)
+2. Fix Live Grep preview update issue
+3. Fix Git Grep cursor positioning
 4. Simplify Search Replace keybindings
 5. Document the Provider pattern as the recommended approach

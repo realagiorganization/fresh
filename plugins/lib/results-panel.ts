@@ -309,13 +309,21 @@ export class ResultsPanel {
   }
 
   /**
-   * Open a file in the source split without changing focus
+   * Open a file in the source split and jump to location
+   *
+   * Note: Focus moves to source after this call (similar to diagnostics panel behavior).
+   * The user can close the panel via command palette if needed.
+   *
+   * TODO: Investigate why openFileInSplit doesn't position cursor correctly when file
+   * is already open. For now, using focusSplit + openFile which works correctly.
    */
   openInSource(file: string, line: number, column: number): void {
     if (this.state.sourceSplitId === null) return;
 
-    // Open file in source split directly (doesn't change focus)
-    this.editor.openFileInSplit(this.state.sourceSplitId, file, line, column);
+    // Focus source split and open file at location
+    // This moves focus to source (same behavior as diagnostics panel)
+    this.editor.focusSplit(this.state.sourceSplitId);
+    this.editor.openFile(file, line, column);
   }
 
   /**
