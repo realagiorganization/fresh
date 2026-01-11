@@ -2509,6 +2509,20 @@ impl Config {
             },
         );
 
+        // ols - Odin Language Server (https://github.com/DanielGavin/ols)
+        // Build from source: cd ols && ./build.sh (Linux/macOS) or ./build.bat (Windows)
+        lsp.insert(
+            "odin".to_string(),
+            LspServerConfig {
+                command: "ols".to_string(),
+                args: vec![],
+                enabled: true,
+                auto_start: false,
+                process_limits: ProcessLimits::default(),
+                initialization_options: None,
+            },
+        );
+
         lsp
     }
 
