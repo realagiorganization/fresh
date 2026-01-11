@@ -690,8 +690,9 @@ fn render_setting_item_pure(
 
     let is_focused_or_hovered = is_selected || is_item_hovered;
 
-    // Focus indicator takes 2 chars ("> ")
-    let focus_indicator_width: u16 = 2;
+    // Indicator area takes 3 chars: [>][●][ ] -> focus, modified, separator
+    // Examples: ">● ", ">  ", " ● ", "   "
+    let focus_indicator_width: u16 = 3;
 
     // Calculate content height - expanded when focused/hovered
     let content_height = if is_focused_or_hovered {
@@ -715,7 +716,7 @@ fn render_setting_item_pure(
         }
     }
 
-    // Render focus indicator ">" for selected items (when settings panel is focused)
+    // Render focus indicator ">" at position 0 for selected items
     if is_selected && skip_top == 0 {
         let indicator_style = Style::default()
             .fg(theme.menu_highlight_fg)
@@ -726,7 +727,7 @@ fn render_setting_item_pure(
         );
     }
 
-    // Render modified indicator "●" for items defined in the target layer
+    // Render modified indicator "●" at position 1 for items defined in the target layer
     if item.modified && skip_top == 0 {
         let modified_style = Style::default().fg(theme.menu_highlight_fg);
         frame.render_widget(
