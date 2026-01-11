@@ -189,6 +189,17 @@ impl Editor {
         uri: String,
         response: LspSemanticTokensResponse,
     ) {
+        tracing::trace!(
+            "handle_lsp_semantic_tokens: request_id={}, uri={}, response_type={}",
+            request_id,
+            uri,
+            match &response {
+                LspSemanticTokensResponse::Full(_) => "full",
+                LspSemanticTokensResponse::FullDelta(_) => "full_delta",
+                LspSemanticTokensResponse::Range(_) => "range",
+            }
+        );
+
         let (
             buffer_id,
             target_version,

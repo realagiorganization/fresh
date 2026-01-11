@@ -29,7 +29,7 @@ pub fn semantic_token_color(
         return theme.diagnostic_warning_fg;
     }
 
-    match token_type {
+    let color = match token_type {
         "keyword" | "modifier" => theme.syntax_keyword,
         "function" | "method" | "macro" => theme.syntax_function,
         "parameter" | "variable" | "property" | "enumMember" | "event" | "label" => {
@@ -44,7 +44,13 @@ pub fn semantic_token_color(
         "comment" => theme.syntax_comment,
         "decorator" => theme.syntax_function,
         _ => theme.syntax_variable,
-    }
+    };
+    tracing::trace!(
+        "semantic_token_color: type={:?}, color={:?}",
+        token_type,
+        color
+    );
+    color
 }
 
 /// Apply semantic tokens as overlays so their ranges track edits.
