@@ -4,6 +4,7 @@
 
 ### Features
 
+* **Anonymous Telemetry**: Basic anonymous telemetry (version, OS, terminal type) sent with update checks. Disable via `check_for_updates` config or `--no-upgrade-check` flag.
 * **Toggle Tab Bar/Menu Bar**: Hide or show tab bar and menu bar via command palette or View menu (#618).
 * **Plugin Enable/Disable**: New config options to enable or disable individual plugins.
 * **Improved Settings UI**: Layer-aware modified indicators, column headers for Map controls, visual indication for read-only fields in Settings UI entry dialogs.
