@@ -683,13 +683,10 @@ impl DirectoryContext {
             })?
             .join("fresh");
 
-        // macOS: Prioritize ~/.config/fresh if it exists
+        // macOS: Prioritize ~/.config/fresh
         #[cfg(target_os = "macos")]
         if let Some(home) = dirs::home_dir() {
-            let xdg_config = home.join(".config").join("fresh");
-            if xdg_config.exists() {
-                config_dir = xdg_config;
-            }
+            config_dir = home.join(".config").join("fresh");
         }
 
         Ok(Self {
