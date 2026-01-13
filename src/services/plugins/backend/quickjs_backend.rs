@@ -68,6 +68,27 @@ fn js_to_json(ctx: &rquickjs::Ctx<'_>, val: Value<'_>) -> serde_json::Value {
     }
 }
 
+/// Convert a JavaScript value to a string representation for console output
+fn js_value_to_string(ctx: &rquickjs::Ctx<'_>, val: &Value<'_>) -> String {
+    use rquickjs::Type;
+    match val.type_of() {
+        Type::Null => "null".to_string(),
+        Type::Undefined => "undefined".to_string(),
+        Type::Bool => val.as_bool().map(|b| b.to_string()).unwrap_or_default(),
+        Type::Int => val.as_int().map(|n| n.to_string()).unwrap_or_default(),
+        Type::Float => val.as_float().map(|f| f.to_string()).unwrap_or_default(),
+        Type::String => val.as_string()
+            .and_then(|s| s.to_string().ok())
+            .unwrap_or_default(),
+        Type::Array | Type::Object | Type::Constructor | Type::Function => {
+            // For objects/arrays, convert to JSON for readable output
+            let json = js_to_json(ctx, val.clone());
+            serde_json::to_string(&json).unwrap_or_else(|_| "[object]".to_string())
+        }
+        _ => "[unknown]".to_string(),
+    }
+}
+
 /// Format a JavaScript error with full details including stack trace
 fn format_js_error(ctx: &rquickjs::Ctx<'_>, err: rquickjs::Error, source_name: &str) -> anyhow::Error {
     // Check if this is an exception that we can catch for more details
@@ -933,15 +954,19 @@ impl QuickJsBackend {
             globals.set("_editorCore", editor)?;
 
             // Provide console.log for debugging
+            // Use Rest<T> to handle variadic arguments like console.log('a', 'b', obj)
             let console = Object::new(ctx.clone())?;
-            console.set("log", Function::new(ctx.clone(), |args: Vec<String>| {
-                tracing::info!("console.log: {}", args.join(" "));
+            console.set("log", Function::new(ctx.clone(), |ctx: rquickjs::Ctx, args: rquickjs::function::Rest<rquickjs::Value>| {
+                let parts: Vec<String> = args.0.iter().map(|v| js_value_to_string(&ctx, v)).collect();
+                tracing::info!("console.log: {}", parts.join(" "));
             })?)?;
-            console.set("warn", Function::new(ctx.clone(), |args: Vec<String>| {
-                tracing::warn!("console.warn: {}", args.join(" "));
+            console.set("warn", Function::new(ctx.clone(), |ctx: rquickjs::Ctx, args: rquickjs::function::Rest<rquickjs::Value>| {
+                let parts: Vec<String> = args.0.iter().map(|v| js_value_to_string(&ctx, v)).collect();
+                tracing::warn!("console.warn: {}", parts.join(" "));
             })?)?;
-            console.set("error", Function::new(ctx.clone(), |args: Vec<String>| {
-                tracing::error!("console.error: {}", args.join(" "));
+            console.set("error", Function::new(ctx.clone(), |ctx: rquickjs::Ctx, args: rquickjs::function::Rest<rquickjs::Value>| {
+                let parts: Vec<String> = args.0.iter().map(|v| js_value_to_string(&ctx, v)).collect();
+                tracing::error!("console.error: {}", parts.join(" "));
             })?)?;
             globals.set("console", console)?;
 
