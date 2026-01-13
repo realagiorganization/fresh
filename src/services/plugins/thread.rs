@@ -636,8 +636,10 @@ async fn plugin_thread_loop(
                         action_name,
                         response,
                     }) => {
-                        // Handle ExecuteAction specially
-                        execute_action_with_hooks(&action_name, response, Rc::clone(&runtime)).await;
+                        // Start the action without blocking - this allows us to process
+                        // ResolveCallback requests that the action may be waiting for.
+                        let result = runtime.borrow_mut().start_action(&action_name);
+                        let _ = response.send(result);
                         has_pending_work = true; // Action may have started async work
                     }
                     Some(request) => {
@@ -675,39 +677,6 @@ async fn plugin_thread_loop(
 /// - This runs on a single-threaded tokio runtime (no parallel task execution)
 /// - No spawn_local calls exist that could create concurrent access to `runtime`
 /// - The runtime Rc<RefCell<>> is never shared with other concurrent tasks
-#[allow(clippy::await_holding_refcell_ref)]
-async fn execute_action_with_hooks(
-    action_name: &str,
-    response: oneshot::Sender<Result<()>>,
-    runtime: Rc<RefCell<QuickJsBackend>>,
-) {
-    tracing::trace!(
-        "execute_action_with_hooks: starting action '{}'",
-        action_name
-    );
-
-    // Execute the action - we can't process hooks during this because the runtime
-    // is borrowed. Instead, we need a different approach to break the deadlock.
-    //
-    // The deadlock scenario is:
-    // 1. Action awaits response from main thread
-    // 2. Main thread calls run_hook_blocking and waits
-    // 3. Main thread can't deliver response because it's waiting
-    // 4. Plugin thread can't process hook because action has runtime
-    //
-    // The fix is to make the main thread continue processing commands while
-    // waiting for hooks. But for now, we execute the action and hope for the best.
-    // A proper fix requires changes to the main thread's wait_for logic.
-
-    let result = runtime.borrow_mut().execute_action(action_name).await;
-
-    tracing::trace!(
-        "execute_action_with_hooks: action '{}' completed with result: {:?}",
-        action_name,
-        result.is_ok()
-    );
-    let _ = response.send(result);
-}
 
 /// Run a hook with Rc<RefCell<QuickJsBackend>>
 ///
@@ -834,10 +803,12 @@ async fn handle_request(
 
         PluginRequest::ResolveCallback { callback_id, result_json } => {
             runtime.borrow_mut().resolve_callback(callback_id, &result_json);
+            // resolve_callback now runs execute_pending_job() internally
         }
 
         PluginRequest::RejectCallback { callback_id, error } => {
             runtime.borrow_mut().reject_callback(callback_id, &error);
+            // reject_callback now runs execute_pending_job() internally
         }
 
         PluginRequest::Shutdown => {

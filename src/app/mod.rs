@@ -4808,11 +4808,17 @@ impl Editor {
             Err(format!("Buffer {:?} not found", buffer_id))
         };
 
-        // Send response via plugin manager
-        self.send_plugin_response(crate::services::plugins::api::PluginResponse::BufferText {
-            request_id,
-            text: result,
-        });
+        // Resolve the JavaScript Promise callback directly
+        match result {
+            Ok(text) => {
+                // Serialize text as JSON string
+                let json = serde_json::to_string(&text).unwrap_or_else(|_| "null".to_string());
+                self.plugin_manager.resolve_callback(request_id, json);
+            }
+            Err(error) => {
+                self.plugin_manager.reject_callback(request_id, error);
+            }
+        }
     }
 
     /// Set the global editor mode (for vi mode)

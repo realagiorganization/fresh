@@ -8,7 +8,9 @@ use crate::input::commands::{Command, CommandSource};
 use crate::input::keybindings::Action;
 use crate::model::event::{BufferId, SplitId};
 use crate::primitives::text_property::TextPropertyEntry;
-use crate::services::plugins::api::{CursorInfo, EditorStateSnapshot, PluginCommand, PluginResponse};
+use crate::services::plugins::api::{EditorStateSnapshot, PluginCommand, PluginResponse};
+#[cfg(test)]
+use crate::services::plugins::api::CursorInfo;
 use crate::services::plugins::transpile::{bundle_module, has_es_imports, transpile_typescript};
 use crate::view::overlay::OverlayNamespace;
 use anyhow::{anyhow, Result};
@@ -814,6 +816,25 @@ impl QuickJsBackend {
                 id
             })?)?;
 
+            // getBufferText - async function to read buffer text range
+            let request_id = Rc::clone(&next_request_id);
+            let cmd_sender = command_sender.clone();
+            editor.set("_getBufferTextStart", Function::new(ctx.clone(), move |buffer_id: u32, start: u32, end: u32| -> u64 {
+                let id = {
+                    let mut id_ref = request_id.borrow_mut();
+                    let id = *id_ref;
+                    *id_ref += 1;
+                    id
+                };
+                let _ = cmd_sender.send(PluginCommand::GetBufferText {
+                    buffer_id: BufferId(buffer_id as usize),
+                    start: start as usize,
+                    end: end as usize,
+                    request_id: id,
+                });
+                id
+            })?)?;
+
             // Delay/sleep
             let request_id = Rc::clone(&next_request_id);
             let cmd_sender = command_sender.clone();
@@ -985,6 +1006,7 @@ impl QuickJsBackend {
                 _editorCore.createVirtualBufferInSplit = _wrapAsyncThenable(_editorCore._createVirtualBufferInSplitStart);
                 _editorCore.sendLspRequest = _wrapAsync(_editorCore._sendLspRequestStart);
                 _editorCore.spawnBackgroundProcess = _wrapAsyncThenable(_editorCore._spawnBackgroundProcessStart);
+                _editorCore.getBufferText = _wrapAsync(_editorCore._getBufferTextStart);
             "#.as_bytes())?;
 
             Ok::<_, rquickjs::Error>(())
@@ -1148,6 +1170,45 @@ impl QuickJsBackend {
             .unwrap_or(false)
     }
 
+    /// Start an action without waiting for async operations to complete.
+    /// This is useful when the calling thread needs to continue processing
+    /// ResolveCallback requests that the action may be waiting for.
+    pub fn start_action(&mut self, action_name: &str) -> Result<()> {
+        let handler_name = self.registered_actions.borrow().get(action_name).cloned();
+        let function_name = handler_name.unwrap_or_else(|| action_name.to_string());
+
+        tracing::debug!("start_action: '{}' -> function '{}'", action_name, function_name);
+
+        // Just call the function - don't try to await or drive Promises
+        let code = format!(
+            r#"
+            (function() {{
+                try {{
+                    if (typeof globalThis.{fn} === 'function') {{
+                        globalThis.{fn}();
+                    }} else {{
+                        console.error('Action {action} is not defined as a global function');
+                    }}
+                }} catch (e) {{
+                    console.error('Action {action} error:', e);
+                }}
+            }})();
+            "#,
+            fn = function_name,
+            action = action_name
+        );
+
+        self.context.with(|ctx| {
+            if let Err(e) = ctx.eval::<rquickjs::Value, _>(code.as_bytes()) {
+                log_js_error(&ctx, e, &format!("action {}", action_name));
+            }
+            // Run any immediate microtasks
+            while ctx.execute_pending_job() {}
+        });
+
+        Ok(())
+    }
+
     /// Execute a registered action by name
     pub async fn execute_action(&mut self, action_name: &str) -> Result<()> {
         // First check if there's a registered command mapping
@@ -1207,11 +1268,16 @@ impl QuickJsBackend {
         Ok(())
     }
 
-    /// Poll the event loop once (QuickJS is synchronous, so this is a no-op)
+    /// Poll the event loop once to run any pending microtasks
     pub fn poll_event_loop_once(&mut self) -> bool {
-        // QuickJS doesn't have an async event loop like V8
-        // Return false to indicate no pending work
-        false
+        let mut had_work = false;
+        self.context.with(|ctx| {
+            // Run any pending microtasks (Promise continuations, etc.)
+            while ctx.execute_pending_job() {
+                had_work = true;
+            }
+        });
+        had_work
     }
 
     /// Send a status message to the editor
@@ -1230,6 +1296,8 @@ impl QuickJsBackend {
             if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
                 log_js_error(&ctx, e, &format!("resolving callback {}", callback_id));
             }
+            // IMPORTANT: Run pending jobs to process Promise continuations
+            while ctx.execute_pending_job() {}
         });
     }
 
@@ -1244,6 +1312,8 @@ impl QuickJsBackend {
             if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
                 log_js_error(&ctx, e, &format!("rejecting callback {}", callback_id));
             }
+            // IMPORTANT: Run pending jobs to process Promise continuations
+            while ctx.execute_pending_job() {}
         });
     }
 }
@@ -1766,6 +1836,65 @@ mod tests {
             }
             _ => panic!("Expected SetStatus, got {:?}", cmd),
         }
+    }
+
+    #[test]
+    fn test_api_get_buffer_text_sends_command() {
+        let (mut backend, rx) = create_test_backend();
+
+        // Call getBufferText - this returns a Promise and sends the command
+        backend.execute_js(r#"
+            const editor = getEditor();
+            // Store the promise for later
+            globalThis._textPromise = editor.getBufferText(0, 10, 20);
+        "#, "test.js").unwrap();
+
+        // Verify the GetBufferText command was sent
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::GetBufferText { buffer_id, start, end, request_id } => {
+                assert_eq!(buffer_id.0, 0);
+                assert_eq!(start, 10);
+                assert_eq!(end, 20);
+                assert!(request_id > 0); // Should have a valid request ID
+            }
+            _ => panic!("Expected GetBufferText, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_get_buffer_text_resolves_callback() {
+        let (mut backend, rx) = create_test_backend();
+
+        // Call getBufferText and set up a handler for when it resolves
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._resolvedText = null;
+            editor.getBufferText(0, 0, 100).then(text => {
+                globalThis._resolvedText = text;
+            });
+        "#, "test.js").unwrap();
+
+        // Get the request_id from the command
+        let request_id = match rx.try_recv().unwrap() {
+            PluginCommand::GetBufferText { request_id, .. } => request_id,
+            cmd => panic!("Expected GetBufferText, got {:?}", cmd),
+        };
+
+        // Simulate the editor responding with the text
+        backend.resolve_callback(request_id, "\"hello world\"");
+
+        // Drive the Promise to completion
+        backend.context.with(|ctx| {
+            while ctx.execute_pending_job() {}
+        });
+
+        // Verify the Promise resolved with the text
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: String = global.get("_resolvedText").unwrap();
+            assert_eq!(result, "hello world");
+        });
     }
 
     #[test]
