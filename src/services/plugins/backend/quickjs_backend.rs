@@ -380,14 +380,16 @@ impl QuickJsBackend {
             let cmd_sender = command_sender.clone();
             let actions = Rc::clone(&registered_actions);
             editor.set("registerCommand", Function::new(ctx.clone(), move |name: String, description: String, handler_name: String, context: Option<String>| -> bool {
-                // Store action handler
-                actions.borrow_mut().insert(name.clone(), handler_name.clone());
+                tracing::debug!("registerCommand: name='{}', handler='{}', context={:?}", name, handler_name, context);
 
-                // Register with editor
+                // Store action handler mapping (handler_name -> handler_name for direct lookup)
+                actions.borrow_mut().insert(handler_name.clone(), handler_name.clone());
+
+                // Register with editor - action uses handler_name so execute_action can find it
                 let command = Command {
                     name: name.clone(),
                     description,
-                    action: Action::PluginAction(name),
+                    action: Action::PluginAction(handler_name.clone()),
                     contexts: vec![],
                     custom_contexts: context.into_iter().collect(),
                     source: CommandSource::Plugin(handler_name),
@@ -904,8 +906,8 @@ impl QuickJsBackend {
                 snapshot.read().ok().and_then(|s| s.editor_mode.clone())
             })?)?;
 
-            // Set editor as global
-            globals.set("editor", editor)?;
+            // Store editor as internal _editorCore (not meant for direct plugin access)
+            globals.set("_editorCore", editor)?;
 
             // Provide console.log for debugging
             let console = Object::new(ctx.clone())?;
@@ -920,55 +922,8 @@ impl QuickJsBackend {
             })?)?;
             globals.set("console", console)?;
 
-            // Bootstrap: Promise infrastructure and plugin-scoped editors
+            // Bootstrap: Promise infrastructure (getEditor is defined per-plugin in execute_js)
             ctx.eval::<(), _>(r#"
-                // Create a plugin-scoped editor with the plugin name captured in closures
-                globalThis._createPluginEditor = function(pluginName) {
-                    const coreEditor = globalThis.editor;
-                    return {
-                        // Spread all core methods
-                        ...coreEditor,
-
-                        // Plugin name for reference
-                        _pluginName: pluginName,
-
-                        // Plugin-specific logging (prefixed with plugin name)
-                        error(message) { coreEditor.error(`[${pluginName}] ${message}`); },
-                        warn(message) { coreEditor.warn(`[${pluginName}] ${message}`); },
-                        info(message) { coreEditor.info(`[${pluginName}] ${message}`); },
-                        debug(message) { coreEditor.debug(`[${pluginName}] ${message}`); },
-
-                        // Plugin-specific command registration (includes plugin name as source)
-                        registerCommand(name, description, action, contexts) {
-                            // Call core registerCommand with plugin name context
-                            return coreEditor.registerCommand(name, description, action, contexts);
-                        },
-
-                        // Plugin-specific translation
-                        t(key, args) {
-                            return coreEditor._pluginTranslate(pluginName, key, args || {});
-                        },
-
-                        // For compatibility - returns self since t() is already bound
-                        getL10n() {
-                            return { t: (key, args) => this.t(key, args) };
-                        },
-                    };
-                };
-
-                // Pending editor for plugin initialization
-                globalThis.__pendingEditor = null;
-
-                // getEditor() returns the pending plugin-scoped editor
-                globalThis.getEditor = function() {
-                    const editor = globalThis.__pendingEditor;
-                    if (!editor) {
-                        throw new Error('getEditor() must be called at the top of the plugin file during initialization');
-                    }
-                    globalThis.__pendingEditor = null; // Clear after use
-                    return editor;
-                };
-
                 // Pending promise callbacks: callbackId -> { resolve, reject }
                 globalThis._pendingCallbacks = new Map();
 
@@ -1022,12 +977,12 @@ impl QuickJsBackend {
                     };
                 };
 
-                // Apply wrappers to async functions
-                editor.spawnProcess = _wrapAsyncThenable(editor._spawnProcessStart);
-                editor.delay = _wrapAsync(editor._delayStart);
-                editor.createVirtualBufferInSplit = _wrapAsyncThenable(editor._createVirtualBufferInSplitStart);
-                editor.sendLspRequest = _wrapAsync(editor._sendLspRequestStart);
-                editor.spawnBackgroundProcess = _wrapAsyncThenable(editor._spawnBackgroundProcessStart);
+                // Apply wrappers to async functions on _editorCore
+                _editorCore.spawnProcess = _wrapAsyncThenable(_editorCore._spawnProcessStart);
+                _editorCore.delay = _wrapAsync(_editorCore._delayStart);
+                _editorCore.createVirtualBufferInSplit = _wrapAsyncThenable(_editorCore._createVirtualBufferInSplitStart);
+                _editorCore.sendLspRequest = _wrapAsync(_editorCore._sendLspRequestStart);
+                _editorCore.spawnBackgroundProcess = _wrapAsyncThenable(_editorCore._spawnBackgroundProcessStart);
             "#.as_bytes())?;
 
             Ok::<_, rquickjs::Error>(())
@@ -1083,31 +1038,62 @@ impl QuickJsBackend {
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
 
-        // Set up the pending editor for this plugin before executing
-        let set_editor = format!(
-            "globalThis.__pendingEditor = globalThis._createPluginEditor(\"{}\");",
-            plugin_name.replace('\\', "\\\\").replace('"', "\\\"")
-        );
+        tracing::debug!("execute_js: starting for plugin '{}' from '{}'", plugin_name, source_name);
 
-        // Wrap in IIFE for scope isolation
+        // Define getEditor() for this plugin - returns an editor object with plugin name in closures
+        let escaped_name = plugin_name.replace('\\', "\\\\").replace('"', "\\\"");
+        let define_get_editor = format!(r#"
+            globalThis.getEditor = function() {{
+                const core = globalThis._editorCore;
+                const pluginName = "{}";
+                return {{
+                    // All core methods
+                    ...core,
+
+                    // Plugin name for reference
+                    _pluginName: pluginName,
+
+                    // Plugin-prefixed logging
+                    error(msg) {{ core.error("[" + pluginName + "] " + msg); }},
+                    warn(msg) {{ core.warn("[" + pluginName + "] " + msg); }},
+                    info(msg) {{ core.info("[" + pluginName + "] " + msg); }},
+                    debug(msg) {{ core.debug("[" + pluginName + "] " + msg); }},
+
+                    // Plugin-specific translation
+                    t(key, args) {{ return core._pluginTranslate(pluginName, key, args || {{}}); }},
+
+                    // For compatibility
+                    getL10n() {{ return {{ t: (k, a) => this.t(k, a) }}; }},
+                }};
+            }};
+        "#, escaped_name);
+
+        // Wrap plugin code in IIFE for scope isolation
         let wrapped = format!(
             "(function() {{\n{}\n}})();",
             code
         );
 
         self.context.with(|ctx| {
-            // Set pending editor first
-            ctx.eval::<(), _>(set_editor.as_bytes())
+            // Define getEditor for this plugin
+            ctx.eval::<(), _>(define_get_editor.as_bytes())
                 .map_err(|e| format_js_error(&ctx, e, source_name))?;
 
-            // Then execute the plugin code
-            ctx.eval::<(), _>(wrapped.as_bytes())
-                .map_err(|e| format_js_error(&ctx, e, source_name))
+            tracing::debug!("execute_js: getEditor defined, now executing plugin code for '{}'", plugin_name);
+
+            // Execute the plugin code
+            let result = ctx.eval::<(), _>(wrapped.as_bytes())
+                .map_err(|e| format_js_error(&ctx, e, source_name));
+
+            tracing::debug!("execute_js: plugin code execution finished for '{}', result: {:?}", plugin_name, result.is_ok());
+
+            result
         })
     }
 
     /// Emit an event to all registered handlers
     pub async fn emit(&mut self, event_name: &str, event_data: &str) -> Result<bool> {
+        tracing::debug!("emit: event '{}' with {} bytes of data", event_name, event_data.len());
         let handlers = self.event_handlers.borrow().get(event_name).cloned();
 
         if let Some(handler_names) = handlers {
@@ -1157,32 +1143,36 @@ impl QuickJsBackend {
 
     /// Execute a registered action by name
     pub async fn execute_action(&mut self, action_name: &str) -> Result<()> {
+        // First check if there's a registered command mapping
         let handler_name = self.registered_actions.borrow().get(action_name).cloned();
+        // Use the registered handler name if found, otherwise try the action name directly
+        // (defineMode bindings use global function names directly)
+        let function_name = handler_name.unwrap_or_else(|| action_name.to_string());
 
-        if let Some(handler) = handler_name {
-            let code = format!(
-                r#"
-                (function() {{
-                    try {{
-                        if (typeof globalThis.{} === 'function') {{
-                            globalThis.{}();
-                        }}
-                    }} catch (e) {{
-                        console.error('Action {} error:', e);
+        tracing::debug!("execute_action: '{}' -> function '{}'", action_name, function_name);
+
+        let code = format!(
+            r#"
+            (function() {{
+                try {{
+                    if (typeof globalThis.{} === 'function') {{
+                        globalThis.{}();
+                    }} else {{
+                        console.error('Action {} is not defined as a global function');
                     }}
-                }})();
-                "#,
-                handler, handler, action_name
-            );
+                }} catch (e) {{
+                    console.error('Action {} error:', e);
+                }}
+            }})();
+            "#,
+            function_name, function_name, action_name, action_name
+        );
 
-            self.context.with(|ctx| {
-                if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
-                    log_js_error(&ctx, e, &format!("action {}", action_name));
-                }
-            });
-        } else {
-            tracing::warn!("No handler found for action: {}", action_name);
-        }
+        self.context.with(|ctx| {
+            if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
+                log_js_error(&ctx, e, &format!("action {}", action_name));
+            }
+        });
 
         Ok(())
     }

@@ -1022,6 +1022,11 @@ impl Editor {
 
     /// Handle RegisterCommand command
     pub(super) fn handle_register_command(&self, command: crate::input::commands::Command) {
+        tracing::debug!(
+            "handle_register_command: name='{}', action={:?}",
+            command.name,
+            command.action
+        );
         self.command_registry.read().unwrap().register(command);
     }
 
