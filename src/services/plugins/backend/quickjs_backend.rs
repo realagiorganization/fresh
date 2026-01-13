@@ -389,6 +389,8 @@ pub struct JsEditorApi {
     state_snapshot: Arc<RwLock<EditorStateSnapshot>>,
     #[qjs(skip_trace)]
     command_sender: mpsc::Sender<PluginCommand>,
+    #[qjs(skip_trace)]
+    registered_actions: Rc<RefCell<HashMap<String, String>>>,
 }
 
 #[rquickjs::methods(rename_all = "camelCase")]
@@ -448,6 +450,89 @@ impl JsEditorApi {
 
     pub fn set_clipboard(&self, text: String) {
         let _ = self.command_sender.send(PluginCommand::SetClipboard { text: text });
+    }
+
+    // === Command Registration ===
+
+    /// Register a command - reads plugin name from __currentPluginName__ global
+    pub fn register_command<'js>(
+        &self,
+        ctx: rquickjs::Ctx<'js>,
+        name: String,
+        description: String,
+        handler_name: String,
+        context: Option<String>,
+    ) -> rquickjs::Result<bool> {
+        // Get plugin name from global context
+        let globals = ctx.globals();
+        let plugin_name: String = globals
+            .get("__currentPluginName__")
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        tracing::debug!(
+            "registerCommand: plugin='{}', name='{}', handler='{}'",
+            plugin_name,
+            name,
+            handler_name
+        );
+
+        // Store action handler mapping
+        self.registered_actions
+            .borrow_mut()
+            .insert(handler_name.clone(), handler_name.clone());
+
+        // Register with editor
+        let command = Command {
+            name: name.clone(),
+            description,
+            action: Action::PluginAction(handler_name),
+            contexts: vec![],
+            custom_contexts: context.into_iter().collect(),
+            source: CommandSource::Plugin(plugin_name),
+        };
+
+        Ok(self
+            .command_sender
+            .send(PluginCommand::RegisterCommand { command })
+            .is_ok())
+    }
+
+    // === Translation ===
+
+    /// Translate a string - reads plugin name from __currentPluginName__ global
+    /// Args is optional - can be omitted, undefined, null, or an object
+    pub fn t<'js>(
+        &self,
+        ctx: rquickjs::Ctx<'js>,
+        key: String,
+        args: rquickjs::function::Rest<Value<'js>>,
+    ) -> String {
+        // Get plugin name from global context
+        let globals = ctx.globals();
+        let plugin_name: String = globals
+            .get("__currentPluginName__")
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        // Convert args to HashMap - args.0 is a Vec of the rest arguments
+        let args_map: HashMap<String, String> = if let Some(first_arg) = args.0.first() {
+            if let Some(obj) = first_arg.as_object() {
+                let mut map = HashMap::new();
+                for key_result in obj.keys::<String>() {
+                    if let Ok(k) = key_result {
+                        if let Ok(v) = obj.get::<_, String>(&k) {
+                            map.insert(k, v);
+                        }
+                    }
+                }
+                map
+            } else {
+                HashMap::new()
+            }
+        } else {
+            HashMap::new()
+        };
+
+        crate::i18n::translate_plugin_string(&plugin_name, &key, &args_map)
     }
 }
 
@@ -573,6 +658,7 @@ impl QuickJsBackend {
             let js_api = JsEditorApi {
                 state_snapshot: Arc::clone(&state_snapshot),
                 command_sender: command_sender.clone(),
+                registered_actions: Rc::clone(&registered_actions),
             };
             let editor = rquickjs::Class::<JsEditorApi>::instance(ctx.clone(), js_api)?;
 
@@ -581,6 +667,8 @@ impl QuickJsBackend {
             // - setStatus, copyToClipboard, setClipboard
             // - getActiveBufferId, getActiveSplitId
             // - listBuffers (returns BufferInfo[] directly)
+            // - registerCommand (reads plugin name from __currentPluginName__)
+            // - t (translation, reads plugin name from __currentPluginName__)
 
             // === Buffer queries (not yet migrated) ===
 
