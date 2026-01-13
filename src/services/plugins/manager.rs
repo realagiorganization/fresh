@@ -244,4 +244,20 @@ impl PluginManager {
             false
         }
     }
+
+    /// Resolve an async callback in the plugin runtime
+    #[cfg(feature = "plugins")]
+    pub fn resolve_callback(&self, callback_id: u64, result_json: String) {
+        if let Some(inner) = &self.inner {
+            inner.resolve_callback(callback_id, result_json);
+        }
+    }
+
+    /// Reject an async callback in the plugin runtime
+    #[cfg(feature = "plugins")]
+    pub fn reject_callback(&self, callback_id: u64, error: String) {
+        if let Some(inner) = &self.inner {
+            inner.reject_callback(callback_id, error);
+        }
+    }
 }

@@ -4007,19 +4007,45 @@ impl Editor {
                 self.handle_set_clipboard(text);
             }
 
-            // ==================== Deprecated Commands ====================
+            // ==================== Async Plugin Commands ====================
             PluginCommand::SpawnProcess {
                 command,
                 args,
                 cwd,
-                callback_id: _,
+                callback_id,
             } => {
-                tracing::warn!(
-                    "SpawnProcess command with callback is deprecated. TypeScript plugins use native async. Command: {}",
-                    command
-                );
-                let _ = args;
-                let _ = cwd;
+                // Spawn process asynchronously and resolve callback when done
+                let effective_cwd = cwd.unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| ".".to_string())
+                });
+
+                match std::process::Command::new(&command)
+                    .args(&args)
+                    .current_dir(&effective_cwd)
+                    .output()
+                {
+                    Ok(output) => {
+                        let result = serde_json::json!({
+                            "stdout": String::from_utf8_lossy(&output.stdout),
+                            "stderr": String::from_utf8_lossy(&output.stderr),
+                            "exitCode": output.status.code().unwrap_or(-1)
+                        });
+                        self.plugin_manager.resolve_callback(callback_id, result.to_string());
+                    }
+                    Err(e) => {
+                        self.plugin_manager.reject_callback(callback_id, e.to_string());
+                    }
+                }
+            }
+
+            PluginCommand::Delay { callback_id, duration_ms } => {
+                // For delay, we resolve immediately with null/undefined
+                // True async delay would require spawning a thread/timer
+                // For now, do a blocking sleep (acceptable for short delays)
+                std::thread::sleep(std::time::Duration::from_millis(duration_ms));
+                self.plugin_manager.resolve_callback(callback_id, "null".to_string());
             }
 
             // ==================== Virtual Buffer Commands (complex, kept inline) ====================
@@ -4088,17 +4114,15 @@ impl Editor {
                         // Send response if request_id is present
                         if let Some(req_id) = request_id {
                             tracing::trace!(
-                                "CreateVirtualBufferWithContent: sending response for request_id={}, buffer_id={:?}",
+                                "CreateVirtualBufferWithContent: resolving callback for request_id={}, buffer_id={:?}",
                                 req_id,
                                 buffer_id
                             );
-                            self.send_plugin_response(
-                                crate::services::plugins::api::PluginResponse::VirtualBufferCreated {
-                                    buffer_id,
-                                    request_id: req_id,
-                                    split_id: None, // Created in current split, not a new split
-                                },
-                            );
+                            let result = serde_json::json!({
+                                "bufferId": buffer_id.0,
+                                "splitId": null
+                            });
+                            self.plugin_manager.resolve_callback(req_id, result.to_string());
                         }
                     }
                     Err(e) => {
@@ -4147,15 +4171,13 @@ impl Editor {
                                 );
                             }
 
-                            // Send response with existing buffer ID and split ID
+                            // Send response with existing buffer ID and split ID via callback resolution
                             if let Some(req_id) = request_id {
-                                self.send_plugin_response(
-                                    crate::services::plugins::api::PluginResponse::VirtualBufferCreated {
-                                        request_id: req_id,
-                                        buffer_id: existing_buffer_id,
-                                        split_id: splits.first().copied(),
-                                    },
-                                );
+                                let result = serde_json::json!({
+                                    "bufferId": existing_buffer_id.0,
+                                    "splitId": splits.first().map(|s| s.0)
+                                });
+                                self.plugin_manager.resolve_callback(req_id, result.to_string());
                             }
                             return Ok(());
                         } else {
@@ -4247,16 +4269,14 @@ impl Editor {
                         }
                     };
 
-                // Send response with buffer ID and split ID
+                // Send response with buffer ID and split ID via callback resolution
                 if let Some(req_id) = request_id {
-                    tracing::trace!("CreateVirtualBufferInSplit: sending response for request_id={}, buffer_id={:?}, split_id={:?}", req_id, buffer_id, created_split_id);
-                    self.send_plugin_response(
-                        crate::services::plugins::api::PluginResponse::VirtualBufferCreated {
-                            request_id: req_id,
-                            buffer_id,
-                            split_id: created_split_id,
-                        },
-                    );
+                    tracing::trace!("CreateVirtualBufferInSplit: resolving callback for request_id={}, buffer_id={:?}, split_id={:?}", req_id, buffer_id, created_split_id);
+                    let result = serde_json::json!({
+                        "bufferId": buffer_id.0,
+                        "splitId": created_split_id.map(|s| s.0)
+                    });
+                    self.plugin_manager.resolve_callback(req_id, result.to_string());
                 }
             }
             PluginCommand::SetVirtualBufferContent { buffer_id, entries } => {
@@ -4341,15 +4361,13 @@ impl Editor {
                     );
                 }
 
-                // Send response with buffer ID and split ID
+                // Send response with buffer ID and split ID via callback resolution
                 if let Some(req_id) = request_id {
-                    self.send_plugin_response(
-                        crate::services::plugins::api::PluginResponse::VirtualBufferCreated {
-                            request_id: req_id,
-                            buffer_id,
-                            split_id: Some(split_id),
-                        },
-                    );
+                    let result = serde_json::json!({
+                        "bufferId": buffer_id.0,
+                        "splitId": split_id.0
+                    });
+                    self.plugin_manager.resolve_callback(req_id, result.to_string());
                 }
             }
 

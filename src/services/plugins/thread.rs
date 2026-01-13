@@ -33,6 +33,18 @@ pub enum PluginRequest {
         response: oneshot::Sender<Result<()>>,
     },
 
+    /// Resolve an async callback with a result (for async operations like SpawnProcess, Delay)
+    ResolveCallback {
+        callback_id: u64,
+        result_json: String,
+    },
+
+    /// Reject an async callback with an error
+    RejectCallback {
+        callback_id: u64,
+        error: String,
+    },
+
     /// Load all plugins from a directory
     LoadPluginsFromDir {
         dir: PathBuf,
@@ -477,6 +489,28 @@ impl PluginThreadHandle {
 
         tracing::debug!("PluginThreadHandle::shutdown: shutdown complete");
     }
+
+    /// Resolve an async callback in the plugin runtime
+    /// Called by the app when async operations (SpawnProcess, Delay) complete
+    pub fn resolve_callback(&self, callback_id: u64, result_json: String) {
+        if let Some(sender) = self.request_sender.as_ref() {
+            let _ = sender.send(PluginRequest::ResolveCallback {
+                callback_id,
+                result_json,
+            });
+        }
+    }
+
+    /// Reject an async callback in the plugin runtime
+    /// Called by the app when async operations fail
+    pub fn reject_callback(&self, callback_id: u64, error: String) {
+        if let Some(sender) = self.request_sender.as_ref() {
+            let _ = sender.send(PluginRequest::RejectCallback {
+                callback_id,
+                error,
+            });
+        }
+    }
 }
 
 impl Drop for PluginThreadHandle {
@@ -796,6 +830,14 @@ async fn handle_request(
         PluginRequest::ListPlugins { response } => {
             let plugin_list: Vec<TsPluginInfo> = plugins.values().cloned().collect();
             let _ = response.send(plugin_list);
+        }
+
+        PluginRequest::ResolveCallback { callback_id, result_json } => {
+            runtime.borrow_mut().resolve_callback(callback_id, &result_json);
+        }
+
+        PluginRequest::RejectCallback { callback_id, error } => {
+            runtime.borrow_mut().reject_callback(callback_id, &error);
         }
 
         PluginRequest::Shutdown => {

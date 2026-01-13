@@ -7,16 +7,82 @@ use crate::config_io::DirectoryContext;
 use crate::input::commands::{Command, CommandSource};
 use crate::input::keybindings::Action;
 use crate::model::event::{BufferId, SplitId};
+use crate::primitives::text_property::TextPropertyEntry;
 use crate::services::plugins::api::{EditorStateSnapshot, PluginCommand, PluginResponse};
 use crate::services::plugins::transpile::{bundle_module, has_es_imports, transpile_typescript};
 use crate::view::overlay::OverlayNamespace;
 use anyhow::{anyhow, Result};
-use rquickjs::{Context, Function, Object, Runtime};
+use rquickjs::{Context, Function, Object, Runtime, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{mpsc, Arc, RwLock};
+
+/// Convert a QuickJS Value to serde_json::Value
+fn js_to_json(ctx: &rquickjs::Ctx<'_>, val: Value<'_>) -> serde_json::Value {
+    use rquickjs::Type;
+    match val.type_of() {
+        Type::Null | Type::Undefined | Type::Uninitialized => serde_json::Value::Null,
+        Type::Bool => val.as_bool().map(serde_json::Value::Bool).unwrap_or(serde_json::Value::Null),
+        Type::Int => val.as_int().map(|n| serde_json::Value::Number(n.into())).unwrap_or(serde_json::Value::Null),
+        Type::Float => {
+            val.as_float()
+                .and_then(|f| serde_json::Number::from_f64(f))
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null)
+        }
+        Type::String => {
+            val.as_string()
+                .and_then(|s| s.to_string().ok())
+                .map(serde_json::Value::String)
+                .unwrap_or(serde_json::Value::Null)
+        }
+        Type::Array => {
+            if let Some(arr) = val.as_array() {
+                let items: Vec<serde_json::Value> = arr.iter()
+                    .filter_map(|item| item.ok())
+                    .map(|item| js_to_json(ctx, item))
+                    .collect();
+                serde_json::Value::Array(items)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        Type::Object | Type::Constructor | Type::Function => {
+            if let Some(obj) = val.as_object() {
+                let mut map = serde_json::Map::new();
+                for key in obj.keys::<String>().flatten() {
+                    if let Ok(v) = obj.get::<_, Value>(&key) {
+                        map.insert(key, js_to_json(ctx, v));
+                    }
+                }
+                serde_json::Value::Object(map)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
+/// Parse a TextPropertyEntry from a JS Object
+fn parse_text_property_entry(ctx: &rquickjs::Ctx<'_>, obj: &Object<'_>) -> Option<TextPropertyEntry> {
+    let text: String = obj.get("text").ok()?;
+    let properties: HashMap<String, serde_json::Value> = obj.get::<_, Object>("properties")
+        .ok()
+        .map(|props_obj| {
+            let mut map = HashMap::new();
+            for key in props_obj.keys::<String>().flatten() {
+                if let Ok(v) = props_obj.get::<_, Value>(&key) {
+                    map.insert(key, js_to_json(ctx, v));
+                }
+            }
+            map
+        })
+        .unwrap_or_default();
+    Some(TextPropertyEntry { text, properties })
+}
 
 /// Pending response senders type alias
 pub type PendingResponses =
@@ -395,11 +461,40 @@ impl QuickJsBackend {
                 cmd_sender.send(PluginCommand::ApplyTheme { theme_name }).is_ok()
             })?)?;
 
-            // === Overlays (stub with warning) ===
-            // Note: addOverlay takes a JSON config string for simplicity with QuickJS
-            editor.set("addOverlay", Function::new(ctx.clone(), |_config_json: String| -> String {
-                tracing::warn!("addOverlay: stub implementation");
-                "stub-handle".to_string()
+            // === Overlays ===
+            // addOverlay(opts: {bufferId, namespace?, start, end, color: [r,g,b], bgColor?: [r,g,b], underline?, bold?, italic?, extendToLineEnd?})
+            let cmd_sender = command_sender.clone();
+            editor.set("addOverlay", Function::new(ctx.clone(), move |opts: Object| -> rquickjs::Result<bool> {
+                let buffer_id: u32 = opts.get("bufferId")?;
+                let namespace: Option<String> = opts.get("namespace").ok();
+                let start: u32 = opts.get("start")?;
+                let end: u32 = opts.get("end")?;
+
+                // color is [r, g, b] array
+                let color: Vec<u8> = opts.get("color")?;
+                let (r, g, b) = if color.len() >= 3 { (color[0], color[1], color[2]) } else { (255, 255, 255) };
+
+                // bgColor is optional [r, g, b] array
+                let bg_color: Option<(u8, u8, u8)> = opts.get::<_, Vec<u8>>("bgColor").ok()
+                    .filter(|c| c.len() >= 3)
+                    .map(|c| (c[0], c[1], c[2]));
+
+                let underline: bool = opts.get("underline").unwrap_or(false);
+                let bold: bool = opts.get("bold").unwrap_or(false);
+                let italic: bool = opts.get("italic").unwrap_or(false);
+                let extend_to_line_end: bool = opts.get("extendToLineEnd").unwrap_or(false);
+
+                Ok(cmd_sender.send(PluginCommand::AddOverlay {
+                    buffer_id: BufferId(buffer_id as usize),
+                    namespace: namespace.map(OverlayNamespace::from_string),
+                    range: (start as usize)..(end as usize),
+                    color: (r, g, b),
+                    bg_color,
+                    underline,
+                    bold,
+                    italic,
+                    extend_to_line_end,
+                }).is_ok())
             })?)?;
 
             let cmd_sender = command_sender.clone();
@@ -410,9 +505,11 @@ impl QuickJsBackend {
                 }).is_ok()
             })?)?;
 
-            editor.set("clearAllOverlays", Function::new(ctx.clone(), |_buffer_id: u32| -> bool {
-                tracing::warn!("clearAllOverlays: stub implementation");
-                true
+            let cmd_sender = command_sender.clone();
+            editor.set("clearAllOverlays", Function::new(ctx.clone(), move |buffer_id: u32| -> bool {
+                cmd_sender.send(PluginCommand::ClearAllOverlays {
+                    buffer_id: BufferId(buffer_id as usize),
+                }).is_ok()
             })?)?;
 
             // === Prompt (stub with warning) ===
@@ -426,31 +523,128 @@ impl QuickJsBackend {
                 cmd_sender.send(PluginCommand::StartPromptWithInitial { label, prompt_type, initial_value }).is_ok()
             })?)?;
 
-            editor.set("setPromptSuggestions", Function::new(ctx.clone(), |_suggestions: Vec<String>| -> bool {
-                tracing::warn!("setPromptSuggestions: stub implementation (needs full Suggestion struct)");
-                true
+            // setPromptSuggestions takes array of {text, description?, value?, disabled?, keybinding?}
+            let cmd_sender = command_sender.clone();
+            editor.set("setPromptSuggestions", Function::new(ctx.clone(), move |suggestions_arr: Vec<Object>| -> rquickjs::Result<bool> {
+                let suggestions: Vec<crate::input::commands::Suggestion> = suggestions_arr.into_iter().map(|obj| {
+                    crate::input::commands::Suggestion {
+                        text: obj.get("text").unwrap_or_default(),
+                        description: obj.get("description").ok(),
+                        value: obj.get("value").ok(),
+                        disabled: obj.get("disabled").unwrap_or(false),
+                        keybinding: obj.get("keybinding").ok(),
+                        source: None,
+                    }
+                }).collect();
+                Ok(cmd_sender.send(PluginCommand::SetPromptSuggestions { suggestions }).is_ok())
             })?)?;
 
-            // === Mode definition (stub with warning) ===
-            // Note: defineMode takes a JSON config string for simplicity with QuickJS
-            editor.set("defineMode", Function::new(ctx.clone(), |_config_json: String| -> bool {
-                tracing::warn!("defineMode: stub implementation");
-                true
+            // === Mode definition ===
+            // defineMode(opts: {name, parent?, bindings: [{key, command}], readOnly?})
+            let cmd_sender = command_sender.clone();
+            editor.set("defineMode", Function::new(ctx.clone(), move |opts: Object| -> rquickjs::Result<bool> {
+                let name: String = opts.get("name")?;
+                let parent: Option<String> = opts.get("parent").ok();
+                let read_only: bool = opts.get("readOnly").unwrap_or(false);
+
+                // bindings is array of {key: string, command: string}
+                let bindings_arr: Vec<Object> = opts.get("bindings").unwrap_or_default();
+                let bindings: Vec<(String, String)> = bindings_arr.into_iter()
+                    .filter_map(|obj| {
+                        let key: String = obj.get("key").ok()?;
+                        let command: String = obj.get("command").ok()?;
+                        Some((key, command))
+                    })
+                    .collect();
+
+                Ok(cmd_sender.send(PluginCommand::DefineMode {
+                    name,
+                    parent,
+                    bindings,
+                    read_only,
+                }).is_ok())
             })?)?;
 
-            // === Virtual buffers (stub with warning) ===
-            editor.set("createVirtualBufferInSplit", Function::new(ctx.clone(), |_options: String| -> u32 {
-                tracing::warn!("createVirtualBufferInSplit: stub implementation");
-                0
+            // === Virtual buffers ===
+            // createVirtualBufferInSplit is async - returns callback_id, resolves to {bufferId, splitId}
+            // _createVirtualBufferInSplitStart(opts) -> callbackId
+            let request_id = Rc::clone(&next_request_id);
+            let cmd_sender = command_sender.clone();
+            editor.set("_createVirtualBufferInSplitStart", Function::new(ctx.clone(), move |ctx: rquickjs::Ctx, opts: Object| -> rquickjs::Result<u64> {
+                let id = {
+                    let mut id_ref = request_id.borrow_mut();
+                    let id = *id_ref;
+                    *id_ref += 1;
+                    id
+                };
+
+                let name: String = opts.get("name")?;
+                let mode: String = opts.get("mode").unwrap_or_default();
+                let read_only: bool = opts.get("readOnly").unwrap_or(false);
+                let ratio: f32 = opts.get("ratio").unwrap_or(0.5);
+                let direction: Option<String> = opts.get("direction").ok();
+                let panel_id: Option<String> = opts.get("panelId").ok();
+                let show_line_numbers: bool = opts.get("showLineNumbers").unwrap_or(true);
+                let show_cursors: bool = opts.get("showCursors").unwrap_or(true);
+                let editing_disabled: bool = opts.get("editingDisabled").unwrap_or(false);
+                let line_wrap: Option<bool> = opts.get("lineWrap").ok();
+
+                // entries is array of {text: string, properties?: object}
+                let entries_arr: Vec<Object> = opts.get("entries").unwrap_or_default();
+                let entries: Vec<TextPropertyEntry> = entries_arr.iter()
+                    .filter_map(|obj| parse_text_property_entry(&ctx, obj))
+                    .collect();
+
+                let _ = cmd_sender.send(PluginCommand::CreateVirtualBufferInSplit {
+                    name,
+                    mode,
+                    read_only,
+                    entries,
+                    ratio,
+                    direction,
+                    panel_id,
+                    show_line_numbers,
+                    show_cursors,
+                    editing_disabled,
+                    line_wrap,
+                    request_id: Some(id),
+                });
+                Ok(id)
             })?)?;
 
-            editor.set("setVirtualBufferContent", Function::new(ctx.clone(), |_buffer_id: u32, _entries: Vec<String>| -> bool {
-                tracing::warn!("setVirtualBufferContent: stub implementation");
-                true
+            // setVirtualBufferContent(bufferId, entries)
+            let cmd_sender = command_sender.clone();
+            editor.set("setVirtualBufferContent", Function::new(ctx.clone(), move |ctx: rquickjs::Ctx, buffer_id: u32, entries_arr: Vec<Object>| -> rquickjs::Result<bool> {
+                let entries: Vec<TextPropertyEntry> = entries_arr.iter()
+                    .filter_map(|obj| parse_text_property_entry(&ctx, obj))
+                    .collect();
+                Ok(cmd_sender.send(PluginCommand::SetVirtualBufferContent {
+                    buffer_id: BufferId(buffer_id as usize),
+                    entries,
+                }).is_ok())
             })?)?;
 
-            editor.set("getTextPropertiesAtCursor", Function::new(ctx.clone(), |_buffer_id: u32| -> Option<String> {
-                tracing::warn!("getTextPropertiesAtCursor: stub implementation");
+            // getTextPropertiesAtCursor(bufferId) - reads from state snapshot
+            let snapshot = Arc::clone(&state_snapshot);
+            editor.set("getTextPropertiesAtCursor", Function::new(ctx.clone(), move |buffer_id: u32| -> Option<String> {
+                let snap = snapshot.read().ok()?;
+                let buffer_id = BufferId(buffer_id as usize);
+                let cursor_pos = snap.buffer_cursor_positions.get(&buffer_id).copied()
+                    .or_else(|| {
+                        if snap.active_buffer_id == buffer_id {
+                            snap.primary_cursor.as_ref().map(|c| c.position)
+                        } else {
+                            None
+                        }
+                    })?;
+
+                let properties = snap.buffer_text_properties.get(&buffer_id)?;
+                // Find property at cursor position
+                for prop in properties {
+                    if prop.start <= cursor_pos && cursor_pos < prop.end {
+                        return serde_json::to_string(&prop.properties).ok();
+                    }
+                }
                 None
             })?)?;
 
@@ -485,22 +679,74 @@ impl QuickJsBackend {
                 }).is_ok()
             })?)?;
 
-            // === Line indicators (stub) ===
-            // Note: setLineIndicator takes a JSON config string for simplicity with QuickJS
-            editor.set("setLineIndicator", Function::new(ctx.clone(), |_config_json: String| -> bool {
-                tracing::warn!("setLineIndicator: stub implementation");
-                true
+            // === Line indicators ===
+            // setLineIndicator(opts: {bufferId, line, namespace, symbol, color: [r,g,b], priority?})
+            let cmd_sender = command_sender.clone();
+            editor.set("setLineIndicator", Function::new(ctx.clone(), move |opts: Object| -> rquickjs::Result<bool> {
+                let buffer_id: u32 = opts.get("bufferId")?;
+                let line: u32 = opts.get("line")?;
+                let namespace: String = opts.get("namespace")?;
+                let symbol: String = opts.get("symbol")?;
+                let color: Vec<u8> = opts.get("color")?;
+                let priority: i32 = opts.get("priority").unwrap_or(0);
+
+                let (r, g, b) = if color.len() >= 3 { (color[0], color[1], color[2]) } else { (255, 255, 255) };
+
+                Ok(cmd_sender.send(PluginCommand::SetLineIndicator {
+                    buffer_id: BufferId(buffer_id as usize),
+                    line: line as usize,
+                    namespace,
+                    symbol,
+                    color: (r, g, b),
+                    priority,
+                }).is_ok())
             })?)?;
 
-            editor.set("clearLineIndicators", Function::new(ctx.clone(), |_buffer_id: u32, _namespace: String| -> bool {
-                tracing::warn!("clearLineIndicators: stub implementation");
-                true
+            // clearLineIndicators(bufferId, namespace)
+            let cmd_sender = command_sender.clone();
+            editor.set("clearLineIndicators", Function::new(ctx.clone(), move |buffer_id: u32, namespace: String| -> bool {
+                cmd_sender.send(PluginCommand::ClearLineIndicators {
+                    buffer_id: BufferId(buffer_id as usize),
+                    namespace,
+                }).is_ok()
             })?)?;
 
-            // === Process spawning (stub) ===
-            editor.set("spawnProcess", Function::new(ctx.clone(), |_command: String, _args: Vec<String>, _cwd: Option<String>| -> String {
-                tracing::warn!("spawnProcess: stub implementation - returns empty result");
-                r#"{"stdout":"","stderr":"","exitCode":1}"#.to_string()
+            // === Async operations - internal callback-based implementations ===
+
+            // Process spawning
+            let request_id = Rc::clone(&next_request_id);
+            let cmd_sender = command_sender.clone();
+            editor.set("_spawnProcessStart", Function::new(ctx.clone(), move |command: String, args: Vec<String>, cwd: Option<String>| -> u64 {
+                let id = {
+                    let mut id_ref = request_id.borrow_mut();
+                    let id = *id_ref;
+                    *id_ref += 1;
+                    id
+                };
+                let _ = cmd_sender.send(PluginCommand::SpawnProcess {
+                    callback_id: id,
+                    command,
+                    args,
+                    cwd,
+                });
+                id
+            })?)?;
+
+            // Delay/sleep
+            let request_id = Rc::clone(&next_request_id);
+            let cmd_sender = command_sender.clone();
+            editor.set("_delayStart", Function::new(ctx.clone(), move |duration_ms: u64| -> u64 {
+                let id = {
+                    let mut id_ref = request_id.borrow_mut();
+                    let id = *id_ref;
+                    *id_ref += 1;
+                    id
+                };
+                let _ = cmd_sender.send(PluginCommand::Delay {
+                    callback_id: id,
+                    duration_ms,
+                });
+                id
             })?)?;
 
             // === Refresh ===
@@ -548,6 +794,67 @@ impl QuickJsBackend {
                 tracing::error!("console.error: {}", args.join(" "));
             })?)?;
             globals.set("console", console)?;
+
+            // Bootstrap: Promise infrastructure for async operations
+            ctx.eval::<(), _>(r#"
+                // Pending promise callbacks: callbackId -> { resolve, reject }
+                globalThis._pendingCallbacks = new Map();
+
+                // Resolve a pending callback (called from Rust)
+                globalThis._resolveCallback = function(callbackId, result) {
+                    const cb = globalThis._pendingCallbacks.get(callbackId);
+                    if (cb) {
+                        globalThis._pendingCallbacks.delete(callbackId);
+                        cb.resolve(result);
+                    }
+                };
+
+                // Reject a pending callback (called from Rust)
+                globalThis._rejectCallback = function(callbackId, error) {
+                    const cb = globalThis._pendingCallbacks.get(callbackId);
+                    if (cb) {
+                        globalThis._pendingCallbacks.delete(callbackId);
+                        cb.reject(new Error(error));
+                    }
+                };
+
+                // Generic async wrapper decorator
+                // Wraps a function that returns a callbackId into a promise-returning function
+                // Usage: editor.foo = _wrapAsync(editor._fooStart);
+                globalThis._wrapAsync = function(startFn) {
+                    return function(...args) {
+                        const callbackId = startFn.apply(this, args);
+                        return new Promise((resolve, reject) => {
+                            globalThis._pendingCallbacks.set(callbackId, { resolve, reject });
+                        });
+                    };
+                };
+
+                // Async wrapper that returns a thenable object (for APIs like spawnProcess)
+                // The returned object has .result promise and is itself thenable
+                globalThis._wrapAsyncThenable = function(startFn) {
+                    return function(...args) {
+                        const callbackId = startFn.apply(this, args);
+                        const resultPromise = new Promise((resolve, reject) => {
+                            globalThis._pendingCallbacks.set(callbackId, { resolve, reject });
+                        });
+                        return {
+                            get result() { return resultPromise; },
+                            then(onFulfilled, onRejected) {
+                                return resultPromise.then(onFulfilled, onRejected);
+                            },
+                            catch(onRejected) {
+                                return resultPromise.catch(onRejected);
+                            }
+                        };
+                    };
+                };
+
+                // Apply wrappers to async functions
+                editor.spawnProcess = _wrapAsyncThenable(editor._spawnProcessStart);
+                editor.delay = _wrapAsync(editor._delayStart);
+                editor.createVirtualBufferInSplit = _wrapAsyncThenable(editor._createVirtualBufferInSplitStart);
+            "#.as_bytes())?;
 
             Ok::<_, rquickjs::Error>(())
         }).map_err(|e| anyhow!("Failed to set up global API: {}", e))?;
@@ -699,6 +1006,34 @@ impl QuickJsBackend {
     /// Send a status message to the editor
     pub fn send_status(&self, message: String) {
         let _ = self.command_sender.send(PluginCommand::SetStatus { message });
+    }
+
+    /// Resolve a pending async callback with a result (called from Rust when async op completes)
+    pub fn resolve_callback(&mut self, callback_id: u64, result_json: &str) {
+        let code = format!(
+            "globalThis._resolveCallback({}, {});",
+            callback_id,
+            result_json
+        );
+        self.context.with(|ctx| {
+            if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
+                tracing::error!("Error resolving callback {}: {}", callback_id, e);
+            }
+        });
+    }
+
+    /// Reject a pending async callback with an error (called from Rust when async op fails)
+    pub fn reject_callback(&mut self, callback_id: u64, error: &str) {
+        let code = format!(
+            "globalThis._rejectCallback({}, {});",
+            callback_id,
+            serde_json::to_string(error).unwrap_or_else(|_| "\"Unknown error\"".to_string())
+        );
+        self.context.with(|ctx| {
+            if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
+                tracing::error!("Error rejecting callback {}: {}", callback_id, e);
+            }
+        });
     }
 }
 

@@ -1,271 +1,193 @@
 # QuickJS Migration Plan
 
-Replace deno_core (V8) + deno_ast with QuickJS + oxc in one shot.
+Replace deno_core (V8) + deno_ast with QuickJS + oxc.
+
+## Status: API Implementation Complete ✓
+
+The migration from deno to QuickJS + oxc is complete with full API implementation. The plugin system now uses:
+- **QuickJS** (rquickjs 0.9) for JavaScript runtime
+- **oxc** (0.108) for TypeScript transpilation
+- **Promise wrapper pattern** for async API compatibility
+- **Native JS object parameters** instead of JSON strings for complex types
 
 ---
 
-## Phase 1: Update Dependencies
+## Completed Work
 
-### Cargo.toml Changes
+### Phase 1: Dependencies ✓
+- Removed: `deno_core`, `deno_ast`, `deno_error`
+- Added: `rquickjs`, `oxc_allocator`, `oxc_parser`, `oxc_transformer`, `oxc_codegen`, `oxc_span`, `oxc_semantic`
 
-**Remove:**
-```toml
-deno_core = { version = "0.376.0", ... }
-deno_ast = { version = "0.51.0", ... }
-deno_error = { version = "0.7", ... }
+### Phase 2: Transpilation ✓
+- Created `src/services/plugins/transpile.rs`
+- TypeScript → JavaScript via oxc (parse → semantic → transform → codegen)
+- ES module bundling for plugins with local imports
+
+### Phase 3: QuickJS Backend ✓
+- Created `src/services/plugins/backend/quickjs_backend.rs`
+- Implemented ~40 editor API methods
+- Promise infrastructure with callback-based async pattern
+
+### Phase 4: Async Operations ✓
+- `_wrapAsync()` / `_wrapAsyncThenable()` decorators in JS bootstrap
+- `editor.spawnProcess()` - returns thenable, executes process, resolves with {stdout, stderr, exitCode}
+- `editor.delay(ms)` - returns promise, sleeps for duration
+- Callback resolution flow: JS → Rust command → App handles → resolve_callback → JS promise resolves
+
+### Phase 5: Cleanup ✓
+- Deleted `src/services/plugins/runtime.rs` (265KB)
+- Deleted `src/v8_init.rs`
+- Removed V8 initialization from test harness
+- Updated all imports and module declarations
+
+### Phase 6: API Methods ✓
+- Implemented all previously stubbed methods with native JS object parameters:
+  - `addOverlay(opts)` - accepts `{bufferId, namespace?, start, end, color: [r,g,b], bgColor?, underline?, bold?, italic?, extendToLineEnd?}`
+  - `setPromptSuggestions(suggestions)` - accepts array of `{text, description?, value?, disabled?, keybinding?}`
+  - `defineMode(opts)` - accepts `{name, parent?, bindings: [{key, command}], readOnly?}`
+  - `createVirtualBufferInSplit(opts)` - async, returns `{bufferId, splitId}`
+  - `setVirtualBufferContent(bufferId, entries)` - entries are `{text, properties?}`
+  - `getTextPropertiesAtCursor(bufferId)` - reads from state snapshot
+  - `setLineIndicator(opts)` - accepts `{bufferId, line, namespace, symbol, color: [r,g,b], priority?}`
+  - `clearLineIndicators(bufferId, namespace)`
+- Added helper functions for JS ↔ JSON conversion (`js_to_json`, `parse_text_property_entry`)
+
+---
+
+## Architecture: Async Pattern
+
 ```
-
-**Add:**
-```toml
-rquickjs = { version = "0.9", features = ["bindgen", "futures", "macro"], optional = true }
-oxc_allocator = { version = "0.102", optional = true }
-oxc_parser = { version = "0.102", optional = true }
-oxc_transformer = { version = "0.102", optional = true }
-oxc_codegen = { version = "0.102", optional = true }
-oxc_span = { version = "0.102", optional = true }
-oxc_semantic = { version = "0.102", optional = true }
-```
-
-**Update feature:**
-```toml
-plugins = ["dep:rquickjs", "dep:oxc_allocator", "dep:oxc_parser", "dep:oxc_transformer", "dep:oxc_codegen", "dep:oxc_span", "dep:oxc_semantic"]
+┌─────────────────────────────────────────────────────────────────┐
+│ Plugin JS Code                                                   │
+│   const result = await editor.spawnProcess("git", ["status"]);  │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ JS Bootstrap (_wrapAsyncThenable)                               │
+│   1. Call editor._spawnProcessStart() → returns callbackId      │
+│   2. Create Promise, store {resolve, reject} in _pendingCallbacks│
+│   3. Return thenable object                                     │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Rust QuickJsBackend (_spawnProcessStart)                        │
+│   1. Generate unique callbackId                                 │
+│   2. Send PluginCommand::SpawnProcess to app                    │
+│   3. Return callbackId to JS                                    │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ App (handle_plugin_command)                                     │
+│   1. Execute std::process::Command                              │
+│   2. Call plugin_manager.resolve_callback(id, result_json)      │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ PluginThreadHandle.resolve_callback()                           │
+│   Send PluginRequest::ResolveCallback to plugin thread          │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Plugin Thread (handle_plugin_request)                           │
+│   Call runtime.borrow_mut().resolve_callback(id, json)          │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ QuickJsBackend.resolve_callback()                               │
+│   Execute: globalThis._resolveCallback(callbackId, result)      │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ JS Bootstrap (_resolveCallback)                                 │
+│   1. Find pending callback by ID                                │
+│   2. Call resolve(result)                                       │
+│   3. Promise resolves, plugin code continues                    │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phase 2: Create New Files
+## Remaining Work
 
-### 2.1: `src/services/plugins/transpile.rs`
+### High Priority (Plugin Compatibility)
 
-oxc-based TypeScript transpilation:
+1. **Test with actual plugins** - Load bundled plugins and verify they work
+2. **LSP integration** - `sendLspRequest()` needs async implementation
+3. **Background process spawning** - `spawnBackgroundProcess()` stub
 
-```rust
-use anyhow::{anyhow, Result};
-use oxc_allocator::Allocator;
-use oxc_codegen::CodeGenerator;
-use oxc_parser::Parser;
-use oxc_semantic::SemanticBuilder;
-use oxc_span::SourceType;
-use oxc_transformer::{TransformOptions, Transformer};
+### Low Priority (Nice to Have)
 
-pub fn transpile_typescript(source: &str, filename: &str) -> Result<String> {
-    let allocator = Allocator::default();
-    let source_type = SourceType::from_path(filename)
-        .map_err(|_| anyhow!("Unknown file type: {}", filename))?;
+4. **Non-blocking delay** - Current delay blocks UI thread
+5. **Non-blocking process spawn** - Current spawn blocks UI thread
+6. **Process streaming** - Stream stdout/stderr instead of waiting for completion
 
-    let parser_ret = Parser::new(&allocator, source, source_type).parse();
-    if !parser_ret.errors.is_empty() {
-        return Err(anyhow!("Parse errors: {:?}", parser_ret.errors));
-    }
+### TypeScript Definition Generation
 
-    let mut program = parser_ret.program;
-    let semantic_ret = SemanticBuilder::new().build(&program);
-    let (symbols, scopes) = semantic_ret.semantic.into_symbol_table_and_scope_tree();
-
-    let _ = Transformer::new(&allocator, std::path::Path::new(filename), &TransformOptions::default())
-        .build_with_symbols_and_scopes(symbols, scopes, &mut program);
-
-    Ok(CodeGenerator::new().build(&program).code)
-}
-```
-
-### 2.2: `src/services/plugins/backend/mod.rs`
-
-```rust
-mod quickjs_backend;
-pub use quickjs_backend::QuickJsBackend;
-```
-
-### 2.3: `src/services/plugins/backend/quickjs_backend.rs`
-
-Core structure (~800-1000 lines):
-
-```rust
-use crate::services::plugins::api::{EditorStateSnapshot, PluginCommand};
-use crate::services::plugins::transpile::transpile_typescript;
-use anyhow::Result;
-use rquickjs::{Context, Function, Object, Runtime};
-use std::collections::HashMap;
-use std::sync::{mpsc, Arc, RwLock};
-
-pub struct QuickJsBackend {
-    runtime: Runtime,
-    context: Context,
-    event_handlers: HashMap<String, Vec<rquickjs::Persistent<Function<'static>>>>,
-    state_snapshot: Arc<RwLock<EditorStateSnapshot>>,
-    command_sender: mpsc::Sender<PluginCommand>,
-}
-
-impl QuickJsBackend {
-    pub fn new(
-        state_snapshot: Arc<RwLock<EditorStateSnapshot>>,
-        command_sender: mpsc::Sender<PluginCommand>,
-    ) -> Result<Self> { ... }
-
-    pub fn load_plugin(&mut self, path: &str, name: &str) -> Result<()> { ... }
-    pub fn emit(&mut self, event: &str, data: &str) -> Result<()> { ... }
-    pub fn has_handlers(&self, event: &str) -> bool { ... }
-    pub fn execute_action(&mut self, name: &str) -> Result<()> { ... }
-}
-```
-
-**Editor API to implement (port from runtime.rs):**
-
-| Method | Implementation |
-|--------|----------------|
-| `setStatus(msg)` | Send `PluginCommand::SetStatus` |
-| `debug(msg)` | `tracing::debug!` |
-| `getActiveBufferId()` | Read from `state_snapshot` |
-| `getBufferPath(id)` | Read from `state_snapshot` |
-| `getCursorPosition(id)` | Read from `state_snapshot` |
-| `insertText(id, pos, text)` | Send `PluginCommand::InsertText` |
-| `deleteRange(id, start, end)` | Send `PluginCommand::DeleteRange` |
-| `registerCommand(name, fn)` | Store callback, send registration |
-| `on(event, fn)` | Add to `event_handlers` map |
-| `off(event, fn)` | Remove from `event_handlers` map |
-| `openFile(path)` | Send `PluginCommand::OpenFile` |
-| `fileExists(path)` | `std::path::Path::new(path).exists()` |
-| `readFile(path)` | `std::fs::read_to_string(path)` |
-| `writeFile(path, content)` | `std::fs::write(path, content)` |
-| `pathJoin(...parts)` | `std::path::Path` operations |
-| `getEnv(key)` | `std::env::var(key)` |
-| `getCwd()` | `std::env::current_dir()` |
-| `copyToClipboard(text)` | Send `PluginCommand::CopyToClipboard` |
-
-**Stub methods (log warning, return default):**
-- `spawnProcess`, `addOverlay`, `clearNamespace`, `defineMode`
-- `startPrompt`, `setPromptSuggestions`, `refreshLines`
-- `createVirtualBufferInSplit`, `setVirtualBufferContent`
-- `closeSplit`, `setSplitBuffer`, `setLineIndicator`, `clearLineIndicators`
+For better developer experience, consider auto-generating `.d.ts` files:
+- **Option 1**: `ts-rs` crate - derive macros for Rust types
+- **Option 2**: Spec-based generation - define API in YAML, generate both Rust and TypeScript
+- **Option 3**: Custom proc-macros with metadata extraction
 
 ---
 
-## Phase 3: Update Existing Files
+## File Summary
 
-### 3.1: `src/services/plugins/mod.rs`
-
-Add:
-```rust
-#[cfg(feature = "plugins")]
-mod transpile;
-#[cfg(feature = "plugins")]
-mod backend;
-```
-
-### 3.2: `src/services/plugins/thread.rs`
-
-Replace:
-```rust
-use crate::services::plugins::runtime::{TsPluginInfo, TypeScriptRuntime};
-```
-
-With:
-```rust
-use crate::services::plugins::backend::QuickJsBackend;
-
-pub struct TsPluginInfo {
-    pub name: String,
-    pub path: PathBuf,
-    pub enabled: bool,
-}
-```
-
-Update `PluginThreadHandle::spawn()`:
-```rust
-// Old: TypeScriptRuntime::with_state_and_responses(...)
-// New: QuickJsBackend::new(state_snapshot, command_sender)
-```
-
-Update function signatures:
-```rust
-// Old: Rc<RefCell<TypeScriptRuntime>>
-// New: Rc<RefCell<QuickJsBackend>>
-```
-
-### 3.3: `tests/common/harness.rs`
-
-Remove any V8 initialization code.
+| File | Status |
+|------|--------|
+| `Cargo.toml` | ✓ Updated |
+| `src/services/plugins/mod.rs` | ✓ Updated |
+| `src/services/plugins/transpile.rs` | ✓ Created |
+| `src/services/plugins/backend/mod.rs` | ✓ Created |
+| `src/services/plugins/backend/quickjs_backend.rs` | ✓ Created (~900 lines) |
+| `src/services/plugins/thread.rs` | ✓ Updated |
+| `src/services/plugins/manager.rs` | ✓ Updated |
+| `src/services/plugins/api.rs` | ✓ Updated |
+| `src/app/mod.rs` | ✓ Updated (handlers use resolve_callback) |
+| `src/lib.rs` | ✓ Updated (removed v8_init) |
+| `tests/common/harness.rs` | ✓ Updated (removed V8 init) |
+| `src/services/plugins/runtime.rs` | ✓ Deleted |
+| `src/v8_init.rs` | ✓ Deleted |
 
 ---
 
-## Phase 4: Delete Files
+## Adding New Async APIs
 
-- `src/services/plugins/runtime.rs` (265KB) - entire file
+To add a new async API (e.g., `editor.foo()`):
 
----
-
-## Phase 5: ES Module Support (for clangd_support.ts)
-
-Add to `transpile.rs`:
-
+**1. Rust side (`quickjs_backend.rs`):**
 ```rust
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-
-pub fn bundle_module(entry: &Path) -> Result<String> {
-    let mut visited = HashSet::new();
-    let mut output = String::new();
-    bundle_recursive(entry, &mut visited, &mut output)?;
-    Ok(output)
-}
-
-fn bundle_recursive(path: &Path, visited: &mut HashSet<PathBuf>, out: &mut String) -> Result<()> {
-    if !visited.insert(path.to_path_buf()) { return Ok(()); }
-
-    let source = std::fs::read_to_string(path)?;
-    for import in extract_imports(&source) {
-        let resolved = path.parent().unwrap().join(&import);
-        let resolved = if resolved.exists() { resolved }
-            else if resolved.with_extension("ts").exists() { resolved.with_extension("ts") }
-            else { resolved.with_extension("js") };
-        bundle_recursive(&resolved, visited, out)?;
-    }
-
-    let stripped = strip_imports(&source);
-    out.push_str(&transpile_typescript(&stripped, path.to_str().unwrap())?);
-    out.push('\n');
-    Ok(())
-}
-
-fn extract_imports(source: &str) -> Vec<String> {
-    regex::Regex::new(r#"import\s+.*?\s+from\s+['"](\./[^'"]+)['"]"#)
-        .unwrap()
-        .captures_iter(source)
-        .map(|c| c[1].to_string())
-        .collect()
-}
-
-fn strip_imports(source: &str) -> String {
-    regex::Regex::new(r#"import\s+.*?\s+from\s+['"][^'"]+['"];\s*"#)
-        .unwrap()
-        .replace_all(source, "")
-        .to_string()
-}
+let request_id = Rc::clone(&next_request_id);
+let cmd_sender = command_sender.clone();
+editor.set("_fooStart", Function::new(ctx.clone(), move |arg: String| -> u64 {
+    let id = { /* increment and get id */ };
+    let _ = cmd_sender.send(PluginCommand::Foo { callback_id: id, arg });
+    id
+})?)?;
 ```
 
-Update `QuickJsBackend::load_plugin()` to detect imports and use bundler.
+**2. JS bootstrap:**
+```javascript
+editor.foo = _wrapAsync(editor._fooStart);
+// or for thenable:
+editor.foo = _wrapAsyncThenable(editor._fooStart);
+```
 
----
+**3. Add command variant (`api.rs`):**
+```rust
+Foo { callback_id: u64, arg: String },
+```
 
-## Summary
-
-| Action | File |
-|--------|------|
-| **Create** | `src/services/plugins/transpile.rs` |
-| **Create** | `src/services/plugins/backend/mod.rs` |
-| **Create** | `src/services/plugins/backend/quickjs_backend.rs` |
-| **Modify** | `Cargo.toml` |
-| **Modify** | `src/services/plugins/mod.rs` |
-| **Modify** | `src/services/plugins/thread.rs` |
-| **Modify** | `tests/common/harness.rs` |
-| **Delete** | `src/services/plugins/runtime.rs` |
-
----
-
-## Validation
-
-```bash
-cargo build --features plugins
-cargo test --features plugins
-# Load editor and verify plugins work
+**4. Handle in app (`app/mod.rs`):**
+```rust
+PluginCommand::Foo { callback_id, arg } => {
+    let result = do_foo(arg);
+    self.plugin_manager.resolve_callback(callback_id, serde_json::to_string(&result).unwrap());
+}
 ```

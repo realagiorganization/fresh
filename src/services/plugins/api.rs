@@ -384,7 +384,13 @@ pub enum PluginCommand {
         command: String,
         args: Vec<String>,
         cwd: Option<String>,
-        callback_id: u64, // ID to look up callback in _spawn_callbacks Lua table
+        callback_id: u64,
+    },
+
+    /// Delay/sleep for a duration (async, resolves callback when done)
+    Delay {
+        callback_id: u64,
+        duration_ms: u64,
     },
 
     /// Set layout hints for a buffer/viewport
