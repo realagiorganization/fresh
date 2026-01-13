@@ -7,33 +7,28 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-fn main() {
-    // Rerun if source or template changes
-    println!("cargo::rerun-if-changed=src/services/plugins/runtime.rs");
-    println!("cargo::rerun-if-changed=types/fresh.d.ts.template");
-    println!("cargo::rerun-if-changed=locales");
+/// Write content to a file only if it differs from existing content.
+/// This prevents unnecessary rebuilds due to mtime changes.
+fn write_if_changed(path: &Path, content: &str) -> std::io::Result<bool> {
+    if path.exists() {
+        if let Ok(existing) = fs::read_to_string(path) {
+            if existing == content {
+                return Ok(false); // No change needed
+            }
+        }
+    }
+    fs::write(path, content)?;
+    Ok(true) // File was written
+}
 
-    // Check if we're in a package verification context or building on docs.rs
-    // DOCS_RS is set when building on docs.rs
-    // We detect publish verification by looking for the target/package path
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-    let is_publish_verify = manifest_dir.contains("target/package");
-    let is_docs_rs = std::env::var("DOCS_RS").is_ok();
+fn main() {
+    // Rerun if locales change
+    println!("cargo::rerun-if-changed=locales");
 
     // Always generate locale_options.rs - it's required by config.rs at compile time
     // This must run even during publish verification since the include!() macro needs it
     if let Err(e) = generate_locale_options() {
         eprintln!("Warning: Failed to generate locale options: {}", e);
-    }
-
-    // Skip TypeScript type generation during cargo publish (files should be pre-committed)
-    // These files are only needed for plugin development, not for building the editor
-    if is_publish_verify || is_docs_rs {
-        return;
-    }
-
-    if let Err(e) = generate_typescript_types() {
-        eprintln!("Warning: Failed to generate TypeScript types: {}", e);
     }
 
     // Generate plugins content hash for cache invalidation
@@ -137,6 +132,8 @@ pub const GENERATED_LOCALE_OPTIONS: &[Option<&str>] = &[
         locale_entries.join(",\n    ")
     );
 
+    // Note: OUT_DIR files don't need write_if_changed since cargo handles them specially,
+    // but it doesn't hurt to use it for consistency
     fs::write(&dest_path, content)?;
 
     println!(
@@ -888,18 +885,22 @@ interface EditorAPI {
         fs::create_dir_all(plugins_lib_dir)?;
     }
 
-    // Write TypeScript output
-    fs::write("plugins/lib/fresh.d.ts", &output)?;
+    // Write TypeScript output (only if changed to avoid unnecessary rebuilds)
+    let ts_path = Path::new("plugins/lib/fresh.d.ts");
+    let ts_changed = write_if_changed(ts_path, &output)?;
 
-    // Generate markdown documentation
+    // Generate markdown documentation (only if changed)
     let markdown = generate_markdown_docs(&structs, &categories);
-    fs::write("docs/plugin-api.md", markdown)?;
+    let md_path = Path::new("docs/plugin-api.md");
+    let md_changed = write_if_changed(md_path, &markdown)?;
 
-    println!(
-        "cargo::warning=Generated plugins/lib/fresh.d.ts with {} ops and {} interfaces",
-        ops.len(),
-        structs.len()
-    );
+    if ts_changed || md_changed {
+        println!(
+            "cargo::warning=Generated plugins/lib/fresh.d.ts with {} ops and {} interfaces",
+            ops.len(),
+            structs.len()
+        );
+    }
 
     Ok(())
 }
