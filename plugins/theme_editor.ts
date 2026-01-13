@@ -2037,12 +2037,11 @@ globalThis.onThemeDeletePromptConfirmed = async function(args: {
 // Command Registration
 // =============================================================================
 
-// Main command to open theme editor (always available)
+// Main command to open theme editor (always available - no context restriction)
 editor.registerCommand(
   "%cmd.edit_theme",
   "%cmd.edit_theme_desc",
-  "open_theme_editor",
-  "normal"
+  "open_theme_editor"
 );
 
 // Buffer-scoped commands - only visible when a buffer with mode "theme-editor" is focused

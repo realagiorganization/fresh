@@ -53,6 +53,8 @@ fn open_theme_editor(harness: &mut EditorTestHarness) {
 /// Test that the theme editor command is registered by the plugin
 #[test]
 fn test_theme_editor_command_registered() {
+    init_tracing_from_env();
+
     // Create a temporary project directory
     let temp_dir = tempfile::TempDir::new().unwrap();
     let project_root = temp_dir.path().join("project_root");
