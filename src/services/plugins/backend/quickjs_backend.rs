@@ -376,23 +376,25 @@ impl QuickJsBackend {
             })?)?;
 
             // === Command registration ===
-            // registerCommand(name, description, handler_name, context)
+            // _registerCommandInternal(pluginName, name, description, handler_name, context)
+            // Called by JS wrapper which provides plugin name
             let cmd_sender = command_sender.clone();
             let actions = Rc::clone(&registered_actions);
-            editor.set("registerCommand", Function::new(ctx.clone(), move |name: String, description: String, handler_name: String, context: Option<String>| -> bool {
-                tracing::debug!("registerCommand: name='{}', handler='{}', context={:?}", name, handler_name, context);
+            editor.set("_registerCommandInternal", Function::new(ctx.clone(), move |plugin_name: String, name: String, description: String, handler_name: String, context: Option<String>| -> bool {
+                tracing::debug!("registerCommand: plugin='{}', name='{}', handler='{}', context={:?}", plugin_name, name, handler_name, context);
 
                 // Store action handler mapping (handler_name -> handler_name for direct lookup)
                 actions.borrow_mut().insert(handler_name.clone(), handler_name.clone());
 
                 // Register with editor - action uses handler_name so execute_action can find it
+                // source uses plugin_name for proper i18n localization
                 let command = Command {
                     name: name.clone(),
                     description,
                     action: Action::PluginAction(handler_name.clone()),
                     contexts: vec![],
                     custom_contexts: context.into_iter().collect(),
-                    source: CommandSource::Plugin(handler_name),
+                    source: CommandSource::Plugin(plugin_name),
                 };
 
                 cmd_sender.send(PluginCommand::RegisterCommand { command }).is_ok()
@@ -1061,6 +1063,11 @@ impl QuickJsBackend {
 
                     // Plugin-specific translation
                     t(key, args) {{ return core._pluginTranslate(pluginName, key, args || {{}}); }},
+
+                    // Command registration with plugin name for i18n
+                    registerCommand(name, description, handler, context) {{
+                        return core._registerCommandInternal(pluginName, name, description, handler, context);
+                    }},
 
                     // For compatibility
                     getL10n() {{ return {{ t: (k, a) => this.t(k, a) }}; }},

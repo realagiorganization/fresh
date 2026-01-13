@@ -1522,11 +1522,19 @@ impl EditorTestHarness {
         F: FnMut(&Self) -> bool,
     {
         const WAIT_SLEEP: std::time::Duration = std::time::Duration::from_millis(50);
+        let mut iteration = 0u32;
         loop {
             self.process_async_and_render()?;
-            if condition(self) {
+            let result = condition(self);
+            if iteration < 5 || iteration % 20 == 0 {
+                let mode = self.editor.editor_mode();
+                eprintln!("[wait_until] iteration={}, condition result={}, editor_mode={:?}", iteration, result, mode);
+            }
+            if result {
+                eprintln!("[wait_until] condition satisfied at iteration {}", iteration);
                 return Ok(());
             }
+            iteration += 1;
             // Sleep for real wall-clock time to allow async I/O operations to complete
             // These run on the tokio runtime and need actual time, not logical time
             std::thread::sleep(WAIT_SLEEP);
@@ -1573,8 +1581,18 @@ impl EditorTestHarness {
 
     /// Wait for screen to contain specific text
     pub fn wait_for_screen_contains(&mut self, text: &str) -> anyhow::Result<()> {
+        eprintln!("[wait_for_screen_contains] START looking for '{}'", text);
         let text = text.to_string();
-        self.wait_until(move |h| h.screen_to_string().contains(&text))
+        let mut printed = false;
+        self.wait_until(move |h| {
+            let screen = h.screen_to_string();
+            let found = screen.contains(&text);
+            if !found && !printed {
+                eprintln!("[wait_for_screen_contains] Screen content:\n{}", screen);
+                printed = true;
+            }
+            found
+        })
     }
 
     /// Wait for buffer content to match expected value
