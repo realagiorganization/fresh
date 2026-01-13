@@ -68,6 +68,79 @@ fn js_to_json(ctx: &rquickjs::Ctx<'_>, val: Value<'_>) -> serde_json::Value {
     }
 }
 
+/// Convert a serde_json::Value to a QuickJS Value
+fn json_to_js<'js>(ctx: &rquickjs::Ctx<'js>, val: serde_json::Value) -> rquickjs::Result<Value<'js>> {
+    match val {
+        serde_json::Value::Null => Ok(Value::new_null(ctx.clone())),
+        serde_json::Value::Bool(b) => Ok(Value::new_bool(ctx.clone(), b)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(Value::new_int(ctx.clone(), i as i32))
+            } else if let Some(f) = n.as_f64() {
+                Ok(Value::new_float(ctx.clone(), f))
+            } else {
+                Ok(Value::new_null(ctx.clone()))
+            }
+        }
+        serde_json::Value::String(s) => {
+            Ok(rquickjs::String::from_str(ctx.clone(), &s)?.into_value())
+        }
+        serde_json::Value::Array(arr) => {
+            let js_arr = rquickjs::Array::new(ctx.clone())?;
+            for (i, item) in arr.into_iter().enumerate() {
+                js_arr.set(i, json_to_js(ctx, item)?)?;
+            }
+            Ok(js_arr.into_value())
+        }
+        serde_json::Value::Object(map) => {
+            let obj = rquickjs::Object::new(ctx.clone())?;
+            for (key, value) in map {
+                obj.set(key.as_str(), json_to_js(ctx, value)?)?;
+            }
+            Ok(obj.into_value())
+        }
+    }
+}
+
+/// Get text properties at cursor position, returning JSON string
+fn get_text_properties_at_cursor_json(
+    snapshot: &Arc<RwLock<EditorStateSnapshot>>,
+    buffer_id: u32,
+) -> String {
+    let empty = "[]".to_string();
+    let snap = match snapshot.read() {
+        Ok(s) => s,
+        Err(_) => return empty,
+    };
+    let buffer_id_typed = BufferId(buffer_id as usize);
+    let cursor_pos = match snap.buffer_cursor_positions.get(&buffer_id_typed).copied()
+        .or_else(|| {
+            if snap.active_buffer_id == buffer_id_typed {
+                snap.primary_cursor.as_ref().map(|c| c.position)
+            } else {
+                None
+            }
+        }) {
+        Some(pos) => pos,
+        None => return empty,
+    };
+
+    let properties = match snap.buffer_text_properties.get(&buffer_id_typed) {
+        Some(p) => p,
+        None => return empty,
+    };
+
+    // Find all properties at cursor position
+    let result: Vec<_> = properties.iter()
+        .filter(|prop| prop.start <= cursor_pos && cursor_pos < prop.end)
+        .map(|prop| serde_json::Value::Object(
+            prop.properties.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        ))
+        .collect();
+
+    serde_json::to_string(&result).unwrap_or(empty)
+}
+
 /// Convert a JavaScript value to a string representation for console output
 fn js_value_to_string(ctx: &rquickjs::Ctx<'_>, val: &Value<'_>) -> String {
     use rquickjs::Type;
@@ -456,6 +529,24 @@ impl QuickJsBackend {
                 false
             })?)?;
 
+            // listBuffers - returns JSON array of {id, path, modified, length}
+            let snapshot = Arc::clone(&state_snapshot);
+            editor.set("_listBuffersJson", Function::new(ctx.clone(), move || -> String {
+                if let Ok(s) = snapshot.read() {
+                    let buffers: Vec<serde_json::Value> = s.buffers.iter().map(|(id, info)| {
+                        serde_json::json!({
+                            "id": id.0 as u32,
+                            "path": info.path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
+                            "modified": info.modified,
+                            "length": info.length as u32
+                        })
+                    }).collect();
+                    serde_json::to_string(&buffers).unwrap_or_else(|_| "[]".to_string())
+                } else {
+                    "[]".to_string()
+                }
+            })?)?;
+
             // === Text editing ===
             let cmd_sender = command_sender.clone();
             editor.set("insertText", Function::new(ctx.clone(), move |buffer_id: u32, position: u32, text: String| -> bool {
@@ -653,6 +744,30 @@ impl QuickJsBackend {
                 std::fs::write(&path, content).is_ok()
             })?)?;
 
+            // readDir - returns JSON array of {name, is_file, is_dir}
+            editor.set("_readDirJson", Function::new(ctx.clone(), |path: String| -> String {
+                match std::fs::read_dir(&path) {
+                    Ok(entries) => {
+                        let dir_entries: Vec<serde_json::Value> = entries
+                            .filter_map(|e| e.ok())
+                            .map(|entry| {
+                                let file_type = entry.file_type().ok();
+                                serde_json::json!({
+                                    "name": entry.file_name().to_string_lossy().to_string(),
+                                    "is_file": file_type.map(|ft| ft.is_file()).unwrap_or(false),
+                                    "is_dir": file_type.map(|ft| ft.is_dir()).unwrap_or(false)
+                                })
+                            })
+                            .collect();
+                        serde_json::to_string(&dir_entries).unwrap_or_else(|_| "[]".to_string())
+                    }
+                    Err(e) => {
+                        tracing::warn!("readDir failed for '{}': {}", path, e);
+                        "[]".to_string()
+                    }
+                }
+            })?)?;
+
             // === Config ===
             let snapshot = Arc::clone(&state_snapshot);
             editor.set("getConfig", Function::new(ctx.clone(), move || -> String {
@@ -699,40 +814,70 @@ impl QuickJsBackend {
                 serde_json::to_string(&themes).unwrap_or_else(|_| "{}".to_string())
             })?)?;
 
+            // deleteTheme - deletes theme file from user themes directory (sync, returns bool)
+            let dir_ctx = dir_context.clone();
+            editor.set("_deleteThemeSync", Function::new(ctx.clone(), move |name: String| -> bool {
+                // Security: only allow deleting from the themes directory
+                let themes_dir = dir_ctx.config_dir.join("themes");
+                let theme_path = themes_dir.join(format!("{}.json", name));
+
+                // Verify the file is actually in the themes directory (prevent path traversal)
+                if let Ok(canonical) = theme_path.canonicalize() {
+                    if let Ok(themes_canonical) = themes_dir.canonicalize() {
+                        if canonical.starts_with(&themes_canonical) {
+                            return std::fs::remove_file(&canonical).is_ok();
+                        }
+                    }
+                }
+                false
+            })?)?;
+
             // === Overlays ===
-            // addOverlay(opts: {bufferId, namespace?, start, end, color: [r,g,b], bgColor?: [r,g,b], underline?, bold?, italic?, extendToLineEnd?})
+            // _addOverlayInternal takes JSON string to avoid arg limit
             let cmd_sender = command_sender.clone();
-            editor.set("addOverlay", Function::new(ctx.clone(), move |opts: Object| -> rquickjs::Result<bool> {
-                let buffer_id: u32 = opts.get("bufferId")?;
-                let namespace: Option<String> = opts.get("namespace").ok();
-                let start: u32 = opts.get("start")?;
-                let end: u32 = opts.get("end")?;
+            editor.set("_addOverlayInternal", Function::new(ctx.clone(), move |json: String| -> bool {
+                #[derive(serde::Deserialize)]
+                struct OverlayArgs {
+                    buffer_id: u32,
+                    namespace: String,
+                    start: u32,
+                    end: u32,
+                    r: i32, g: i32, b: i32,
+                    underline: bool, bold: bool, italic: bool,
+                    bg_r: i32, bg_g: i32, bg_b: i32,
+                    extend_to_line_end: bool,
+                }
 
-                // color is [r, g, b] array
-                let color: Vec<u8> = opts.get("color")?;
-                let (r, g, b) = if color.len() >= 3 { (color[0], color[1], color[2]) } else { (255, 255, 255) };
+                let args: OverlayArgs = match serde_json::from_str(&json) {
+                    Ok(a) => a,
+                    Err(_) => return false,
+                };
 
-                // bgColor is optional [r, g, b] array
-                let bg_color: Option<(u8, u8, u8)> = opts.get::<_, Vec<u8>>("bgColor").ok()
-                    .filter(|c| c.len() >= 3)
-                    .map(|c| (c[0], c[1], c[2]));
+                // -1 means use default color (white)
+                let color = if args.r >= 0 && args.g >= 0 && args.b >= 0 {
+                    (args.r as u8, args.g as u8, args.b as u8)
+                } else {
+                    (255, 255, 255)
+                };
 
-                let underline: bool = opts.get("underline").unwrap_or(false);
-                let bold: bool = opts.get("bold").unwrap_or(false);
-                let italic: bool = opts.get("italic").unwrap_or(false);
-                let extend_to_line_end: bool = opts.get("extendToLineEnd").unwrap_or(false);
+                // -1 for bg means no background
+                let bg_color = if args.bg_r >= 0 && args.bg_g >= 0 && args.bg_b >= 0 {
+                    Some((args.bg_r as u8, args.bg_g as u8, args.bg_b as u8))
+                } else {
+                    None
+                };
 
-                Ok(cmd_sender.send(PluginCommand::AddOverlay {
-                    buffer_id: BufferId(buffer_id as usize),
-                    namespace: namespace.map(OverlayNamespace::from_string),
-                    range: (start as usize)..(end as usize),
-                    color: (r, g, b),
+                cmd_sender.send(PluginCommand::AddOverlay {
+                    buffer_id: BufferId(args.buffer_id as usize),
+                    namespace: Some(OverlayNamespace::from_string(args.namespace)),
+                    range: (args.start as usize)..(args.end as usize),
+                    color,
                     bg_color,
-                    underline,
-                    bold,
-                    italic,
-                    extend_to_line_end,
-                }).is_ok())
+                    underline: args.underline,
+                    bold: args.bold,
+                    italic: args.italic,
+                    extend_to_line_end: args.extend_to_line_end,
+                }).is_ok()
             })?)?;
 
             let cmd_sender = command_sender.clone();
@@ -901,49 +1046,10 @@ impl QuickJsBackend {
                 }).is_ok())
             })?)?;
 
-            // getTextPropertiesAtCursor(bufferId) - reads from state snapshot
-            // Returns an array of property objects at the cursor position
+            // _getTextPropertiesAtCursorJson(bufferId) - reads from state snapshot, returns JSON
             let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getTextPropertiesAtCursor", Function::new(ctx.clone(), move |ctx: rquickjs::Ctx, buffer_id: u32| -> rquickjs::Result<rquickjs::Array> {
-                let result = rquickjs::Array::new(ctx.clone())?;
-
-                let snap = match snapshot.read() {
-                    Ok(s) => s,
-                    Err(_) => return Ok(result), // Return empty array on error
-                };
-                let buffer_id = BufferId(buffer_id as usize);
-                let cursor_pos = match snap.buffer_cursor_positions.get(&buffer_id).copied()
-                    .or_else(|| {
-                        if snap.active_buffer_id == buffer_id {
-                            snap.primary_cursor.as_ref().map(|c| c.position)
-                        } else {
-                            None
-                        }
-                    }) {
-                    Some(pos) => pos,
-                    None => return Ok(result), // Return empty array if no cursor
-                };
-
-                let properties = match snap.buffer_text_properties.get(&buffer_id) {
-                    Some(p) => p,
-                    None => return Ok(result), // Return empty array if no properties
-                };
-
-                // Find all properties at cursor position
-                let mut idx = 0u32;
-                for prop in properties {
-                    if prop.start <= cursor_pos && cursor_pos < prop.end {
-                        // Convert properties HashMap to JS object
-                        let obj = rquickjs::Object::new(ctx.clone())?;
-                        for (key, value) in &prop.properties {
-                            let js_val = json_to_js(&ctx, value.clone())?;
-                            obj.set(key.as_str(), js_val)?;
-                        }
-                        result.set(idx, obj)?;
-                        idx += 1;
-                    }
-                }
-                Ok(result)
+            editor.set("_getTextPropertiesAtCursorJson", Function::new(ctx.clone(), move |buffer_id: u32| -> String {
+                get_text_properties_at_cursor_json(&snapshot, buffer_id)
             })?)?;
 
             // === Split operations ===
@@ -1250,6 +1356,49 @@ impl QuickJsBackend {
                 _editorCore.sendLspRequest = _wrapAsync(_editorCore._sendLspRequestStart, "sendLspRequest");
                 _editorCore.spawnBackgroundProcess = _wrapAsyncThenable(_editorCore._spawnBackgroundProcessStart, "spawnBackgroundProcess");
                 _editorCore.getBufferText = _wrapAsync(_editorCore._getBufferTextStart, "getBufferText");
+
+                // Wrapper for getTextPropertiesAtCursor - parses JSON from Rust
+                _editorCore.getTextPropertiesAtCursor = function(bufferId) {
+                    return JSON.parse(_editorCore._getTextPropertiesAtCursorJson(bufferId));
+                };
+
+                // Wrapper for addOverlay - accepts positional args, converts to JSON
+                _editorCore.addOverlay = function(bufferId, namespace, start, end, r, g, b, underline, bold, italic, bg_r, bg_g, bg_b, extend_to_line_end) {
+                    return _editorCore._addOverlayInternal(JSON.stringify({
+                        buffer_id: bufferId,
+                        namespace: namespace,
+                        start: start,
+                        end: end,
+                        r: r, g: g, b: b,
+                        underline: underline,
+                        bold: bold,
+                        italic: italic,
+                        bg_r: bg_r, bg_g: bg_g, bg_b: bg_b,
+                        extend_to_line_end: extend_to_line_end
+                    }));
+                };
+
+                // Wrapper for listBuffers - parses JSON from Rust
+                _editorCore.listBuffers = function() {
+                    return JSON.parse(_editorCore._listBuffersJson());
+                };
+
+                // Wrapper for readDir - parses JSON from Rust
+                _editorCore.readDir = function(path) {
+                    return JSON.parse(_editorCore._readDirJson(path));
+                };
+
+                // Wrapper for deleteTheme - wraps sync function in Promise
+                _editorCore.deleteTheme = function(name) {
+                    return new Promise(function(resolve, reject) {
+                        const success = _editorCore._deleteThemeSync(name);
+                        if (success) {
+                            resolve();
+                        } else {
+                            reject(new Error("Failed to delete theme: " + name));
+                        }
+                    });
+                };
             "#.as_bytes())?;
 
             Ok::<_, rquickjs::Error>(())
