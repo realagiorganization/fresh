@@ -1158,26 +1158,49 @@ impl QuickJsBackend {
 
         tracing::debug!("execute_action: '{}' -> function '{}'", action_name, function_name);
 
+        // Call the function and await if it returns a Promise
+        // We use a global _executeActionResult to pass the result back
         let code = format!(
             r#"
-            (function() {{
+            (async function() {{
                 try {{
-                    if (typeof globalThis.{} === 'function') {{
-                        globalThis.{}();
+                    if (typeof globalThis.{fn} === 'function') {{
+                        const result = globalThis.{fn}();
+                        // If it's a Promise, await it
+                        if (result && typeof result.then === 'function') {{
+                            await result;
+                        }}
                     }} else {{
-                        console.error('Action {} is not defined as a global function');
+                        console.error('Action {action} is not defined as a global function');
                     }}
                 }} catch (e) {{
-                    console.error('Action {} error:', e);
+                    console.error('Action {action} error:', e);
                 }}
             }})();
             "#,
-            function_name, function_name, action_name, action_name
+            fn = function_name,
+            action = action_name
         );
 
         self.context.with(|ctx| {
-            if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
-                log_js_error(&ctx, e, &format!("action {}", action_name));
+            // Eval returns a Promise for the async IIFE, which we need to drive
+            match ctx.eval::<rquickjs::Value, _>(code.as_bytes()) {
+                Ok(value) => {
+                    // If it's a Promise, we need to drive the runtime to completion
+                    if value.is_object() {
+                        if let Some(obj) = value.as_object() {
+                            // Check if it's a Promise by looking for 'then' method
+                            if obj.get::<_, rquickjs::Function>("then").is_ok() {
+                                // Drive the runtime to process the promise
+                                // QuickJS processes promises synchronously when we call execute_pending_job
+                                while ctx.execute_pending_job() {}
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    log_js_error(&ctx, e, &format!("action {}", action_name));
+                }
             }
         });
 

@@ -191,6 +191,71 @@ oxc_semantic = "0.102"
 4. **Synchronous API** - Plugin API is synchronous even though QuickJS supports async
    - Future consideration for async plugin APIs
 
+## Future: Type-Safe API Generation
+
+Currently the plugin API is manually defined in multiple places (Rust bindings, TypeScript .d.ts, tests), leading to inconsistencies. A future improvement would be a single authoritative schema that auto-generates all artifacts.
+
+### Option 1: Rust Proc Macro
+
+```rust
+#[plugin_api]
+pub trait EditorApi {
+    #[api(sync)]
+    fn getCursorPosition(&self) -> CursorPosition;
+
+    #[api(async)]
+    fn readFile(&self, path: String) -> String;
+}
+```
+
+**Pros**: Compile-time type safety, Rust-native
+**Cons**: Complex macro implementation, TS generation needs extra tooling (ts-rs)
+
+### Option 2: Schema File (TOML) + build.rs
+
+```toml
+[[api]]
+name = "getCursorPosition"
+returns = "CursorPosition"
+sync = true
+
+[[api]]
+name = "insertAtCursor"
+params = [{ name = "text", type = "String" }]
+sync = true
+
+[[types]]
+name = "CursorPosition"
+fields = [
+  { name = "line", type = "usize", ts = "number" },
+  { name = "column", type = "usize", ts = "number" }
+]
+```
+
+**Generates**:
+- `generated_bindings.rs` - QuickJS registration code
+- `fresh.d.ts` - TypeScript definitions
+- `api_tests.rs` - Test for each API call
+
+**Pros**: Simple, language-agnostic, fast iteration
+**Cons**: Not compile-time checked, schema can drift from implementation
+
+### Option 3: TypeScript as Source of Truth
+
+```typescript
+interface EditorApi {
+  getCursorPosition(): CursorPosition;
+  readFile(path: string): Promise<string>;
+}
+```
+
+**Pros**: Natural for plugin authors, familiar syntax
+**Cons**: Need TS parser in build, Rust type mapping complex
+
+### Recommendation
+
+**Option 1 (proc macro)** is preferred for long-term maintainability and compile-time type safety. The Rust type system will catch API mismatches at compile time, and ts-rs can generate TypeScript definitions from the same types. While more complex to implement initially, it provides stronger guarantees and better IDE support.
+
 ## References
 
 - [rquickjs crate](https://docs.rs/rquickjs/)
