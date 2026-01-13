@@ -461,19 +461,29 @@ impl JsEditorApi {
     // === Command Registration ===
 
     /// Register a command - reads plugin name from __currentPluginName__ global
+    /// context is optional - can be omitted, null, undefined, or a string
     pub fn register_command<'js>(
         &self,
         ctx: rquickjs::Ctx<'js>,
         name: String,
         description: String,
         handler_name: String,
-        context: Option<String>,
+        context: rquickjs::function::Opt<rquickjs::Value<'js>>,
     ) -> rquickjs::Result<bool> {
         // Get plugin name from global context
         let globals = ctx.globals();
         let plugin_name: String = globals
             .get("__currentPluginName__")
             .unwrap_or_else(|_| "unknown".to_string());
+
+        // Extract context string - handle null, undefined, or missing
+        let context_str: Option<String> = context.0.and_then(|v| {
+            if v.is_null() || v.is_undefined() {
+                None
+            } else {
+                v.as_string().and_then(|s| s.to_string().ok())
+            }
+        });
 
         tracing::debug!(
             "registerCommand: plugin='{}', name='{}', handler='{}'",
@@ -493,7 +503,7 @@ impl JsEditorApi {
             description,
             action: Action::PluginAction(handler_name),
             contexts: vec![],
-            custom_contexts: context.into_iter().collect(),
+            custom_contexts: context_str.into_iter().collect(),
             source: CommandSource::Plugin(plugin_name),
         };
 
@@ -644,6 +654,24 @@ impl JsEditorApi {
                 path: PathBuf::from(path),
                 line: line.map(|l| l as usize),
                 column: column.map(|c| c as usize),
+            })
+            .is_ok()
+    }
+
+    /// Open a file in a specific split
+    pub fn open_file_in_split(
+        &self,
+        split_id: u32,
+        path: String,
+        line: u32,
+        column: u32,
+    ) -> bool {
+        self.command_sender
+            .send(PluginCommand::OpenFileInSplit {
+                split_id: split_id as usize,
+                path: PathBuf::from(path),
+                line: Some(line as usize),
+                column: Some(column as usize),
             })
             .is_ok()
     }
@@ -1727,9 +1755,12 @@ impl QuickJsBackend {
                 plugin_name
             );
 
-            // Execute the plugin code
+            // Execute the plugin code with filename for better stack traces
+            let mut eval_options = rquickjs::context::EvalOptions::default();
+            eval_options.global = true;
+            eval_options.filename = Some(source_name.to_string());
             let result = ctx
-                .eval::<(), _>(wrapped.as_bytes())
+                .eval_with_options::<(), _>(wrapped.as_bytes(), eval_options)
                 .map_err(|e| format_js_error(&ctx, e, source_name));
 
             tracing::debug!(
