@@ -71,12 +71,13 @@ fn format_js_error(ctx: &rquickjs::Ctx<'_>, err: rquickjs::Error, source_name: &
     // Check if this is an exception that we can catch for more details
     if err.is_exception() {
         // Try to catch the exception to get the full error object
-        if let Some(exc) = ctx.catch() {
+        let exc = ctx.catch();
+        if !exc.is_undefined() && !exc.is_null() {
             // Try to get error message and stack from the exception object
             if let Some(exc_obj) = exc.as_object() {
-                let message: String = exc_obj.get("message").unwrap_or_else(|_| "Unknown error".to_string());
-                let stack: String = exc_obj.get("stack").unwrap_or_default();
-                let name: String = exc_obj.get("name").unwrap_or_else(|_| "Error".to_string());
+                let message: String = exc_obj.get::<_, String>("message").unwrap_or_else(|_| "Unknown error".to_string());
+                let stack: String = exc_obj.get::<_, String>("stack").unwrap_or_default();
+                let name: String = exc_obj.get::<_, String>("name").unwrap_or_else(|_| "Error".to_string());
 
                 if !stack.is_empty() {
                     return anyhow::anyhow!(
@@ -92,7 +93,7 @@ fn format_js_error(ctx: &rquickjs::Ctx<'_>, err: rquickjs::Error, source_name: &
             } else {
                 // Exception is not an object, try to convert to string
                 let exc_str: String = exc.as_string()
-                    .and_then(|s| s.to_string().ok())
+                    .and_then(|s: &rquickjs::String| s.to_string().ok())
                     .unwrap_or_else(|| format!("{:?}", exc));
                 return anyhow::anyhow!("JS error in {}: {}", source_name, exc_str);
             }
@@ -101,6 +102,12 @@ fn format_js_error(ctx: &rquickjs::Ctx<'_>, err: rquickjs::Error, source_name: &
 
     // Fall back to the basic error message
     anyhow::anyhow!("JS error in {}: {}", source_name, err)
+}
+
+/// Log a JavaScript error with full details
+fn log_js_error(ctx: &rquickjs::Ctx<'_>, err: rquickjs::Error, context: &str) {
+    let error = format_js_error(ctx, err, context);
+    tracing::error!("{}", error);
 }
 
 /// Parse a TextPropertyEntry from a JS Object
@@ -1038,7 +1045,7 @@ impl QuickJsBackend {
 
                 self.context.with(|ctx| {
                     if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
-                        tracing::error!("Error calling handler {}: {}", handler_name, e);
+                        log_js_error(&ctx, e, &format!("handler {}", handler_name));
                     }
                 });
             }
@@ -1078,7 +1085,7 @@ impl QuickJsBackend {
 
             self.context.with(|ctx| {
                 if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
-                    tracing::error!("Error executing action {}: {}", action_name, e);
+                    log_js_error(&ctx, e, &format!("action {}", action_name));
                 }
             });
         } else {
@@ -1109,7 +1116,7 @@ impl QuickJsBackend {
         );
         self.context.with(|ctx| {
             if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
-                tracing::error!("Error resolving callback {}: {}", callback_id, e);
+                log_js_error(&ctx, e, &format!("resolving callback {}", callback_id));
             }
         });
     }
@@ -1123,7 +1130,7 @@ impl QuickJsBackend {
         );
         self.context.with(|ctx| {
             if let Err(e) = ctx.eval::<(), _>(code.as_bytes()) {
-                tracing::error!("Error rejecting callback {}: {}", callback_id, e);
+                log_js_error(&ctx, e, &format!("rejecting callback {}", callback_id));
             }
         });
     }
