@@ -10,7 +10,7 @@ use crate::model::event::{BufferId, SplitId};
 use crate::primitives::text_property::TextPropertyEntry;
 #[cfg(test)]
 use crate::services::plugins::api::CursorInfo;
-use crate::services::plugins::api::{EditorStateSnapshot, PluginCommand, PluginResponse};
+use crate::services::plugins::api::{BufferInfo, EditorStateSnapshot, PluginCommand, PluginResponse};
 use crate::services::plugins::transpile::{
     bundle_module, has_es_imports, has_es_module_syntax, strip_imports_and_exports,
     transpile_typescript,
@@ -380,6 +380,77 @@ pub struct TsPluginInfo {
     pub enabled: bool,
 }
 
+/// JavaScript-exposed Editor API using rquickjs class system
+/// This allows proper lifetime handling for methods returning JS values
+#[derive(rquickjs::class::Trace, rquickjs::JsLifetime)]
+#[rquickjs::class]
+pub struct JsEditorApi {
+    #[qjs(skip_trace)]
+    state_snapshot: Arc<RwLock<EditorStateSnapshot>>,
+    #[qjs(skip_trace)]
+    command_sender: mpsc::Sender<PluginCommand>,
+}
+
+#[rquickjs::methods(rename_all = "camelCase")]
+impl JsEditorApi {
+    // === Buffer Queries ===
+
+    /// Get the active buffer ID (0 if none)
+    pub fn get_active_buffer_id(&self) -> u32 {
+        self.state_snapshot.read().map(|s| s.active_buffer_id.0 as u32).unwrap_or(0)
+    }
+
+    /// Get the active split ID
+    pub fn get_active_split_id(&self) -> u32 {
+        self.state_snapshot.read().map(|s| s.active_split_id as u32).unwrap_or(0)
+    }
+
+    /// List all open buffers - returns array of BufferInfo objects
+    pub fn list_buffers<'js>(&self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<Value<'js>> {
+        let buffers: Vec<BufferInfo> = if let Ok(s) = self.state_snapshot.read() {
+            s.buffers.values().cloned().collect()
+        } else {
+            Vec::new()
+        };
+        rquickjs_serde::to_value(ctx, &buffers)
+            .map_err(|e| rquickjs::Error::new_from_js_message("serialize", "", &e.to_string()))
+    }
+
+    // === Logging ===
+
+    pub fn debug(&self, msg: String) {
+        tracing::info!("Plugin.debug: {}", msg);
+    }
+
+    pub fn info(&self, msg: String) {
+        tracing::info!("Plugin: {}", msg);
+    }
+
+    pub fn warn(&self, msg: String) {
+        tracing::warn!("Plugin: {}", msg);
+    }
+
+    pub fn error(&self, msg: String) {
+        tracing::error!("Plugin: {}", msg);
+    }
+
+    // === Status ===
+
+    pub fn set_status(&self, msg: String) {
+        let _ = self.command_sender.send(PluginCommand::SetStatus { message: msg });
+    }
+
+    // === Clipboard ===
+
+    pub fn copy_to_clipboard(&self, text: String) {
+        let _ = self.command_sender.send(PluginCommand::SetClipboard { text });
+    }
+
+    pub fn set_clipboard(&self, text: String) {
+        let _ = self.command_sender.send(PluginCommand::SetClipboard { text: text });
+    }
+}
+
 /// QuickJS-based JavaScript runtime for plugins
 pub struct QuickJsBackend {
     runtime: Runtime,
@@ -497,53 +568,21 @@ impl QuickJsBackend {
         self.context.with(|ctx| {
             let globals = ctx.globals();
 
-            // Create the editor object
-            let editor = Object::new(ctx.clone())?;
+            // Create the editor object using JsEditorApi class
+            // This provides proper lifetime handling for methods returning JS values
+            let js_api = JsEditorApi {
+                state_snapshot: Arc::clone(&state_snapshot),
+                command_sender: command_sender.clone(),
+            };
+            let editor = rquickjs::Class::<JsEditorApi>::instance(ctx.clone(), js_api)?;
 
-            // === Logging ===
-            editor.set("debug", Function::new(ctx.clone(), |msg: String| {
-                tracing::info!("Plugin.debug: {}", msg);
-            })?)?;
+            // Methods from JsEditorApi are automatically available:
+            // - debug, info, warn, error (logging)
+            // - setStatus, copyToClipboard, setClipboard
+            // - getActiveBufferId, getActiveSplitId
+            // - listBuffers (returns BufferInfo[] directly)
 
-            editor.set("info", Function::new(ctx.clone(), |msg: String| {
-                tracing::info!("Plugin: {}", msg);
-            })?)?;
-
-            editor.set("warn", Function::new(ctx.clone(), |msg: String| {
-                tracing::warn!("Plugin: {}", msg);
-            })?)?;
-
-            editor.set("error", Function::new(ctx.clone(), |msg: String| {
-                tracing::error!("Plugin: {}", msg);
-            })?)?;
-
-            // === Status ===
-            let cmd_sender = command_sender.clone();
-            editor.set("setStatus", Function::new(ctx.clone(), move |msg: String| {
-                let _ = cmd_sender.send(PluginCommand::SetStatus { message: msg });
-            })?)?;
-
-            // === Clipboard ===
-            let cmd_sender = command_sender.clone();
-            editor.set("copyToClipboard", Function::new(ctx.clone(), move |text: String| {
-                let _ = cmd_sender.send(PluginCommand::SetClipboard { text });
-            })?)?;
-
-            let cmd_sender = command_sender.clone();
-            editor.set("setClipboard", Function::new(ctx.clone(), move |text: String| {
-                let _ = cmd_sender.send(PluginCommand::SetClipboard { text });
-            })?)?;
-
-            // === Buffer queries ===
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getActiveBufferId", Function::new(ctx.clone(), move || -> u32 {
-                snapshot.read().map(|s| s.active_buffer_id.0 as u32).unwrap_or(0)
-            })?)?;
-
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getActiveSplitId", Function::new(ctx.clone(), move || -> u32 {
-                snapshot.read().map(|s| s.active_split_id as u32).unwrap_or(0)
-            })?)?;
+            // === Buffer queries (not yet migrated) ===
 
             let snapshot = Arc::clone(&state_snapshot);
             editor.set("getCursorPosition", Function::new(ctx.clone(), move || -> u32 {
@@ -583,24 +622,6 @@ impl QuickJsBackend {
                     }
                 }
                 false
-            })?)?;
-
-            // listBuffers - returns JSON array of {id, path, modified, length}
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("_listBuffersJson", Function::new(ctx.clone(), move || -> String {
-                if let Ok(s) = snapshot.read() {
-                    let buffers: Vec<serde_json::Value> = s.buffers.iter().map(|(id, info)| {
-                        serde_json::json!({
-                            "id": id.0 as u32,
-                            "path": info.path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-                            "modified": info.modified,
-                            "length": info.length as u32
-                        })
-                    }).collect();
-                    serde_json::to_string(&buffers).unwrap_or_else(|_| "[]".to_string())
-                } else {
-                    "[]".to_string()
-                }
             })?)?;
 
             // === Text editing ===
@@ -1310,8 +1331,8 @@ impl QuickJsBackend {
                 snapshot.read().ok().and_then(|s| s.editor_mode.clone())
             })?)?;
 
-            // Store editor as internal _editorCore (not meant for direct plugin access)
-            globals.set("_editorCore", editor)?;
+            // Export editor directly as a global
+            globals.set("editor", editor)?;
 
             // Provide console.log for debugging
             // Use Rest<T> to handle variadic arguments like console.log('a', 'b', obj)
@@ -1409,23 +1430,23 @@ impl QuickJsBackend {
                     };
                 };
 
-                // Apply wrappers to async functions on _editorCore
-                _editorCore.spawnProcess = _wrapAsyncThenable(_editorCore._spawnProcessStart, "spawnProcess");
-                _editorCore.delay = _wrapAsync(_editorCore._delayStart, "delay");
-                _editorCore.createVirtualBuffer = _wrapAsync(_editorCore._createVirtualBufferStart, "createVirtualBuffer");
-                _editorCore.createVirtualBufferInSplit = _wrapAsyncThenable(_editorCore._createVirtualBufferInSplitStart, "createVirtualBufferInSplit");
-                _editorCore.sendLspRequest = _wrapAsync(_editorCore._sendLspRequestStart, "sendLspRequest");
-                _editorCore.spawnBackgroundProcess = _wrapAsyncThenable(_editorCore._spawnBackgroundProcessStart, "spawnBackgroundProcess");
-                _editorCore.getBufferText = _wrapAsync(_editorCore._getBufferTextStart, "getBufferText");
+                // Apply wrappers to async functions on editor
+                editor.spawnProcess = _wrapAsyncThenable(editor._spawnProcessStart, "spawnProcess");
+                editor.delay = _wrapAsync(editor._delayStart, "delay");
+                editor.createVirtualBuffer = _wrapAsync(editor._createVirtualBufferStart, "createVirtualBuffer");
+                editor.createVirtualBufferInSplit = _wrapAsyncThenable(editor._createVirtualBufferInSplitStart, "createVirtualBufferInSplit");
+                editor.sendLspRequest = _wrapAsync(editor._sendLspRequestStart, "sendLspRequest");
+                editor.spawnBackgroundProcess = _wrapAsyncThenable(editor._spawnBackgroundProcessStart, "spawnBackgroundProcess");
+                editor.getBufferText = _wrapAsync(editor._getBufferTextStart, "getBufferText");
 
                 // Wrapper for getTextPropertiesAtCursor - parses JSON from Rust
-                _editorCore.getTextPropertiesAtCursor = function(bufferId) {
-                    return JSON.parse(_editorCore._getTextPropertiesAtCursorJson(bufferId));
+                editor.getTextPropertiesAtCursor = function(bufferId) {
+                    return JSON.parse(editor._getTextPropertiesAtCursorJson(bufferId));
                 };
 
                 // Wrapper for addOverlay - accepts positional args, converts to JSON
-                _editorCore.addOverlay = function(bufferId, namespace, start, end, r, g, b, underline, bold, italic, bg_r, bg_g, bg_b, extend_to_line_end) {
-                    return _editorCore._addOverlayInternal(JSON.stringify({
+                editor.addOverlay = function(bufferId, namespace, start, end, r, g, b, underline, bold, italic, bg_r, bg_g, bg_b, extend_to_line_end) {
+                    return editor._addOverlayInternal(JSON.stringify({
                         buffer_id: bufferId,
                         namespace: namespace,
                         start: start,
@@ -1439,20 +1460,15 @@ impl QuickJsBackend {
                     }));
                 };
 
-                // Wrapper for listBuffers - parses JSON from Rust
-                _editorCore.listBuffers = function() {
-                    return JSON.parse(_editorCore._listBuffersJson());
-                };
-
                 // Wrapper for readDir - parses JSON from Rust
-                _editorCore.readDir = function(path) {
-                    return JSON.parse(_editorCore._readDirJson(path));
+                editor.readDir = function(path) {
+                    return JSON.parse(editor._readDirJson(path));
                 };
 
                 // Wrapper for deleteTheme - wraps sync function in Promise
-                _editorCore.deleteTheme = function(name) {
+                editor.deleteTheme = function(name) {
                     return new Promise(function(resolve, reject) {
-                        const success = _editorCore._deleteThemeSync(name);
+                        const success = editor._deleteThemeSync(name);
                         if (success) {
                             resolve();
                         } else {
@@ -1462,8 +1478,8 @@ impl QuickJsBackend {
                 };
 
                 // Wrapper for setLineIndicator - accepts positional args, converts to JSON
-                _editorCore.setLineIndicator = function(bufferId, line, namespace, symbol, r, g, b, priority) {
-                    return _editorCore._setLineIndicatorInternal(JSON.stringify({
+                editor.setLineIndicator = function(bufferId, line, namespace, symbol, r, g, b, priority) {
+                    return editor._setLineIndicatorInternal(JSON.stringify({
                         buffer_id: bufferId,
                         line: line,
                         namespace: namespace,
@@ -1549,37 +1565,14 @@ impl QuickJsBackend {
             source_name
         );
 
-        // Define getEditor() for this plugin - returns an editor object with plugin name in closures
+        // Define getEditor() for this plugin - returns the editor global with plugin context
         let escaped_name = plugin_name.replace('\\', "\\\\").replace('"', "\\\"");
         let define_get_editor = format!(
             r#"
             globalThis.getEditor = function() {{
-                const core = globalThis._editorCore;
-                const pluginName = "{}";
-                return {{
-                    // All core methods
-                    ...core,
-
-                    // Plugin name for reference
-                    _pluginName: pluginName,
-
-                    // Plugin-prefixed logging
-                    error(msg) {{ core.error("[" + pluginName + "] " + msg); }},
-                    warn(msg) {{ core.warn("[" + pluginName + "] " + msg); }},
-                    info(msg) {{ core.info("[" + pluginName + "] " + msg); }},
-                    debug(msg) {{ core.debug("[" + pluginName + "] " + msg); }},
-
-                    // Plugin-specific translation
-                    t(key, args) {{ return core._pluginTranslate(pluginName, key, args || {{}}); }},
-
-                    // Command registration with plugin name for i18n
-                    registerCommand(name, description, handler, context) {{
-                        return core._registerCommandInternal(pluginName, name, description, handler, context);
-                    }},
-
-                    // For compatibility
-                    getL10n() {{ return {{ t: (k, a) => this.t(k, a) }}; }},
-                }};
+                // Set current plugin context for plugin-aware methods
+                globalThis.__currentPluginName__ = "{}";
+                return globalThis.editor;
             }};
         "#,
             escaped_name

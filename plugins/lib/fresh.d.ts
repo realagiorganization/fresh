@@ -163,7 +163,7 @@ interface EditorAPI {
   /**
    * List all open buffers
    */
-  listBuffers(): string;
+  listBuffers(): BufferInfo[];
 
   /**
    * Get primary cursor info as JSON

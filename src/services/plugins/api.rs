@@ -65,16 +65,21 @@ pub struct ActionSpec {
 }
 
 /// Information about a buffer
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct BufferInfo {
     /// Buffer ID
     pub id: BufferId,
     /// File path (if any)
+    #[serde(serialize_with = "serialize_path")]
     pub path: Option<PathBuf>,
     /// Whether the buffer has been modified
     pub modified: bool,
     /// Length of buffer in bytes
     pub length: usize,
+}
+
+fn serialize_path<S: serde::Serializer>(path: &Option<PathBuf>, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default())
 }
 
 /// Diff between current buffer content and last saved snapshot

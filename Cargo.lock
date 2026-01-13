@@ -920,6 +920,7 @@ dependencies = [
  "ratatui",
  "regex",
  "rquickjs",
+ "rquickjs-serde",
  "rust-i18n",
  "schemars",
  "serde",
@@ -2620,6 +2621,16 @@ dependencies = [
  "quote",
  "rquickjs-core",
  "syn",
+]
+
+[[package]]
+name = "rquickjs-serde"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8df908bfc058ac1fb7e7b4609afe712bf2ce4ea86b49cd06e041a86c89220e8b"
+dependencies = [
+ "rquickjs",
+ "serde",
 ]
 
 [[package]]

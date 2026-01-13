@@ -112,7 +112,7 @@ pub trait EditorApi {
     fn is_buffer_modified(&self, buffer_id: u32) -> bool;
 
     /// List all open buffers
-    fn list_buffers(&self) -> String; // Returns JSON, parsed in JS wrapper
+    fn list_buffers(&self) -> Vec<BufferInfo>;
 
     /// Get primary cursor info as JSON
     fn get_primary_cursor(&self) -> String;
