@@ -32,7 +32,7 @@ path = "src/lib.rs"
 
 [features]
 default = ["plugins", "runtime", "embed-plugins"]
-plugins = ["dep:rquickjs", "dep:oxc_allocator", "dep:oxc_parser", "dep:oxc_transformer", "dep:oxc_codegen", "dep:oxc_span", "dep:oxc_semantic"]
+plugins = ["dep:rquickjs", "dep:oxc_allocator", "dep:oxc_ast", "dep:oxc_parser", "dep:oxc_transformer", "dep:oxc_codegen", "dep:oxc_span", "dep:oxc_semantic"]
 # Embed plugins into the binary as a fallback when no disk plugins are found
 embed-plugins = ["plugins", "dep:include_dir", "dep:dirs", "dep:trash"]
 # Feature for optional development binaries (generate_schema, event_debug)
@@ -125,6 +125,7 @@ nix = { version = "0.30", features = ["signal", "pthread", "resource", "poll", "
 # QuickJS JavaScript runtime with oxc for TypeScript transpilation
 rquickjs = { version = "0.11", features = ["bindgen", "futures", "macro"], optional = true }
 oxc_allocator = { version = "0.108", optional = true }
+oxc_ast = { version = "0.108", optional = true }
 oxc_parser = { version = "0.108", optional = true }
 oxc_transformer = { version = "0.108", optional = true }
 oxc_codegen = { version = "0.108", optional = true }

@@ -5,6 +5,7 @@
 
 use anyhow::{anyhow, Result};
 use oxc_allocator::Allocator;
+use oxc_ast::ast::{Declaration, ExportDefaultDeclarationKind, Statement};
 use oxc_codegen::Codegen;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
@@ -118,37 +119,41 @@ fn bundle_recursive(
     Ok(())
 }
 
-/// Extract local relative imports from source
-/// Only extracts imports starting with ./ or ../
+/// Extract local relative imports from source using AST parsing
+/// Handles both imports and re-exports, including multi-line statements
+/// Only extracts paths starting with ./ or ../
 fn extract_local_imports(source: &str) -> Vec<String> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::default().with_module(true).with_typescript(true);
+
+    let parser_ret = Parser::new(&allocator, source, source_type).parse();
+    if !parser_ret.errors.is_empty() {
+        // If parsing fails, return empty (caller will handle the error during transpilation)
+        return Vec::new();
+    }
+
     let mut imports = Vec::new();
 
-    // Match: import ... from "./..." or import ... from "../..."
-    // Simple regex-like parsing without regex dependency
-    for line in source.lines() {
-        let line = line.trim();
-        if !line.starts_with("import ") {
-            continue;
-        }
+    for stmt in &parser_ret.program.body {
+        let path = match stmt {
+            // import ... from "path"
+            Statement::ImportDeclaration(import_decl) => {
+                Some(import_decl.source.value.as_str())
+            }
+            // export { X } from "path" or export * from "path"
+            Statement::ExportNamedDeclaration(export_decl) => {
+                export_decl.source.as_ref().map(|s| s.value.as_str())
+            }
+            Statement::ExportAllDeclaration(export_all) => {
+                Some(export_all.source.value.as_str())
+            }
+            _ => None,
+        };
 
-        // Find the 'from' part
-        if let Some(from_idx) = line.find(" from ") {
-            let after_from = &line[from_idx + 6..];
-            // Extract the string between quotes
-            let quote_char = if after_from.starts_with('"') {
-                '"'
-            } else if after_from.starts_with('\'') {
-                '\''
-            } else {
-                continue;
-            };
-
-            if let Some(end_idx) = after_from[1..].find(quote_char) {
-                let import_path = &after_from[1..end_idx + 1];
-                // Only include local imports
-                if import_path.starts_with("./") || import_path.starts_with("../") {
-                    imports.push(import_path.to_string());
-                }
+        if let Some(path) = path {
+            // Only include local imports (relative paths)
+            if path.starts_with("./") || path.starts_with("../") {
+                imports.push(path.to_string());
             }
         }
     }
@@ -189,59 +194,108 @@ fn resolve_import(import_path: &str, parent_dir: &Path) -> Result<PathBuf> {
     Err(anyhow!("Cannot resolve import '{}' from {}", import_path, parent_dir.display()))
 }
 
-/// Strip import statements and export keywords from source
+/// Strip import statements and export keywords from source using AST transformation
 /// Converts ES module syntax to plain JavaScript that QuickJS can eval
 pub fn strip_imports_and_exports(source: &str) -> String {
-    source
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            // Remove import statements entirely
-            if trimmed.starts_with("import ") && trimmed.contains(" from ") {
-                return None;
+    let allocator = Allocator::default();
+    // Parse as module with TypeScript to accept import/export and TS syntax
+    let source_type = SourceType::default().with_module(true).with_typescript(true);
+
+    let parser_ret = Parser::new(&allocator, source, source_type).parse();
+    if !parser_ret.errors.is_empty() {
+        // If parsing fails, return original source (let transpiler handle errors)
+        return source.to_string();
+    }
+
+    let mut program = parser_ret.program;
+
+    // Transform the AST: remove imports, convert exports to declarations
+    strip_module_syntax_ast(&allocator, &mut program);
+
+    // Generate code from transformed AST
+    let codegen_ret = Codegen::new().build(&program);
+    codegen_ret.code
+}
+
+/// Strip ES module syntax from a program AST
+/// - Removes ImportDeclaration statements
+/// - Converts ExportNamedDeclaration to its inner declaration
+/// - Handles ExportDefaultDeclaration, ExportAllDeclaration
+fn strip_module_syntax_ast<'a>(
+    allocator: &'a Allocator,
+    program: &mut oxc_ast::ast::Program<'a>,
+) {
+    use oxc_allocator::Vec as OxcVec;
+
+    // Collect transformed statements
+    let mut new_body: OxcVec<'a, Statement<'a>> = OxcVec::with_capacity_in(program.body.len(), allocator);
+
+    for stmt in program.body.drain(..) {
+        match stmt {
+            // Remove import declarations entirely
+            Statement::ImportDeclaration(_) => {
+                // Skip - dependency should already be bundled
             }
-            // Remove "export default" lines (they typically export something defined elsewhere)
-            if trimmed.starts_with("export default ") {
-                return None;
+
+            // Convert export named declarations to their inner declaration
+            Statement::ExportNamedDeclaration(export_decl) => {
+                let inner = export_decl.unbox();
+                if let Some(decl) = inner.declaration {
+                    // Export has a declaration - keep just the declaration
+                    // Convert Declaration to Statement
+                    let stmt = declaration_to_statement(decl);
+                    new_body.push(stmt);
+                }
+                // If no declaration (re-export like `export { X } from './y'`), skip
             }
-            // Remove re-export statements like "export { Foo } from './bar'"
-            if trimmed.starts_with("export {") && trimmed.contains(" from ") {
-                return None;
+
+            // Handle export default
+            Statement::ExportDefaultDeclaration(export_default) => {
+                let inner = export_default.unbox();
+                match inner.declaration {
+                    ExportDefaultDeclarationKind::FunctionDeclaration(func) => {
+                        new_body.push(Statement::FunctionDeclaration(func));
+                    }
+                    ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                        new_body.push(Statement::ClassDeclaration(class));
+                    }
+                    ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => {
+                        // TypeScript interface - will be removed by transformer
+                    }
+                    _ => {
+                        // Expression exports (export default expr) - skip
+                    }
+                }
             }
-            // Remove "export type" and "export interface" (TypeScript-only, will be removed by transpiler)
-            // but strip the export keyword so the transpiler sees clean syntax
-            if trimmed.starts_with("export type ") {
-                return Some(line.replace("export type ", "type "));
+
+            // Remove export * declarations (re-exports)
+            Statement::ExportAllDeclaration(_) => {
+                // Skip
             }
-            if trimmed.starts_with("export interface ") {
-                return Some(line.replace("export interface ", "interface "));
+
+            // Keep all other statements unchanged
+            other => {
+                new_body.push(other);
             }
-            // Strip "export" keyword from declarations (export const, export function, export class, export enum)
-            if trimmed.starts_with("export const ") {
-                return Some(line.replace("export const ", "const "));
-            }
-            if trimmed.starts_with("export let ") {
-                return Some(line.replace("export let ", "let "));
-            }
-            if trimmed.starts_with("export var ") {
-                return Some(line.replace("export var ", "var "));
-            }
-            if trimmed.starts_with("export function ") {
-                return Some(line.replace("export function ", "function "));
-            }
-            if trimmed.starts_with("export async function ") {
-                return Some(line.replace("export async function ", "async function "));
-            }
-            if trimmed.starts_with("export class ") {
-                return Some(line.replace("export class ", "class "));
-            }
-            if trimmed.starts_with("export enum ") {
-                return Some(line.replace("export enum ", "enum "));
-            }
-            Some(line.to_string())
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }
+    }
+
+    program.body = new_body;
+}
+
+/// Convert a Declaration to a Statement
+fn declaration_to_statement(decl: Declaration<'_>) -> Statement<'_> {
+    match decl {
+        Declaration::VariableDeclaration(d) => Statement::VariableDeclaration(d),
+        Declaration::FunctionDeclaration(d) => Statement::FunctionDeclaration(d),
+        Declaration::ClassDeclaration(d) => Statement::ClassDeclaration(d),
+        Declaration::TSTypeAliasDeclaration(d) => Statement::TSTypeAliasDeclaration(d),
+        Declaration::TSInterfaceDeclaration(d) => Statement::TSInterfaceDeclaration(d),
+        Declaration::TSEnumDeclaration(d) => Statement::TSEnumDeclaration(d),
+        Declaration::TSModuleDeclaration(d) => Statement::TSModuleDeclaration(d),
+        Declaration::TSImportEqualsDeclaration(d) => Statement::TSImportEqualsDeclaration(d),
+        Declaration::TSGlobalDeclaration(d) => Statement::TSGlobalDeclaration(d),
+    }
 }
 
 #[cfg(test)]
@@ -307,15 +361,47 @@ mod tests {
             import { foo } from "./lib/utils";
             import bar from "../shared/bar";
             import external from "external-package";
+            export { PanelManager } from "./panel-manager.ts";
+            export * from "./types.ts";
             const x = 1;
         "#;
 
         let imports = extract_local_imports(source);
-        assert_eq!(imports.len(), 2);
+        assert_eq!(imports.len(), 4);
         assert!(imports.contains(&"./lib/utils".to_string()));
         assert!(imports.contains(&"../shared/bar".to_string()));
+        assert!(imports.contains(&"./panel-manager.ts".to_string()));
+        assert!(imports.contains(&"./types.ts".to_string()));
         // external-package should NOT be included
         assert!(!imports.iter().any(|i| i.contains("external")));
+    }
+
+    #[test]
+    fn test_extract_local_imports_multiline() {
+        // Test multi-line exports like in lib/index.ts
+        let source = r#"
+export type {
+    RGB,
+    Location,
+    PanelOptions,
+} from "./types.ts";
+
+export {
+    Finder,
+    defaultFuzzyFilter,
+} from "./finder.ts";
+
+import {
+    something,
+    somethingElse,
+} from "./multiline-import.ts";
+        "#;
+
+        let imports = extract_local_imports(source);
+        assert_eq!(imports.len(), 3);
+        assert!(imports.contains(&"./types.ts".to_string()));
+        assert!(imports.contains(&"./finder.ts".to_string()));
+        assert!(imports.contains(&"./multiline-import.ts".to_string()));
     }
 
     #[test]

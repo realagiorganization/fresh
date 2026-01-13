@@ -80,12 +80,45 @@ fn js_value_to_string(ctx: &rquickjs::Ctx<'_>, val: &Value<'_>) -> String {
         Type::String => val.as_string()
             .and_then(|s| s.to_string().ok())
             .unwrap_or_default(),
-        Type::Array | Type::Object | Type::Constructor | Type::Function => {
-            // For objects/arrays, convert to JSON for readable output
-            let json = js_to_json(ctx, val.clone());
-            serde_json::to_string(&json).unwrap_or_else(|_| "[object]".to_string())
+        Type::Object | Type::Exception => {
+            // Check if this is an Error object (has message/stack properties)
+            if let Some(obj) = val.as_object() {
+                // Try to get error properties
+                let name: Option<String> = obj.get("name").ok();
+                let message: Option<String> = obj.get("message").ok();
+                let stack: Option<String> = obj.get("stack").ok();
+
+                if message.is_some() || name.is_some() {
+                    // This looks like an Error object
+                    let name = name.unwrap_or_else(|| "Error".to_string());
+                    let message = message.unwrap_or_default();
+                    if let Some(stack) = stack {
+                        return format!("{}: {}\n{}", name, message, stack);
+                    } else {
+                        return format!("{}: {}", name, message);
+                    }
+                }
+
+                // Regular object - convert to JSON
+                let json = js_to_json(ctx, val.clone());
+                serde_json::to_string(&json).unwrap_or_else(|_| "[object]".to_string())
+            } else {
+                "[object]".to_string()
+            }
         }
-        _ => "[unknown]".to_string(),
+        Type::Array => {
+            let json = js_to_json(ctx, val.clone());
+            serde_json::to_string(&json).unwrap_or_else(|_| "[array]".to_string())
+        }
+        Type::Function | Type::Constructor => {
+            "[function]".to_string()
+        }
+        Type::Symbol => "[symbol]".to_string(),
+        Type::BigInt => val.as_big_int()
+            .and_then(|b| b.clone().to_i64().ok())
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "[bigint]".to_string()),
+        _ => format!("[{}]", val.type_name()),
     }
 }
 

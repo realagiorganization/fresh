@@ -907,6 +907,7 @@ dependencies = [
  "once_cell",
  "open",
  "oxc_allocator",
+ "oxc_ast",
  "oxc_codegen",
  "oxc_parser",
  "oxc_semantic",
