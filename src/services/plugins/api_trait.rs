@@ -678,55 +678,10 @@ mod tests {
         .collect();
 
         // Methods that are not yet implemented in the backend
-        // TODO: Implement these methods
+        // These are methods defined in the trait but not yet bound in quickjs_backend.rs
         let not_implemented: std::collections::HashSet<&str> = [
-            // Line-based cursor info - need to add to backend
-            "getCursorLine",
-            "getHighlights",
-            "killProcess",
-            "spawnProcessWait",
-            "createVirtualBufferInExistingSplit",
-            "createCompositeBuffer",
-            "updateCompositeAlignment",
-            "closeCompositeBuffer",
-            "removeOverlay",
-            "clearOverlaysInRange",
-            "addVirtualText",
-            "removeVirtualText",
-            "removeVirtualTextsByPrefix",
-            "clearVirtualTexts",
-            "clearVirtualTextNamespace",
-            "addVirtualLine",
-            "clearLineIndicators",
-            "setFileExplorerDecorations",
-            "clearFileExplorerDecorations",
-            "setLineNumbers",
-            "executeActions",
-            "getHandlers",
-            "createScrollSyncGroup",
-            "setScrollSyncAnchors",
-            "removeScrollSyncGroup",
-            "showActionPopup",
-            "disableLspForLanguage",
-            "submitViewTransform",
-            "clearViewTransform",
-            "getBufferSavedDiff",
-            "getAllDiagnostics",
-            "isProcessRunning",
-            "getThemeSchema",
-            "getBuiltinThemes",
-            "getPrimaryCursor",
-            "getAllCursors",
-            "getAllCursorPositions",
-            "getViewport",
-            "getBufferInfo",
-            "fileStat",
-            "openFileInSplit",
-            "findBufferByPath",
-            "setSplitScroll",
-            "setSplitRatio",
-            "distributeSplitsEvenly",
-            // Async read/write are different from sync
+            // Async read/write - sync versions exist, but async versions need
+            // proper file I/O infrastructure with callbacks
             "readFile",
             "writeFile",
         ]
