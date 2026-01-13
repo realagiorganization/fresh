@@ -589,4 +589,278 @@ mod tests {
             .expect("Failed to write fresh.d.ts");
         println!("Wrote TypeScript definitions to {}", path);
     }
+
+    /// Verify that all API methods have corresponding QuickJS bindings.
+    ///
+    /// This test reads quickjs_backend.rs and checks that for each method in
+    /// EDITORAPI_JS_METHODS, there's a corresponding registration.
+    ///
+    /// # Pattern Matching
+    ///
+    /// The test looks for the following patterns:
+    ///
+    /// ## Sync methods
+    /// Should have: `editor.set("methodName", ...)`
+    ///
+    /// ## Async methods (Promise<T>)
+    /// Should have either:
+    /// - `editor.set("_methodNameStart", ...)` (internal function), OR
+    /// - `_editorCore.methodName = _wrapAsync(...)` (JS wrapper)
+    ///
+    /// ## Async methods (Thenable<T>)
+    /// Should have either:
+    /// - `editor.set("_methodNameStart", ...)` (internal function), OR
+    /// - `_editorCore.methodName = _wrapAsyncThenable(...)` (JS wrapper)
+    ///
+    /// # Known Gaps
+    ///
+    /// Some methods have different names or patterns in the backend. These are
+    /// tracked here to avoid false positives while we work to standardize names.
+    #[test]
+    fn verify_api_coverage() {
+        // Read the quickjs_backend.rs source file
+        let backend_path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/services/plugins/backend/quickjs_backend.rs"
+        );
+        let backend_source = std::fs::read_to_string(backend_path)
+            .expect("Failed to read quickjs_backend.rs");
+
+        // Known method name mappings (trait JS name -> backend name or pattern)
+        // TODO: Standardize these names to match the trait definitions
+        let name_mappings: std::collections::HashMap<&str, &str> = [
+            // Methods with JSON suffix in backend
+            ("listBuffers", "_listBuffersJson"),
+            ("readDir", "_readDirJson"),
+            ("getTextPropertiesAtCursor", "_getTextPropertiesAtCursorJson"),
+            // Methods with different naming
+            ("deleteThemeSync", "_deleteThemeSync"),
+            // Sync readFile/writeFile have different names
+            ("readFileSync", "readFile"),
+            ("writeFileSync", "writeFile"),
+            // setLineIndicatorInternal uses different pattern
+            ("_setLineIndicatorInternal", "setLineIndicator"),
+        ]
+        .into_iter()
+        .collect();
+
+        // Methods that are implemented as JS wrappers only (not direct bindings)
+        let js_wrapper_methods: std::collections::HashSet<&str> = [
+            "listBuffers",   // Wraps _listBuffersJson with JSON.parse
+            "readDir",       // Wraps _readDirJson with JSON.parse
+            "getTextPropertiesAtCursor", // Wraps _getTextPropertiesAtCursorJson
+            "deleteTheme",   // Wraps _deleteThemeSync in Promise
+            "addOverlay",    // Wraps _addOverlayInternal
+        ]
+        .into_iter()
+        .collect();
+
+        // Known async methods (from trait return types)
+        // These should have _methodNameStart internal functions
+        let async_methods: std::collections::HashSet<&str> = [
+            "delay",
+            "getBufferText",
+            "readFile",  // async readFile, not readFileSync
+            "writeFile", // async writeFile, not writeFileSync
+            "deleteTheme",
+            "sendLspRequest",
+            "getHighlights",
+            "killProcess",
+            "spawnProcessWait",
+            "createVirtualBuffer",
+            "createVirtualBufferInSplit",
+            "createVirtualBufferInExistingSplit",
+            "createCompositeBuffer",
+            "spawnProcess",
+            "spawnBackgroundProcess",
+        ]
+        .into_iter()
+        .collect();
+
+        // Methods that are not yet implemented in the backend
+        // TODO: Implement these methods
+        let not_implemented: std::collections::HashSet<&str> = [
+            // Line-based cursor info - need to add to backend
+            "getCursorLine",
+            "getHighlights",
+            "killProcess",
+            "spawnProcessWait",
+            "createVirtualBufferInExistingSplit",
+            "createCompositeBuffer",
+            "updateCompositeAlignment",
+            "closeCompositeBuffer",
+            "removeOverlay",
+            "clearOverlaysInRange",
+            "addVirtualText",
+            "removeVirtualText",
+            "removeVirtualTextsByPrefix",
+            "clearVirtualTexts",
+            "clearVirtualTextNamespace",
+            "addVirtualLine",
+            "clearLineIndicators",
+            "setFileExplorerDecorations",
+            "clearFileExplorerDecorations",
+            "setLineNumbers",
+            "executeActions",
+            "getHandlers",
+            "createScrollSyncGroup",
+            "setScrollSyncAnchors",
+            "removeScrollSyncGroup",
+            "showActionPopup",
+            "disableLspForLanguage",
+            "submitViewTransform",
+            "clearViewTransform",
+            "getBufferSavedDiff",
+            "getAllDiagnostics",
+            "isProcessRunning",
+            "getThemeSchema",
+            "getBuiltinThemes",
+            "getPrimaryCursor",
+            "getAllCursors",
+            "getAllCursorPositions",
+            "getViewport",
+            "getBufferInfo",
+            "fileStat",
+            "openFileInSplit",
+            "findBufferByPath",
+            "setSplitScroll",
+            "setSplitRatio",
+            "distributeSplitsEvenly",
+            // Async read/write are different from sync
+            "readFile",
+            "writeFile",
+        ]
+        .into_iter()
+        .collect();
+
+        let mut missing = Vec::new();
+        let mut found = Vec::new();
+
+        for method in EDITORAPI_JS_METHODS {
+            // Skip methods known to be unimplemented
+            if not_implemented.contains(method) {
+                continue;
+            }
+
+            // Get the backend name (may be different from JS name)
+            let backend_name = name_mappings.get(method).unwrap_or(method);
+
+            // Check for the method registration
+            let is_found = if async_methods.contains(method) {
+                // Async method: look for _methodStart or the JS wrapper
+                let internal_name = format!("_{}Start", method);
+                let wrapper_pattern = format!("_editorCore.{}", method);
+                backend_source.contains(&format!("\"{}\"", internal_name))
+                    || backend_source.contains(&wrapper_pattern)
+                    || backend_source.contains(&format!("\"{}\"", backend_name))
+            } else if js_wrapper_methods.contains(method) {
+                // JS wrapper method: look for the wrapper pattern
+                let wrapper_pattern = format!("_editorCore.{}", method);
+                backend_source.contains(&wrapper_pattern)
+                    || backend_source.contains(&format!("\"{}\"", backend_name))
+            } else {
+                // Sync method: look for direct registration
+                backend_source.contains(&format!("\"{}\"", backend_name))
+                    || backend_source.contains(&format!("\"{}\"", method))
+            };
+
+            if is_found {
+                found.push(*method);
+            } else {
+                missing.push(*method);
+            }
+        }
+
+        println!("\n=== API Coverage Report ===");
+        println!("Total methods in trait: {}", EDITORAPI_JS_METHODS.len());
+        println!("Not yet implemented: {}", not_implemented.len());
+        println!("Found in backend: {}", found.len());
+        println!("Missing from backend: {}", missing.len());
+
+        if !missing.is_empty() {
+            println!("\nMissing methods:");
+            for method in &missing {
+                println!("  - {}", method);
+            }
+            println!("\n=== MAINTENANCE NOTE ===");
+            println!("If a method is intentionally not implemented, add it to 'not_implemented' set.");
+            println!("If a method has a different name in backend, add it to 'name_mappings'.");
+            println!("If a method is implemented via JS wrapper, add it to 'js_wrapper_methods'.\n");
+        }
+
+        // This assertion will fail if there are missing methods
+        // Comment out temporarily if you need to see the full report
+        assert!(
+            missing.is_empty(),
+            "Missing API bindings for {} methods. See report above.",
+            missing.len()
+        );
+    }
 }
+
+// ============================================================================
+// Maintenance Guide and Common Pitfalls
+// ============================================================================
+//
+// ## How to Add a New API Method
+//
+// 1. Add the method signature to the `EditorApi` trait above
+// 2. Implement the method in `QuickJsBackend` (backend/quickjs_backend.rs)
+// 3. Register the binding in `setup_global_api()`:
+//    - For sync methods: `editor.set("methodName", Function::new(...))`
+//    - For async methods: `editor.set("_methodNameStart", ...)` + JS wrapper
+// 4. Run `cargo test verify_api_coverage` to check coverage
+// 5. Run `cargo test write_dts -- --ignored` to regenerate TypeScript definitions
+//
+// ## Common Pitfalls to Avoid
+//
+// ### 1. Forgetting to Register the QuickJS Binding
+//
+// SYMPTOM: Method exists in trait but JS calls fail silently or throw "not a function"
+// FIX: Add `editor.set("methodName", ...)` in setup_global_api()
+//
+// ### 2. Wrong Method Name in Binding
+//
+// SYMPTOM: TypeScript autocomplete shows method, but runtime error
+// FIX: Ensure JS name in .set() matches camelCase version of trait method
+// NOTE: Use `#[api(js_name = "...")]` for custom names that don't follow convention
+//
+// ### 3. Missing callback_id for Async Methods
+//
+// SYMPTOM: Async method doesn't resolve/reject Promise
+// FIX: Async trait methods must have `callback_id: u64` as FIRST parameter
+//      The proc macro filters it out from TypeScript but it must exist in Rust
+//
+// ### 4. Async Method Not Wrapped
+//
+// SYMPTOM: Calling async method returns a number instead of Promise
+// FIX: Add JS wrapper in setup_global_api:
+//      `_editorCore.methodName = _wrapAsync(_editorCore._methodNameStart, "methodName");`
+//
+// ### 5. Type Mismatch Between Trait and Binding
+//
+// SYMPTOM: Compile error in quickjs_backend.rs or runtime type errors
+// FIX: Ensure closure parameter types match trait method signature exactly
+//
+// ### 6. Forgetting to Update TypeScript Definitions
+//
+// SYMPTOM: TypeScript shows old API, new methods missing from autocomplete
+// FIX: Run `cargo test write_dts -- --ignored` after any trait changes
+//
+// ### 7. Return Type Marker Confusion
+//
+// Promise<T>  = Simple async, wraps callback in Promise
+// Thenable<T> = Cancellable async, has .result property and .kill() method
+//
+// Choose the right marker based on whether the operation is cancellable.
+//
+// ## Verification Checklist for New Methods
+//
+// [ ] Method added to EditorApi trait with doc comment
+// [ ] Return type uses correct marker (sync, Promise<T>, or Thenable<T>)
+// [ ] Async methods have callback_id: u64 as first parameter
+// [ ] QuickJS binding registered in setup_global_api()
+// [ ] Async methods have JS wrapper (_wrapAsync or _wrapAsyncThenable)
+// [ ] `cargo test verify_api_coverage` passes
+// [ ] `cargo test write_dts -- --ignored` regenerates fresh.d.ts
+// [ ] Actual functionality tested in a plugin
