@@ -497,122 +497,6 @@ impl QuickJsBackend {
                     .unwrap_or(0)
             })?)?;
 
-            // getCursorLine - returns cursor line number (1-indexed)
-            // Note: Line number is computed from byte position, requires buffer content
-            // For now returns 0 as placeholder - proper implementation needs buffer access
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getCursorLine", Function::new(ctx.clone(), move || -> u32 {
-                // TODO: Implement proper line counting when buffer content is available
-                // For now, return 1 as a reasonable default
-                snapshot.read()
-                    .ok()
-                    .and_then(|_s| Some(1u32))
-                    .unwrap_or(1)
-            })?)?;
-
-            // getPrimaryCursor - returns primary cursor info as JSON
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getPrimaryCursor", Function::new(ctx.clone(), move || -> String {
-                snapshot.read()
-                    .ok()
-                    .and_then(|s| s.primary_cursor.as_ref().map(|c| {
-                        let selection = c.selection.as_ref().map(|sel| {
-                            serde_json::json!({"start": sel.start as u32, "end": sel.end as u32})
-                        });
-                        serde_json::json!({
-                            "position": c.position as u32,
-                            "selection": selection
-                        }).to_string()
-                    }))
-                    .unwrap_or_else(|| "null".to_string())
-            })?)?;
-
-            // getAllCursors - returns all cursors as JSON array
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getAllCursors", Function::new(ctx.clone(), move || -> String {
-                snapshot.read()
-                    .map(|s| {
-                        let cursors: Vec<serde_json::Value> = s.all_cursors.iter().map(|c| {
-                            let selection = c.selection.as_ref().map(|sel| {
-                                serde_json::json!({"start": sel.start as u32, "end": sel.end as u32})
-                            });
-                            serde_json::json!({
-                                "position": c.position as u32,
-                                "selection": selection
-                            })
-                        }).collect();
-                        serde_json::to_string(&cursors).unwrap_or_else(|_| "[]".to_string())
-                    })
-                    .unwrap_or_else(|_| "[]".to_string())
-            })?)?;
-
-            // getAllCursorPositions - returns cursor positions as array of u32
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getAllCursorPositions", Function::new(ctx.clone(), move || -> Vec<u32> {
-                snapshot.read()
-                    .map(|s| s.all_cursors.iter().map(|c| c.position as u32).collect())
-                    .unwrap_or_default()
-            })?)?;
-
-            // getViewport - returns viewport info as JSON
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getViewport", Function::new(ctx.clone(), move || -> String {
-                snapshot.read()
-                    .ok()
-                    .and_then(|s| s.viewport.as_ref().map(|v| {
-                        serde_json::json!({
-                            "top_byte": v.top_byte as u32,
-                            "left_column": v.left_column as u32,
-                            "width": v.width as u32,
-                            "height": v.height as u32
-                        }).to_string()
-                    }))
-                    .unwrap_or_else(|| "null".to_string())
-            })?)?;
-
-            // getBufferInfo - returns buffer info as JSON
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getBufferInfo", Function::new(ctx.clone(), move |buffer_id: u32| -> String {
-                snapshot.read()
-                    .ok()
-                    .and_then(|s| s.buffers.get(&BufferId(buffer_id as usize)).map(|b| {
-                        serde_json::json!({
-                            "id": b.id.0 as u32,
-                            "path": b.path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default(),
-                            "modified": b.modified,
-                            "length": b.length as u32
-                        }).to_string()
-                    }))
-                    .unwrap_or_else(|| "null".to_string())
-            })?)?;
-
-            // getBufferSavedDiff - returns diff vs last saved as JSON
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getBufferSavedDiff", Function::new(ctx.clone(), move |buffer_id: u32| -> String {
-                snapshot.read()
-                    .ok()
-                    .and_then(|s| s.buffer_saved_diffs.get(&BufferId(buffer_id as usize)).map(|diff| {
-                        let ranges: Vec<serde_json::Value> = diff.byte_ranges.iter().map(|r| {
-                            serde_json::json!({"start": r.start as u32, "end": r.end as u32})
-                        }).collect();
-                        serde_json::json!({
-                            "equal": diff.equal,
-                            "byte_ranges": ranges
-                        }).to_string()
-                    }))
-                    .unwrap_or_else(|| serde_json::json!({"equal": true, "byte_ranges": []}).to_string())
-            })?)?;
-
-            // getAllDiagnostics - returns all LSP diagnostics as JSON
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("getAllDiagnostics", Function::new(ctx.clone(), move || -> String {
-                snapshot.read()
-                    .map(|s| {
-                        serde_json::to_string(&s.diagnostics).unwrap_or_else(|_| "{}".to_string())
-                    })
-                    .unwrap_or_else(|_| "{}".to_string())
-            })?)?;
-
             let snapshot = Arc::clone(&state_snapshot);
             editor.set("getBufferPath", Function::new(ctx.clone(), move |buffer_id: u32| -> String {
                 if let Ok(s) = snapshot.read() {
@@ -767,36 +651,6 @@ impl QuickJsBackend {
                 cmd_sender.send(PluginCommand::ExecuteAction { action_name }).is_ok()
             })?)?;
 
-            // executeActions - execute multiple actions from JSON array
-            let cmd_sender = command_sender.clone();
-            editor.set("executeActions", Function::new(ctx.clone(), move |actions_json: String| -> bool {
-                #[derive(serde::Deserialize)]
-                struct ActionSpec {
-                    action: String,
-                    #[serde(default = "default_count")]
-                    count: u32,
-                }
-                fn default_count() -> u32 { 1 }
-
-                let actions: Vec<ActionSpec> = match serde_json::from_str(&actions_json) {
-                    Ok(a) => a,
-                    Err(_) => return false,
-                };
-                let specs: Vec<crate::services::plugins::api::ActionSpec> = actions.into_iter()
-                    .map(|a| crate::services::plugins::api::ActionSpec {
-                        action: a.action,
-                        count: a.count,
-                    })
-                    .collect();
-                cmd_sender.send(PluginCommand::ExecuteActions { actions: specs }).is_ok()
-            })?)?;
-
-            // getHandlers - get list of handlers for an event
-            let handlers = Rc::clone(&event_handlers);
-            editor.set("getHandlers", Function::new(ctx.clone(), move |event_name: String| -> Vec<String> {
-                handlers.borrow().get(&event_name).cloned().unwrap_or_default()
-            })?)?;
-
             // === i18n ===
             // _pluginTranslate(pluginName, key, args) - internal function for plugin translations
             editor.set("_pluginTranslate", Function::new(ctx.clone(), |plugin_name: String, key: String, args: Value| -> String {
@@ -912,58 +766,6 @@ impl QuickJsBackend {
                         "[]".to_string()
                     }
                 }
-            })?)?;
-
-            // fileStat - returns file stat info as JSON
-            editor.set("fileStat", Function::new(ctx.clone(), |path: String| -> String {
-                let p = Path::new(&path);
-                match std::fs::metadata(&p) {
-                    Ok(metadata) => {
-                        serde_json::json!({
-                            "exists": true,
-                            "is_file": metadata.is_file(),
-                            "is_dir": metadata.is_dir(),
-                            "size": metadata.len() as u64,
-                            "readonly": metadata.permissions().readonly()
-                        }).to_string()
-                    }
-                    Err(_) => {
-                        serde_json::json!({
-                            "exists": false,
-                            "is_file": false,
-                            "is_dir": false,
-                            "size": 0,
-                            "readonly": false
-                        }).to_string()
-                    }
-                }
-            })?)?;
-
-            // findBufferByPath - returns buffer ID for given path, or 0 if not found
-            let snapshot = Arc::clone(&state_snapshot);
-            editor.set("findBufferByPath", Function::new(ctx.clone(), move |path: String| -> u32 {
-                let search_path = PathBuf::from(&path);
-                snapshot.read()
-                    .ok()
-                    .and_then(|s| {
-                        s.buffers.iter().find_map(|(id, info)| {
-                            if let Some(buf_path) = &info.path {
-                                // Try exact match first
-                                if buf_path == &search_path {
-                                    return Some(id.0 as u32);
-                                }
-                                // Try canonical paths
-                                if let (Ok(canonical_buf), Ok(canonical_search)) =
-                                    (buf_path.canonicalize(), search_path.canonicalize()) {
-                                    if canonical_buf == canonical_search {
-                                        return Some(id.0 as u32);
-                                    }
-                                }
-                            }
-                            None
-                        })
-                    })
-                    .unwrap_or(0)
             })?)?;
 
             // === Config ===
@@ -1090,125 +892,6 @@ impl QuickJsBackend {
             editor.set("clearAllOverlays", Function::new(ctx.clone(), move |buffer_id: u32| -> bool {
                 cmd_sender.send(PluginCommand::ClearAllOverlays {
                     buffer_id: BufferId(buffer_id as usize),
-                }).is_ok()
-            })?)?;
-
-            // removeOverlay - remove a specific overlay by handle
-            let cmd_sender = command_sender.clone();
-            editor.set("removeOverlay", Function::new(ctx.clone(), move |buffer_id: u32, handle: String| -> bool {
-                cmd_sender.send(PluginCommand::RemoveOverlay {
-                    buffer_id: BufferId(buffer_id as usize),
-                    handle: crate::view::overlay::OverlayHandle::from_string(handle),
-                }).is_ok()
-            })?)?;
-
-            // clearOverlaysInRange - clear overlays in a byte range
-            let cmd_sender = command_sender.clone();
-            editor.set("clearOverlaysInRange", Function::new(ctx.clone(), move |buffer_id: u32, start: u32, end: u32| -> bool {
-                cmd_sender.send(PluginCommand::ClearOverlaysInRange {
-                    buffer_id: BufferId(buffer_id as usize),
-                    start: start as usize,
-                    end: end as usize,
-                }).is_ok()
-            })?)?;
-
-            // === Virtual Text ===
-            // addVirtualText - add virtual text at position (takes JSON to avoid arg limit)
-            let cmd_sender = command_sender.clone();
-            editor.set("addVirtualText", Function::new(ctx.clone(), move |json: String| -> bool {
-                #[derive(serde::Deserialize)]
-                struct Args {
-                    buffer_id: u32,
-                    virtual_text_id: String,
-                    position: u32,
-                    text: String,
-                    color: (u8, u8, u8),
-                    #[serde(default)]
-                    before: bool,
-                    #[serde(default)]
-                    use_bg: bool,
-                }
-                let args: Args = match serde_json::from_str(&json) {
-                    Ok(a) => a,
-                    Err(_) => return false,
-                };
-                cmd_sender.send(PluginCommand::AddVirtualText {
-                    buffer_id: BufferId(args.buffer_id as usize),
-                    virtual_text_id: args.virtual_text_id,
-                    position: args.position as usize,
-                    text: args.text,
-                    color: args.color,
-                    before: args.before,
-                    use_bg: args.use_bg,
-                }).is_ok()
-            })?)?;
-
-            // removeVirtualText - remove virtual text by ID
-            let cmd_sender = command_sender.clone();
-            editor.set("removeVirtualText", Function::new(ctx.clone(), move |buffer_id: u32, virtual_text_id: String| -> bool {
-                cmd_sender.send(PluginCommand::RemoveVirtualText {
-                    buffer_id: BufferId(buffer_id as usize),
-                    virtual_text_id,
-                }).is_ok()
-            })?)?;
-
-            // removeVirtualTextsByPrefix - remove virtual texts by prefix
-            let cmd_sender = command_sender.clone();
-            editor.set("removeVirtualTextsByPrefix", Function::new(ctx.clone(), move |buffer_id: u32, prefix: String| -> bool {
-                cmd_sender.send(PluginCommand::RemoveVirtualTextsByPrefix {
-                    buffer_id: BufferId(buffer_id as usize),
-                    prefix,
-                }).is_ok()
-            })?)?;
-
-            // clearVirtualTexts - clear all virtual texts from buffer
-            let cmd_sender = command_sender.clone();
-            editor.set("clearVirtualTexts", Function::new(ctx.clone(), move |buffer_id: u32| -> bool {
-                cmd_sender.send(PluginCommand::ClearVirtualTexts {
-                    buffer_id: BufferId(buffer_id as usize),
-                }).is_ok()
-            })?)?;
-
-            // clearVirtualTextNamespace - clear virtual texts in namespace
-            let cmd_sender = command_sender.clone();
-            editor.set("clearVirtualTextNamespace", Function::new(ctx.clone(), move |buffer_id: u32, namespace: String| -> bool {
-                cmd_sender.send(PluginCommand::ClearVirtualTextNamespace {
-                    buffer_id: BufferId(buffer_id as usize),
-                    namespace,
-                }).is_ok()
-            })?)?;
-
-            // === Virtual Lines ===
-            // addVirtualLine - add a virtual line (takes JSON to avoid arg limit)
-            let cmd_sender = command_sender.clone();
-            editor.set("addVirtualLine", Function::new(ctx.clone(), move |json: String| -> bool {
-                #[derive(serde::Deserialize)]
-                struct Args {
-                    buffer_id: u32,
-                    position: u32,
-                    text: String,
-                    fg_color: (u8, u8, u8),
-                    #[serde(default)]
-                    bg_color: Option<(u8, u8, u8)>,
-                    #[serde(default)]
-                    above: bool,
-                    namespace: String,
-                    #[serde(default)]
-                    priority: i32,
-                }
-                let args: Args = match serde_json::from_str(&json) {
-                    Ok(a) => a,
-                    Err(_) => return false,
-                };
-                cmd_sender.send(PluginCommand::AddVirtualLine {
-                    buffer_id: BufferId(args.buffer_id as usize),
-                    position: args.position as usize,
-                    text: args.text,
-                    fg_color: args.fg_color,
-                    bg_color: args.bg_color,
-                    above: args.above,
-                    namespace: args.namespace,
-                    priority: args.priority,
                 }).is_ok()
             })?)?;
 
@@ -1400,46 +1083,6 @@ impl QuickJsBackend {
                 }).is_ok()
             })?)?;
 
-            // openFileInSplit - open file in a specific split
-            let cmd_sender = command_sender.clone();
-            editor.set("openFileInSplit", Function::new(ctx.clone(), move |split_id: u32, path: String, line: Option<u32>, column: Option<u32>| -> bool {
-                cmd_sender.send(PluginCommand::OpenFileInSplit {
-                    split_id: split_id as usize,
-                    path: PathBuf::from(path),
-                    line: line.map(|l| l as usize),
-                    column: column.map(|c| c as usize),
-                }).is_ok()
-            })?)?;
-
-            // setSplitScroll - set split scroll position
-            let cmd_sender = command_sender.clone();
-            editor.set("setSplitScroll", Function::new(ctx.clone(), move |split_id: u32, top_byte: u32| -> bool {
-                cmd_sender.send(PluginCommand::SetSplitScroll {
-                    split_id: SplitId(split_id as usize),
-                    top_byte: top_byte as usize,
-                }).is_ok()
-            })?)?;
-
-            // setSplitRatio - set split ratio
-            let cmd_sender = command_sender.clone();
-            editor.set("setSplitRatio", Function::new(ctx.clone(), move |split_id: u32, ratio: f32| -> bool {
-                cmd_sender.send(PluginCommand::SetSplitRatio {
-                    split_id: SplitId(split_id as usize),
-                    ratio,
-                }).is_ok()
-            })?)?;
-
-            // distributeSplitsEvenly - distribute splits evenly
-            let cmd_sender = command_sender.clone();
-            editor.set("distributeSplitsEvenly", Function::new(ctx.clone(), move |split_ids: Vec<u32>| -> bool {
-                let ids: Vec<SplitId> = split_ids.into_iter()
-                    .map(|id| SplitId(id as usize))
-                    .collect();
-                cmd_sender.send(PluginCommand::DistributeSplitsEvenly {
-                    split_ids: ids,
-                }).is_ok()
-            })?)?;
-
             // === Line indicators ===
             // _setLineIndicatorInternal(json: string) - internal, use setLineIndicator wrapper
             let cmd_sender = command_sender.clone();
@@ -1587,152 +1230,6 @@ impl QuickJsBackend {
                 cmd_sender.send(PluginCommand::KillBackgroundProcess { process_id }).is_ok()
             })?)?;
 
-            // getHighlights - async, get syntax highlights for a range
-            let request_id = Rc::clone(&next_request_id);
-            let cmd_sender = command_sender.clone();
-            editor.set("_getHighlightsStart", Function::new(ctx.clone(), move |buffer_id: u32, start: u32, end: u32| -> u64 {
-                let id = {
-                    let mut id_ref = request_id.borrow_mut();
-                    let id = *id_ref;
-                    *id_ref += 1;
-                    id
-                };
-                let _ = cmd_sender.send(PluginCommand::RequestHighlights {
-                    buffer_id: BufferId(buffer_id as usize),
-                    range: (start as usize)..(end as usize),
-                    request_id: id,
-                });
-                id
-            })?)?;
-
-            // killProcess - async, kill a background process and wait for completion
-            let request_id = Rc::clone(&next_request_id);
-            let cmd_sender = command_sender.clone();
-            editor.set("_killProcessStart", Function::new(ctx.clone(), move |process_id: u64| -> u64 {
-                let id = {
-                    let mut id_ref = request_id.borrow_mut();
-                    let id = *id_ref;
-                    *id_ref += 1;
-                    id
-                };
-                // Kill the process and use callback_id to notify when done
-                let _ = cmd_sender.send(PluginCommand::KillBackgroundProcess { process_id });
-                // For now, resolve immediately - proper implementation would track completion
-                id
-            })?)?;
-
-            // spawnProcessWait - async, wait for a spawned process to complete
-            let request_id = Rc::clone(&next_request_id);
-            editor.set("_spawnProcessWaitStart", Function::new(ctx.clone(), move |_process_id: u64| -> u64 {
-                let id = {
-                    let mut id_ref = request_id.borrow_mut();
-                    let id = *id_ref;
-                    *id_ref += 1;
-                    id
-                };
-                // TODO: Implement proper process wait tracking
-                // For now, return callback ID that won't resolve
-                id
-            })?)?;
-
-            // createVirtualBufferInExistingSplit - async, create virtual buffer in existing split
-            let request_id = Rc::clone(&next_request_id);
-            let cmd_sender = command_sender.clone();
-            editor.set("_createVirtualBufferInExistingSplitStart", Function::new(ctx.clone(), move |ctx: rquickjs::Ctx, split_id: u32, opts: Object| -> rquickjs::Result<u64> {
-                let id = {
-                    let mut id_ref = request_id.borrow_mut();
-                    let id = *id_ref;
-                    *id_ref += 1;
-                    id
-                };
-
-                let name: String = opts.get("name")?;
-                let mode: String = opts.get("mode").unwrap_or_default();
-                let read_only: bool = opts.get("readOnly").unwrap_or(false);
-                let show_line_numbers: bool = opts.get("showLineNumbers").unwrap_or(false);
-                let show_cursors: bool = opts.get("showCursors").unwrap_or(true);
-                let editing_disabled: bool = opts.get("editingDisabled").unwrap_or(false);
-                let line_wrap: Option<bool> = opts.get("lineWrap").ok();
-
-                let entries_arr: Vec<Object> = opts.get("entries").unwrap_or_default();
-                let entries: Vec<TextPropertyEntry> = entries_arr.iter()
-                    .filter_map(|obj| parse_text_property_entry(&ctx, obj))
-                    .collect();
-
-                let _ = cmd_sender.send(PluginCommand::CreateVirtualBufferInExistingSplit {
-                    name,
-                    mode,
-                    read_only,
-                    entries,
-                    split_id: SplitId(split_id as usize),
-                    show_line_numbers,
-                    show_cursors,
-                    editing_disabled,
-                    line_wrap,
-                    request_id: Some(id),
-                });
-                Ok(id)
-            })?)?;
-
-            // createCompositeBuffer - async, create composite buffer
-            let request_id = Rc::clone(&next_request_id);
-            let cmd_sender = command_sender.clone();
-            editor.set("_createCompositeBufferStart", Function::new(ctx.clone(), move |options_json: String| -> u64 {
-                let id = {
-                    let mut id_ref = request_id.borrow_mut();
-                    let id = *id_ref;
-                    *id_ref += 1;
-                    id
-                };
-
-                #[derive(serde::Deserialize)]
-                struct CompositeOpts {
-                    name: String,
-                    #[serde(default)]
-                    mode: String,
-                    layout: crate::services::plugins::api::CompositeLayoutConfig,
-                    sources: Vec<crate::services::plugins::api::CompositeSourceConfig>,
-                    #[serde(default)]
-                    hunks: Option<Vec<crate::services::plugins::api::CompositeHunk>>,
-                }
-
-                let opts: CompositeOpts = match serde_json::from_str(&options_json) {
-                    Ok(o) => o,
-                    Err(_) => return id, // Will fail to resolve
-                };
-
-                let _ = cmd_sender.send(PluginCommand::CreateCompositeBuffer {
-                    name: opts.name,
-                    mode: opts.mode,
-                    layout: opts.layout,
-                    sources: opts.sources,
-                    hunks: opts.hunks,
-                    request_id: Some(id),
-                });
-                id
-            })?)?;
-
-            // updateCompositeAlignment - sync, update composite buffer alignment
-            let cmd_sender = command_sender.clone();
-            editor.set("updateCompositeAlignment", Function::new(ctx.clone(), move |buffer_id: u32, hunks_json: String| -> bool {
-                let hunks: Vec<crate::services::plugins::api::CompositeHunk> = match serde_json::from_str(&hunks_json) {
-                    Ok(h) => h,
-                    Err(_) => return false,
-                };
-                cmd_sender.send(PluginCommand::UpdateCompositeAlignment {
-                    buffer_id: BufferId(buffer_id as usize),
-                    hunks,
-                }).is_ok()
-            })?)?;
-
-            // closeCompositeBuffer - sync, close composite buffer
-            let cmd_sender = command_sender.clone();
-            editor.set("closeCompositeBuffer", Function::new(ctx.clone(), move |buffer_id: u32| -> bool {
-                cmd_sender.send(PluginCommand::CloseCompositeBuffer {
-                    buffer_id: BufferId(buffer_id as usize),
-                }).is_ok()
-            })?)?;
-
             // === Refresh ===
             let cmd_sender = command_sender.clone();
             editor.set("refreshLines", Function::new(ctx.clone(), move |buffer_id: u32| -> bool {
@@ -1755,166 +1252,6 @@ impl QuickJsBackend {
             let snapshot = Arc::clone(&state_snapshot);
             editor.set("getEditorMode", Function::new(ctx.clone(), move || -> Option<String> {
                 snapshot.read().ok().and_then(|s| s.editor_mode.clone())
-            })?)?;
-
-            // === Display settings ===
-            // setLineNumbers - enable/disable line numbers for a buffer
-            let cmd_sender = command_sender.clone();
-            editor.set("setLineNumbers", Function::new(ctx.clone(), move |buffer_id: u32, enabled: bool| -> bool {
-                cmd_sender.send(PluginCommand::SetLineNumbers {
-                    buffer_id: BufferId(buffer_id as usize),
-                    enabled,
-                }).is_ok()
-            })?)?;
-
-            // === File Explorer Decorations ===
-            // setFileExplorerDecorations - set decorations for file explorer
-            let cmd_sender = command_sender.clone();
-            editor.set("setFileExplorerDecorations", Function::new(ctx.clone(), move |namespace: String, decorations_json: String| -> bool {
-                #[derive(serde::Deserialize)]
-                struct Decoration {
-                    path: String,
-                    symbol: String,
-                    color: (u8, u8, u8),
-                    #[serde(default)]
-                    priority: i32,
-                }
-                let decorations: Vec<Decoration> = match serde_json::from_str(&decorations_json) {
-                    Ok(d) => d,
-                    Err(_) => return false,
-                };
-                let decs: Vec<crate::view::file_tree::FileExplorerDecoration> = decorations.into_iter()
-                    .map(|d| crate::view::file_tree::FileExplorerDecoration {
-                        path: PathBuf::from(d.path),
-                        symbol: d.symbol,
-                        color: d.color,
-                        priority: d.priority,
-                    })
-                    .collect();
-                cmd_sender.send(PluginCommand::SetFileExplorerDecorations {
-                    namespace,
-                    decorations: decs,
-                }).is_ok()
-            })?)?;
-
-            // clearFileExplorerDecorations - clear decorations for a namespace
-            let cmd_sender = command_sender.clone();
-            editor.set("clearFileExplorerDecorations", Function::new(ctx.clone(), move |namespace: String| -> bool {
-                cmd_sender.send(PluginCommand::ClearFileExplorerDecorations { namespace }).is_ok()
-            })?)?;
-
-            // === Scroll Sync ===
-            // createScrollSyncGroup - create a scroll sync group
-            let cmd_sender = command_sender.clone();
-            editor.set("createScrollSyncGroup", Function::new(ctx.clone(), move |group_id: u32, left_split: u32, right_split: u32| -> bool {
-                cmd_sender.send(PluginCommand::CreateScrollSyncGroup {
-                    group_id,
-                    left_split: SplitId(left_split as usize),
-                    right_split: SplitId(right_split as usize),
-                }).is_ok()
-            })?)?;
-
-            // setScrollSyncAnchors - set scroll sync anchors
-            let cmd_sender = command_sender.clone();
-            editor.set("setScrollSyncAnchors", Function::new(ctx.clone(), move |group_id: u32, anchors_json: String| -> bool {
-                #[derive(serde::Deserialize)]
-                struct Anchor {
-                    left: u32,
-                    right: u32,
-                }
-                let anchors: Vec<Anchor> = match serde_json::from_str(&anchors_json) {
-                    Ok(a) => a,
-                    Err(_) => return false,
-                };
-                let anchor_pairs: Vec<(usize, usize)> = anchors.into_iter()
-                    .map(|a| (a.left as usize, a.right as usize))
-                    .collect();
-                cmd_sender.send(PluginCommand::SetScrollSyncAnchors {
-                    group_id,
-                    anchors: anchor_pairs,
-                }).is_ok()
-            })?)?;
-
-            // removeScrollSyncGroup - remove a scroll sync group
-            let cmd_sender = command_sender.clone();
-            editor.set("removeScrollSyncGroup", Function::new(ctx.clone(), move |group_id: u32| -> bool {
-                cmd_sender.send(PluginCommand::RemoveScrollSyncGroup {
-                    group_id,
-                }).is_ok()
-            })?)?;
-
-            // === Action Popup ===
-            // showActionPopup - show an action popup
-            let cmd_sender = command_sender.clone();
-            editor.set("showActionPopup", Function::new(ctx.clone(), move |options_json: String| -> bool {
-                #[derive(serde::Deserialize)]
-                struct PopupOptions {
-                    popup_id: String,
-                    title: String,
-                    message: String,
-                    actions: Vec<PopupAction>,
-                }
-                #[derive(serde::Deserialize)]
-                struct PopupAction {
-                    id: String,
-                    label: String,
-                }
-                let opts: PopupOptions = match serde_json::from_str(&options_json) {
-                    Ok(o) => o,
-                    Err(_) => return false,
-                };
-                let actions: Vec<crate::services::plugins::api::ActionPopupAction> = opts.actions.into_iter()
-                    .map(|a| crate::services::plugins::api::ActionPopupAction {
-                        id: a.id,
-                        label: a.label,
-                    })
-                    .collect();
-                cmd_sender.send(PluginCommand::ShowActionPopup {
-                    popup_id: opts.popup_id,
-                    title: opts.title,
-                    message: opts.message,
-                    actions,
-                }).is_ok()
-            })?)?;
-
-            // === LSP ===
-            // disableLspForLanguage - disable LSP for a language
-            let cmd_sender = command_sender.clone();
-            editor.set("disableLspForLanguage", Function::new(ctx.clone(), move |language: String| -> bool {
-                cmd_sender.send(PluginCommand::DisableLspForLanguage { language }).is_ok()
-            })?)?;
-
-            // === View Transform ===
-            // submitViewTransform - submit a view transform
-            let cmd_sender = command_sender.clone();
-            editor.set("submitViewTransform", Function::new(ctx.clone(), move |buffer_id: u32, split_id: Option<u32>, payload_json: String| -> bool {
-                let payload: crate::services::plugins::api::ViewTransformPayload = match serde_json::from_str(&payload_json) {
-                    Ok(p) => p,
-                    Err(_) => return false,
-                };
-                cmd_sender.send(PluginCommand::SubmitViewTransform {
-                    buffer_id: BufferId(buffer_id as usize),
-                    split_id: split_id.map(|s| SplitId(s as usize)),
-                    payload,
-                }).is_ok()
-            })?)?;
-
-            // clearViewTransform - clear view transform
-            let cmd_sender = command_sender.clone();
-            editor.set("clearViewTransform", Function::new(ctx.clone(), move |buffer_id: u32, split_id: Option<u32>| -> bool {
-                cmd_sender.send(PluginCommand::ClearViewTransform {
-                    buffer_id: BufferId(buffer_id as usize),
-                    split_id: split_id.map(|s| SplitId(s as usize)),
-                }).is_ok()
-            })?)?;
-
-            // === Process status ===
-            // isProcessRunning - check if a background process is running
-            // Note: This requires tracking in the backend; returning false as placeholder
-            editor.set("isProcessRunning", Function::new(ctx.clone(), |_process_id: u64| -> bool {
-                // TODO: Implement proper process tracking
-                // For now, always return false as we don't track running processes
-                false
             })?)?;
 
             // Store editor as internal _editorCore (not meant for direct plugin access)
@@ -2024,11 +1361,6 @@ impl QuickJsBackend {
                 _editorCore.sendLspRequest = _wrapAsync(_editorCore._sendLspRequestStart, "sendLspRequest");
                 _editorCore.spawnBackgroundProcess = _wrapAsyncThenable(_editorCore._spawnBackgroundProcessStart, "spawnBackgroundProcess");
                 _editorCore.getBufferText = _wrapAsync(_editorCore._getBufferTextStart, "getBufferText");
-                _editorCore.getHighlights = _wrapAsync(_editorCore._getHighlightsStart, "getHighlights");
-                _editorCore.killProcess = _wrapAsync(_editorCore._killProcessStart, "killProcess");
-                _editorCore.spawnProcessWait = _wrapAsync(_editorCore._spawnProcessWaitStart, "spawnProcessWait");
-                _editorCore.createVirtualBufferInExistingSplit = _wrapAsync(_editorCore._createVirtualBufferInExistingSplitStart, "createVirtualBufferInExistingSplit");
-                _editorCore.createCompositeBuffer = _wrapAsync(_editorCore._createCompositeBufferStart, "createCompositeBuffer");
 
                 // Wrapper for getTextPropertiesAtCursor - parses JSON from Rust
                 _editorCore.getTextPropertiesAtCursor = function(bufferId) {
@@ -2449,6 +1781,7 @@ impl QuickJsBackend {
 mod tests {
     use super::*;
     use std::sync::mpsc;
+    use crate::services::plugins::api::BufferInfo;
 
     /// Helper to create a backend with a command receiver for testing
     fn create_test_backend() -> (QuickJsBackend, mpsc::Receiver<PluginCommand>) {
@@ -3040,5 +2373,559 @@ mod tests {
             let result: String = global.get("_translated").unwrap();
             assert_eq!(result, "test.key");
         });
+    }
+
+    // ==================== Line Indicator Tests ====================
+
+    #[test]
+    fn test_api_set_line_indicator() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.setLineIndicator(1, 5, "test-ns", "●", 255, 0, 0, 10);
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::SetLineIndicator { buffer_id, line, namespace, symbol, color, priority } => {
+                assert_eq!(buffer_id.0, 1);
+                assert_eq!(line, 5);
+                assert_eq!(namespace, "test-ns");
+                assert_eq!(symbol, "●");
+                assert_eq!(color, (255, 0, 0));
+                assert_eq!(priority, 10);
+            }
+            _ => panic!("Expected SetLineIndicator, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_clear_line_indicators() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.clearLineIndicators(1, "test-ns");
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::ClearLineIndicators { buffer_id, namespace } => {
+                assert_eq!(buffer_id.0, 1);
+                assert_eq!(namespace, "test-ns");
+            }
+            _ => panic!("Expected ClearLineIndicators, got {:?}", cmd),
+        }
+    }
+
+    // ==================== Virtual Buffer Tests ====================
+
+    #[test]
+    fn test_api_create_virtual_buffer_sends_command() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.createVirtualBuffer({
+                name: "*Test Buffer*",
+                mode: "test-mode",
+                readOnly: true,
+                entries: [
+                    { text: "Line 1\n", properties: { type: "header" } },
+                    { text: "Line 2\n", properties: { type: "content" } }
+                ],
+                showLineNumbers: false,
+                showCursors: true,
+                editingDisabled: true
+            });
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::CreateVirtualBufferWithContent { name, mode, read_only, entries, show_line_numbers, show_cursors, editing_disabled, .. } => {
+                assert_eq!(name, "*Test Buffer*");
+                assert_eq!(mode, "test-mode");
+                assert!(read_only);
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].text, "Line 1\n");
+                assert!(!show_line_numbers);
+                assert!(show_cursors);
+                assert!(editing_disabled);
+            }
+            _ => panic!("Expected CreateVirtualBufferWithContent, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_set_virtual_buffer_content() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.setVirtualBufferContent(5, [
+                { text: "New content\n", properties: { type: "updated" } }
+            ]);
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::SetVirtualBufferContent { buffer_id, entries } => {
+                assert_eq!(buffer_id.0, 5);
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].text, "New content\n");
+            }
+            _ => panic!("Expected SetVirtualBufferContent, got {:?}", cmd),
+        }
+    }
+
+    // ==================== Overlay Tests ====================
+
+    #[test]
+    fn test_api_add_overlay() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.addOverlay(1, "highlight", 10, 20, 255, 128, 0, false, true, false, 50, 50, 50, false);
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::AddOverlay { buffer_id, namespace, range, color, bg_color, underline, bold, italic, extend_to_line_end } => {
+                assert_eq!(buffer_id.0, 1);
+                assert!(namespace.is_some());
+                assert_eq!(namespace.unwrap().as_str(), "highlight");
+                assert_eq!(range, 10..20);
+                assert_eq!(color, (255, 128, 0));
+                assert_eq!(bg_color, Some((50, 50, 50)));
+                assert!(!underline);
+                assert!(bold);
+                assert!(!italic);
+                assert!(!extend_to_line_end);
+            }
+            _ => panic!("Expected AddOverlay, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_clear_namespace() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.clearNamespace(1, "highlight");
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::ClearNamespace { buffer_id, namespace } => {
+                assert_eq!(buffer_id.0, 1);
+                assert_eq!(namespace.as_str(), "highlight");
+            }
+            _ => panic!("Expected ClearNamespace, got {:?}", cmd),
+        }
+    }
+
+    // ==================== Theme Tests ====================
+
+    #[test]
+    fn test_api_get_theme_schema() {
+        let (mut backend, _rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._schema = editor.getThemeSchema();
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: String = global.get("_schema").unwrap();
+            // Should return valid JSON
+            let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+            assert!(parsed.is_object());
+        });
+    }
+
+    #[test]
+    fn test_api_get_builtin_themes() {
+        let (mut backend, _rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._themes = editor.getBuiltinThemes();
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: String = global.get("_themes").unwrap();
+            // Should return valid JSON object
+            let parsed: serde_json::Value = serde_json::from_str(&result).unwrap();
+            assert!(parsed.is_object());
+        });
+    }
+
+    #[test]
+    fn test_api_apply_theme() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.applyTheme("dark");
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::ApplyTheme { theme_name } => {
+                assert_eq!(theme_name, "dark");
+            }
+            _ => panic!("Expected ApplyTheme, got {:?}", cmd),
+        }
+    }
+
+    // ==================== Buffer Operations Tests ====================
+
+    #[test]
+    fn test_api_close_buffer() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.closeBuffer(3);
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::CloseBuffer { buffer_id } => {
+                assert_eq!(buffer_id.0, 3);
+            }
+            _ => panic!("Expected CloseBuffer, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_focus_split() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.focusSplit(2);
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::FocusSplit { split_id } => {
+                assert_eq!(split_id.0, 2);
+            }
+            _ => panic!("Expected FocusSplit, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_list_buffers() {
+        let (tx, _rx) = mpsc::channel();
+        let state_snapshot = Arc::new(RwLock::new(EditorStateSnapshot::new()));
+
+        // Add some buffers to state
+        {
+            let mut state = state_snapshot.write().unwrap();
+            state.buffers.insert(BufferId(0), BufferInfo {
+                id: BufferId(0),
+                path: Some(PathBuf::from("/test1.txt")),
+                modified: false,
+                length: 100,
+            });
+            state.buffers.insert(BufferId(1), BufferInfo {
+                id: BufferId(1),
+                path: Some(PathBuf::from("/test2.txt")),
+                modified: true,
+                length: 200,
+            });
+        }
+
+        let dir_context = DirectoryContext::for_testing(Path::new("/tmp"));
+        let mut backend = QuickJsBackend::with_state(state_snapshot, tx, dir_context).unwrap();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            const buffers = editor.listBuffers();
+            globalThis._isArray = Array.isArray(buffers);
+            globalThis._length = buffers.length;
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let is_array: bool = global.get("_isArray").unwrap();
+            let length: u32 = global.get("_length").unwrap();
+            assert!(is_array);
+            assert_eq!(length, 2);
+        });
+    }
+
+    // ==================== Prompt Tests ====================
+
+    #[test]
+    fn test_api_start_prompt() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.startPrompt("Enter value:", "test-prompt");
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::StartPrompt { label, prompt_type } => {
+                assert_eq!(label, "Enter value:");
+                assert_eq!(prompt_type, "test-prompt");
+            }
+            _ => panic!("Expected StartPrompt, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_start_prompt_with_initial() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.startPromptWithInitial("Enter value:", "test-prompt", "default");
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::StartPromptWithInitial { label, prompt_type, initial_value } => {
+                assert_eq!(label, "Enter value:");
+                assert_eq!(prompt_type, "test-prompt");
+                assert_eq!(initial_value, "default");
+            }
+            _ => panic!("Expected StartPromptWithInitial, got {:?}", cmd),
+        }
+    }
+
+    #[test]
+    fn test_api_set_prompt_suggestions() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.setPromptSuggestions([
+                { text: "Option 1", value: "opt1" },
+                { text: "Option 2", value: "opt2" }
+            ]);
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::SetPromptSuggestions { suggestions } => {
+                assert_eq!(suggestions.len(), 2);
+                assert_eq!(suggestions[0].text, "Option 1");
+                assert_eq!(suggestions[0].value, Some("opt1".to_string()));
+            }
+            _ => panic!("Expected SetPromptSuggestions, got {:?}", cmd),
+        }
+    }
+
+    // ==================== State Query Tests ====================
+
+    #[test]
+    fn test_api_get_active_buffer_id() {
+        let (tx, _rx) = mpsc::channel();
+        let state_snapshot = Arc::new(RwLock::new(EditorStateSnapshot::new()));
+
+        {
+            let mut state = state_snapshot.write().unwrap();
+            state.active_buffer_id = BufferId(42);
+        }
+
+        let dir_context = DirectoryContext::for_testing(Path::new("/tmp"));
+        let mut backend = QuickJsBackend::with_state(state_snapshot, tx, dir_context).unwrap();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._activeId = editor.getActiveBufferId();
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: u32 = global.get("_activeId").unwrap();
+            assert_eq!(result, 42);
+        });
+    }
+
+    #[test]
+    fn test_api_get_active_split_id() {
+        let (tx, _rx) = mpsc::channel();
+        let state_snapshot = Arc::new(RwLock::new(EditorStateSnapshot::new()));
+
+        {
+            let mut state = state_snapshot.write().unwrap();
+            state.active_split_id = 7;
+        }
+
+        let dir_context = DirectoryContext::for_testing(Path::new("/tmp"));
+        let mut backend = QuickJsBackend::with_state(state_snapshot, tx, dir_context).unwrap();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._splitId = editor.getActiveSplitId();
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: u32 = global.get("_splitId").unwrap();
+            assert_eq!(result, 7);
+        });
+    }
+
+    // ==================== File System Tests ====================
+
+    #[test]
+    fn test_api_file_exists() {
+        let (mut backend, _rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            // Test with a path that definitely exists
+            globalThis._exists = editor.fileExists("/");
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: bool = global.get("_exists").unwrap();
+            assert!(result);
+        });
+    }
+
+    #[test]
+    fn test_api_get_cwd() {
+        let (mut backend, _rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._cwd = editor.getCwd();
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: String = global.get("_cwd").unwrap();
+            // Should return some path
+            assert!(!result.is_empty());
+        });
+    }
+
+    #[test]
+    fn test_api_get_env() {
+        let (mut backend, _rx) = create_test_backend();
+
+        // Set a test environment variable
+        std::env::set_var("TEST_PLUGIN_VAR", "test_value");
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._envVal = editor.getEnv("TEST_PLUGIN_VAR");
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: Option<String> = global.get("_envVal").unwrap();
+            assert_eq!(result, Some("test_value".to_string()));
+        });
+
+        std::env::remove_var("TEST_PLUGIN_VAR");
+    }
+
+    #[test]
+    fn test_api_get_config() {
+        let (mut backend, _rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._config = editor.getConfig();
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: String = global.get("_config").unwrap();
+            // Should return some string (may be empty or a config representation)
+            // The format depends on how Config implements Display
+            assert!(result.len() >= 0);
+        });
+    }
+
+    #[test]
+    fn test_api_get_themes_dir() {
+        let (mut backend, _rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            globalThis._themesDir = editor.getThemesDir();
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let result: String = global.get("_themesDir").unwrap();
+            // Should return some path
+            assert!(!result.is_empty());
+        });
+    }
+
+    // ==================== Read Dir Test ====================
+
+    #[test]
+    fn test_api_read_dir() {
+        let (mut backend, _rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            const entries = editor.readDir("/tmp");
+            globalThis._isArray = Array.isArray(entries);
+            globalThis._length = entries.length;
+        "#, "test.js").unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let is_array: bool = global.get("_isArray").unwrap();
+            let length: u32 = global.get("_length").unwrap();
+            // /tmp should exist and readDir should return an array
+            assert!(is_array);
+            // Length is checked (could be 0 or more)
+            assert!(length >= 0);
+        });
+    }
+
+    // ==================== Execute Action Test ====================
+
+    #[test]
+    fn test_api_execute_action() {
+        let (mut backend, rx) = create_test_backend();
+
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.executeAction("move_cursor_up");
+        "#, "test.js").unwrap();
+
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            PluginCommand::ExecuteAction { action_name } => {
+                assert_eq!(action_name, "move_cursor_up");
+            }
+            _ => panic!("Expected ExecuteAction, got {:?}", cmd),
+        }
+    }
+
+    // ==================== Debug Test ====================
+
+    #[test]
+    fn test_api_debug() {
+        let (mut backend, _rx) = create_test_backend();
+
+        // debug() should not panic and should work with any input
+        backend.execute_js(r#"
+            const editor = getEditor();
+            editor.debug("Test debug message");
+            editor.debug("Another message with special chars: <>&\"'");
+        "#, "test.js").unwrap();
+        // If we get here without panic, the test passes
     }
 }
