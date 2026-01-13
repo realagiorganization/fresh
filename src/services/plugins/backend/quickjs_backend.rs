@@ -376,19 +376,20 @@ impl QuickJsBackend {
             })?)?;
 
             // === Command registration ===
+            // registerCommand(name, description, handler_name, context)
             let cmd_sender = command_sender.clone();
             let actions = Rc::clone(&registered_actions);
-            editor.set("registerCommand", Function::new(ctx.clone(), move |name: String, handler_name: String, description: Option<String>| -> bool {
+            editor.set("registerCommand", Function::new(ctx.clone(), move |name: String, description: String, handler_name: String, context: Option<String>| -> bool {
                 // Store action handler
                 actions.borrow_mut().insert(name.clone(), handler_name.clone());
 
                 // Register with editor
                 let command = Command {
                     name: name.clone(),
-                    description: description.unwrap_or_else(|| name.clone()),
+                    description,
                     action: Action::PluginAction(name),
                     contexts: vec![],
-                    custom_contexts: vec![],
+                    custom_contexts: context.into_iter().collect(),
                     source: CommandSource::Plugin(handler_name),
                 };
 
@@ -404,6 +405,42 @@ impl QuickJsBackend {
             let cmd_sender = command_sender.clone();
             editor.set("setContext", Function::new(ctx.clone(), move |name: String, active: bool| -> bool {
                 cmd_sender.send(PluginCommand::SetContext { name, active }).is_ok()
+            })?)?;
+
+            // === Action execution ===
+            let cmd_sender = command_sender.clone();
+            editor.set("executeAction", Function::new(ctx.clone(), move |action_name: String| -> bool {
+                cmd_sender.send(PluginCommand::ExecuteAction { action_name }).is_ok()
+            })?)?;
+
+            // === i18n ===
+            // _pluginTranslate(pluginName, key, args) - internal function for plugin translations
+            editor.set("_pluginTranslate", Function::new(ctx.clone(), |plugin_name: String, key: String, args: Value| -> String {
+                // Convert args Value to HashMap<String, String>
+                let mut args_map = std::collections::HashMap::<String, String>::new();
+                if let Some(args_obj) = args.as_object() {
+                    for arg_key in args_obj.keys::<String>().flatten() {
+                        if let Ok(val) = args_obj.get::<_, Value>(&arg_key) {
+                            let s = match val.type_of() {
+                                rquickjs::Type::String => val.as_string()
+                                    .and_then(|s| s.to_string().ok())
+                                    .unwrap_or_default(),
+                                rquickjs::Type::Int => val.as_int()
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_default(),
+                                rquickjs::Type::Float => val.as_float()
+                                    .map(|n| n.to_string())
+                                    .unwrap_or_default(),
+                                rquickjs::Type::Bool => val.as_bool()
+                                    .map(|b| b.to_string())
+                                    .unwrap_or_default(),
+                                _ => String::new(),
+                            };
+                            args_map.insert(arg_key, s);
+                        }
+                    }
+                }
+                crate::i18n::translate_plugin_string(&plugin_name, &key, &args_map)
             })?)?;
 
             // === Environment ===
@@ -584,29 +621,26 @@ impl QuickJsBackend {
             })?)?;
 
             // === Mode definition ===
-            // defineMode(opts: {name, parent?, bindings: [{key, command}], readOnly?})
+            // defineMode(name: string, parent: string | null, bindings: [key, command][])
             let cmd_sender = command_sender.clone();
-            editor.set("defineMode", Function::new(ctx.clone(), move |opts: Object| -> rquickjs::Result<bool> {
-                let name: String = opts.get("name")?;
-                let parent: Option<String> = opts.get("parent").ok();
-                let read_only: bool = opts.get("readOnly").unwrap_or(false);
-
-                // bindings is array of {key: string, command: string}
-                let bindings_arr: Vec<Object> = opts.get("bindings").unwrap_or_default();
+            editor.set("defineMode", Function::new(ctx.clone(), move |name: String, parent: Option<String>, bindings_arr: Vec<Vec<String>>| -> bool {
+                // bindings is array of [key, command] pairs
                 let bindings: Vec<(String, String)> = bindings_arr.into_iter()
-                    .filter_map(|obj| {
-                        let key: String = obj.get("key").ok()?;
-                        let command: String = obj.get("command").ok()?;
-                        Some((key, command))
+                    .filter_map(|arr| {
+                        if arr.len() >= 2 {
+                            Some((arr[0].clone(), arr[1].clone()))
+                        } else {
+                            None
+                        }
                     })
                     .collect();
 
-                Ok(cmd_sender.send(PluginCommand::DefineMode {
+                cmd_sender.send(PluginCommand::DefineMode {
                     name,
                     parent,
                     bindings,
-                    read_only,
-                }).is_ok())
+                    read_only: false,
+                }).is_ok()
             })?)?;
 
             // === Virtual buffers ===
@@ -873,12 +907,6 @@ impl QuickJsBackend {
             // Set editor as global
             globals.set("editor", editor)?;
 
-            // Set up getEditor function for plugin initialization
-            globals.set("getEditor", Function::new(ctx.clone(), || -> () {
-                // In QuickJS, editor is already global, so getEditor() is a no-op
-                // Plugins can use `editor` directly
-            })?)?;
-
             // Provide console.log for debugging
             let console = Object::new(ctx.clone())?;
             console.set("log", Function::new(ctx.clone(), |args: Vec<String>| {
@@ -892,8 +920,55 @@ impl QuickJsBackend {
             })?)?;
             globals.set("console", console)?;
 
-            // Bootstrap: Promise infrastructure for async operations
+            // Bootstrap: Promise infrastructure and plugin-scoped editors
             ctx.eval::<(), _>(r#"
+                // Create a plugin-scoped editor with the plugin name captured in closures
+                globalThis._createPluginEditor = function(pluginName) {
+                    const coreEditor = globalThis.editor;
+                    return {
+                        // Spread all core methods
+                        ...coreEditor,
+
+                        // Plugin name for reference
+                        _pluginName: pluginName,
+
+                        // Plugin-specific logging (prefixed with plugin name)
+                        error(message) { coreEditor.error(`[${pluginName}] ${message}`); },
+                        warn(message) { coreEditor.warn(`[${pluginName}] ${message}`); },
+                        info(message) { coreEditor.info(`[${pluginName}] ${message}`); },
+                        debug(message) { coreEditor.debug(`[${pluginName}] ${message}`); },
+
+                        // Plugin-specific command registration (includes plugin name as source)
+                        registerCommand(name, description, action, contexts) {
+                            // Call core registerCommand with plugin name context
+                            return coreEditor.registerCommand(name, description, action, contexts);
+                        },
+
+                        // Plugin-specific translation
+                        t(key, args) {
+                            return coreEditor._pluginTranslate(pluginName, key, args || {});
+                        },
+
+                        // For compatibility - returns self since t() is already bound
+                        getL10n() {
+                            return { t: (key, args) => this.t(key, args) };
+                        },
+                    };
+                };
+
+                // Pending editor for plugin initialization
+                globalThis.__pendingEditor = null;
+
+                // getEditor() returns the pending plugin-scoped editor
+                globalThis.getEditor = function() {
+                    const editor = globalThis.__pendingEditor;
+                    if (!editor) {
+                        throw new Error('getEditor() must be called at the top of the plugin file during initialization');
+                    }
+                    globalThis.__pendingEditor = null; // Clear after use
+                    return editor;
+                };
+
                 // Pending promise callbacks: callbackId -> { resolve, reject }
                 globalThis._pendingCallbacks = new Map();
 
@@ -1002,6 +1077,18 @@ impl QuickJsBackend {
 
     /// Execute JavaScript code in the context
     fn execute_js(&mut self, code: &str, source_name: &str) -> Result<()> {
+        // Extract plugin name from path (filename without extension)
+        let plugin_name = Path::new(source_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+
+        // Set up the pending editor for this plugin before executing
+        let set_editor = format!(
+            "globalThis.__pendingEditor = globalThis._createPluginEditor(\"{}\");",
+            plugin_name.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+
         // Wrap in IIFE for scope isolation
         let wrapped = format!(
             "(function() {{\n{}\n}})();",
@@ -1009,6 +1096,11 @@ impl QuickJsBackend {
         );
 
         self.context.with(|ctx| {
+            // Set pending editor first
+            ctx.eval::<(), _>(set_editor.as_bytes())
+                .map_err(|e| format_js_error(&ctx, e, source_name))?;
+
+            // Then execute the plugin code
             ctx.eval::<(), _>(wrapped.as_bytes())
                 .map_err(|e| format_js_error(&ctx, e, source_name))
         })
