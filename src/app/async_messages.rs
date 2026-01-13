@@ -974,7 +974,7 @@ impl Editor {
             return false;
         }
 
-        tracing::trace!(
+        tracing::info!(
             "process_plugin_commands: processing {} commands",
             commands.len()
         );

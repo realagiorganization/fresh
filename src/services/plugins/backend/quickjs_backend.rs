@@ -286,7 +286,7 @@ impl QuickJsBackend {
 
             // === Logging ===
             editor.set("debug", Function::new(ctx.clone(), |msg: String| {
-                tracing::debug!("Plugin: {}", msg);
+                tracing::info!("Plugin.debug: {}", msg);
             })?)?;
 
             editor.set("info", Function::new(ctx.clone(), |msg: String| {
@@ -600,6 +600,16 @@ impl QuickJsBackend {
             let cmd_sender = command_sender.clone();
             editor.set("applyTheme", Function::new(ctx.clone(), move |theme_name: String| -> bool {
                 cmd_sender.send(PluginCommand::ApplyTheme { theme_name }).is_ok()
+            })?)?;
+
+            editor.set("getThemeSchema", Function::new(ctx.clone(), || -> String {
+                let schema = crate::view::theme::get_theme_schema();
+                serde_json::to_string(&schema).unwrap_or_else(|_| "{}".to_string())
+            })?)?;
+
+            editor.set("getBuiltinThemes", Function::new(ctx.clone(), || -> String {
+                let themes = crate::view::theme::get_builtin_themes();
+                serde_json::to_string(&themes).unwrap_or_else(|_| "{}".to_string())
             })?)?;
 
             // === Overlays ===
@@ -1189,10 +1199,17 @@ impl QuickJsBackend {
     /// Emit an event to all registered handlers
     pub async fn emit(&mut self, event_name: &str, event_data: &str) -> Result<bool> {
         tracing::debug!("emit: event '{}' with {} bytes of data", event_name, event_data.len());
+
+        // Track execution state for signal handler debugging
+        crate::services::signal_handler::set_js_execution_state(
+            format!("hook '{}'", event_name)
+        );
+
         let handlers = self.event_handlers.borrow().get(event_name).cloned();
 
         if let Some(handler_names) = handlers {
             if handler_names.is_empty() {
+                crate::services::signal_handler::clear_js_execution_state();
                 return Ok(true);
             }
 
@@ -1224,6 +1241,7 @@ impl QuickJsBackend {
             }
         }
 
+        crate::services::signal_handler::clear_js_execution_state();
         Ok(true)
     }
 
@@ -1243,20 +1261,28 @@ impl QuickJsBackend {
         let handler_name = self.registered_actions.borrow().get(action_name).cloned();
         let function_name = handler_name.unwrap_or_else(|| action_name.to_string());
 
-        tracing::debug!("start_action: '{}' -> function '{}'", action_name, function_name);
+        // Track execution state for signal handler debugging
+        crate::services::signal_handler::set_js_execution_state(
+            format!("action '{}' (fn: {})", action_name, function_name)
+        );
+
+        tracing::info!("start_action: BEGIN '{}' -> function '{}'", action_name, function_name);
 
         // Just call the function - don't try to await or drive Promises
         let code = format!(
             r#"
             (function() {{
+                console.log('[JS] start_action: calling {fn}');
                 try {{
                     if (typeof globalThis.{fn} === 'function') {{
+                        console.log('[JS] start_action: {fn} is a function, invoking...');
                         globalThis.{fn}();
+                        console.log('[JS] start_action: {fn} invoked (may be async)');
                     }} else {{
-                        console.error('Action {action} is not defined as a global function');
+                        console.error('[JS] Action {action} is not defined as a global function');
                     }}
                 }} catch (e) {{
-                    console.error('Action {action} error:', e);
+                    console.error('[JS] Action {action} error:', e);
                 }}
             }})();
             "#,
@@ -1264,13 +1290,24 @@ impl QuickJsBackend {
             action = action_name
         );
 
+        tracing::info!("start_action: evaluating JS code");
         self.context.with(|ctx| {
             if let Err(e) = ctx.eval::<rquickjs::Value, _>(code.as_bytes()) {
                 log_js_error(&ctx, e, &format!("action {}", action_name));
             }
+            tracing::info!("start_action: running pending microtasks");
             // Run any immediate microtasks
-            while ctx.execute_pending_job() {}
+            let mut count = 0;
+            while ctx.execute_pending_job() {
+                count += 1;
+            }
+            tracing::info!("start_action: executed {} pending jobs", count);
         });
+
+        tracing::info!("start_action: END '{}'", action_name);
+
+        // Clear execution state (action started, may still be running async)
+        crate::services::signal_handler::clear_js_execution_state();
 
         Ok(())
     }

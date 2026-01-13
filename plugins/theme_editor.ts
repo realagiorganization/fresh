@@ -484,10 +484,17 @@ function findThemesDir(): string {
  */
 async function loadBuiltinThemes(): Promise<string[]> {
   try {
-    const builtinThemes = editor.getBuiltinThemes() as Record<string, string>;
+    editor.debug("[theme_editor] loadBuiltinThemes: calling editor.getBuiltinThemes()");
+    const rawThemes = editor.getBuiltinThemes();
+    editor.debug(`[theme_editor] loadBuiltinThemes: got rawThemes type=${typeof rawThemes}`);
+    // getBuiltinThemes returns a JSON string, need to parse it
+    const builtinThemes = typeof rawThemes === "string"
+      ? JSON.parse(rawThemes) as Record<string, string>
+      : rawThemes as Record<string, string>;
+    editor.debug(`[theme_editor] loadBuiltinThemes: parsed ${Object.keys(builtinThemes).length} themes`);
     return Object.keys(builtinThemes);
   } catch (e) {
-    editor.debug(`Failed to load built-in themes list: ${e}`);
+    editor.debug(`[theme_editor] Failed to load built-in themes list: ${e}`);
     throw e;
   }
 }
@@ -497,13 +504,17 @@ async function loadBuiltinThemes(): Promise<string[]> {
  */
 async function loadThemeFile(name: string): Promise<Record<string, unknown> | null> {
   try {
-    const builtinThemes = editor.getBuiltinThemes() as Record<string, string>;
+    const rawThemes = editor.getBuiltinThemes();
+    // getBuiltinThemes returns a JSON string, need to parse it
+    const builtinThemes = typeof rawThemes === "string"
+      ? JSON.parse(rawThemes) as Record<string, string>
+      : rawThemes as Record<string, string>;
     if (name in builtinThemes) {
       return JSON.parse(builtinThemes[name]);
     }
     return null;
   } catch (e) {
-    editor.debug(`Failed to load theme data for '${name}': ${e}`);
+    editor.debug(`[theme_editor] Failed to load theme data for '${name}': ${e}`);
     return null;
   }
 }
@@ -1642,7 +1653,9 @@ globalThis.theme_editor_nav_prev_section = function(): void {
  * Open the theme editor - prompts user to select theme first
  */
 globalThis.open_theme_editor = async function(): Promise<void> {
+  editor.debug("[theme_editor] open_theme_editor called");
   if (isThemeEditorOpen()) {
+    editor.debug("[theme_editor] already open, focusing");
     // Focus the existing theme editor split
     if (state.splitId !== null) {
       editor.focusSplit(state.splitId);
@@ -1651,12 +1664,15 @@ globalThis.open_theme_editor = async function(): Promise<void> {
     return;
   }
 
+  editor.debug("[theme_editor] saving context");
   // Save context
   state.sourceSplitId = editor.getActiveSplitId();
   state.sourceBufferId = editor.getActiveBufferId();
 
+  editor.debug("[theme_editor] loading builtin themes...");
   // Load available themes
   state.builtinThemes = await loadBuiltinThemes();
+  editor.debug(`[theme_editor] loaded ${state.builtinThemes.length} builtin themes`);
 
   // Get current theme name from config
   const config = editor.getConfig() as Record<string, unknown>;

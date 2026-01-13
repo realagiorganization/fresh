@@ -4,10 +4,13 @@ use anyhow::Result as AnyhowResult;
 
 // Common initialization (non-plugin related)
 #[ctor::ctor]
-fn init_keybindings_for_tests() {
+fn init_test_environment() {
     // Force Linux-style keybindings (Ctrl/Alt/Shift instead of ⌘/⌥/⇧)
     // to ensure consistent visual test output across platforms
     fresh::input::keybindings::set_force_linux_keybindings(true);
+
+    // Install signal handlers for debugging hangs (dumps JS + Rust stack traces on Ctrl+C)
+    fresh::services::signal_handler::install_signal_handlers();
 }
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -1088,6 +1091,31 @@ impl EditorTestHarness {
             !screen.contains(text),
             "Expected screen to not contain '{text}'\nScreen content:\n{screen}"
         );
+    }
+
+    /// Assert that no plugin errors have occurred
+    /// This checks the accumulated error messages from plugin execution
+    /// Call this at key points in tests to catch plugin errors early
+    pub fn assert_no_plugin_errors(&self) {
+        let errors = self.editor.get_plugin_errors();
+        if !errors.is_empty() {
+            let screen = self.screen_to_string();
+            panic!(
+                "Plugin error(s) occurred:\n{}\n\nScreen content:\n{}",
+                errors.join("\n"),
+                screen
+            );
+        }
+    }
+
+    /// Get any accumulated plugin errors
+    pub fn get_plugin_errors(&self) -> &[String] {
+        self.editor.get_plugin_errors()
+    }
+
+    /// Clear accumulated plugin errors (useful if testing error handling)
+    pub fn clear_plugin_errors(&mut self) {
+        self.editor.clear_plugin_errors();
     }
 
     /// Get the buffer content (not screen, actual buffer text)

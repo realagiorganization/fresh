@@ -209,6 +209,10 @@ pub struct Editor {
     /// Plugin-provided status message (displayed alongside the core status)
     plugin_status_message: Option<String>,
 
+    /// Accumulated plugin errors (for test assertions)
+    /// These are collected when plugin error messages are received
+    plugin_errors: Vec<String>,
+
     /// Active prompt (minibuffer)
     prompt: Option<Prompt>,
 
@@ -935,6 +939,7 @@ impl Editor {
             restart_with_dir: None,
             status_message: None,
             plugin_status_message: None,
+            plugin_errors: Vec::new(),
             prompt: None,
             terminal_width: width,
             terminal_height: height,
@@ -3033,6 +3038,17 @@ impl Editor {
         self.plugin_status_message
             .as_ref()
             .or(self.status_message.as_ref())
+    }
+
+    /// Get accumulated plugin errors (for test assertions)
+    /// Returns all error messages that were detected in plugin status messages
+    pub fn get_plugin_errors(&self) -> &[String] {
+        &self.plugin_errors
+    }
+
+    /// Clear accumulated plugin errors
+    pub fn clear_plugin_errors(&mut self) {
+        self.plugin_errors.clear();
     }
 
     /// Update prompt suggestions based on current input

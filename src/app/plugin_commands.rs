@@ -945,6 +945,16 @@ impl Editor {
         if message.trim().is_empty() {
             self.plugin_status_message = None;
         } else {
+            // Detect plugin errors and collect them for test assertions
+            // Error patterns: "Plugin error", "JS error", "handler error"
+            let lower = message.to_lowercase();
+            if lower.contains("plugin error")
+                || lower.contains("js error")
+                || lower.contains("handler error")
+                || lower.contains("error in")
+            {
+                self.plugin_errors.push(message.clone());
+            }
             self.plugin_status_message = Some(message);
         }
     }
