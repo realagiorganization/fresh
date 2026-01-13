@@ -871,28 +871,25 @@ impl JsEditorApi {
 
     // === Overlays ===
 
-    /// Add an overlay (internal, takes object with all params)
-    #[qjs(rename = "_addOverlayInternal")]
-    pub fn add_overlay_internal<'js>(
+    /// Add an overlay with styling
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_overlay(
         &self,
-        ctx: rquickjs::Ctx<'js>,
-        opts: rquickjs::Object<'js>,
-    ) -> rquickjs::Result<bool> {
-        let buffer_id: u32 = opts.get("buffer_id")?;
-        let namespace: String = opts.get("namespace")?;
-        let start: u32 = opts.get("start")?;
-        let end: u32 = opts.get("end")?;
-        let r: i32 = opts.get("r").unwrap_or(-1);
-        let g: i32 = opts.get("g").unwrap_or(-1);
-        let b: i32 = opts.get("b").unwrap_or(-1);
-        let underline: bool = opts.get("underline").unwrap_or(false);
-        let bold: bool = opts.get("bold").unwrap_or(false);
-        let italic: bool = opts.get("italic").unwrap_or(false);
-        let bg_r: i32 = opts.get("bg_r").unwrap_or(-1);
-        let bg_g: i32 = opts.get("bg_g").unwrap_or(-1);
-        let bg_b: i32 = opts.get("bg_b").unwrap_or(-1);
-        let extend_to_line_end: bool = opts.get("extend_to_line_end").unwrap_or(false);
-
+        buffer_id: u32,
+        namespace: String,
+        start: u32,
+        end: u32,
+        r: i32,
+        g: i32,
+        b: i32,
+        underline: bool,
+        bold: bool,
+        italic: bool,
+        bg_r: i32,
+        bg_g: i32,
+        bg_b: i32,
+        extend_to_line_end: bool,
+    ) -> bool {
         // -1 means use default color (white)
         let color = if r >= 0 && g >= 0 && b >= 0 {
             (r as u8, g as u8, b as u8)
@@ -907,8 +904,7 @@ impl JsEditorApi {
             None
         };
 
-        Ok(self
-            .command_sender
+        self.command_sender
             .send(PluginCommand::AddOverlay {
                 buffer_id: BufferId(buffer_id as usize),
                 namespace: Some(OverlayNamespace::from_string(namespace)),
@@ -920,7 +916,7 @@ impl JsEditorApi {
                 italic,
                 extend_to_line_end,
             })
-            .is_ok())
+            .is_ok()
     }
 
     /// Clear all overlays in a namespace
@@ -1077,24 +1073,20 @@ impl JsEditorApi {
 
     // === Line Indicators ===
 
-    /// Set a line indicator (internal, takes object with all params)
-    #[qjs(rename = "_setLineIndicatorInternal")]
-    pub fn set_line_indicator_internal<'js>(
+    /// Set a line indicator in the gutter
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_line_indicator(
         &self,
-        ctx: rquickjs::Ctx<'js>,
-        opts: rquickjs::Object<'js>,
-    ) -> rquickjs::Result<bool> {
-        let buffer_id: u32 = opts.get("buffer_id")?;
-        let line: u32 = opts.get("line")?;
-        let namespace: String = opts.get("namespace")?;
-        let symbol: String = opts.get("symbol")?;
-        let r: u8 = opts.get("r")?;
-        let g: u8 = opts.get("g")?;
-        let b: u8 = opts.get("b")?;
-        let priority: i32 = opts.get("priority").unwrap_or(0);
-
-        Ok(self
-            .command_sender
+        buffer_id: u32,
+        line: u32,
+        namespace: String,
+        symbol: String,
+        r: u8,
+        g: u8,
+        b: u8,
+        priority: i32,
+    ) -> bool {
+        self.command_sender
             .send(PluginCommand::SetLineIndicator {
                 buffer_id: BufferId(buffer_id as usize),
                 line: line as usize,
@@ -1103,7 +1095,7 @@ impl JsEditorApi {
                 color: (r, g, b),
                 priority,
             })
-            .is_ok())
+            .is_ok()
     }
 
     /// Clear line indicators in a namespace
@@ -1234,10 +1226,18 @@ impl JsEditorApi {
             .is_ok())
     }
 
-    /// Get text properties at cursor position (returns JSON string)
-    #[qjs(rename = "_getTextPropertiesAtCursorJson")]
-    pub fn get_text_properties_at_cursor_json(&self, buffer_id: u32) -> String {
-        get_text_properties_at_cursor_json(&self.state_snapshot, buffer_id)
+    /// Get text properties at cursor position (returns JS array)
+    pub fn get_text_properties_at_cursor<'js>(
+        &self,
+        ctx: rquickjs::Ctx<'js>,
+        buffer_id: u32,
+    ) -> rquickjs::Result<Value<'js>> {
+        let json_str = get_text_properties_at_cursor_json(&self.state_snapshot, buffer_id);
+        // Parse JSON and convert to JS value
+        let json_value: serde_json::Value =
+            serde_json::from_str(&json_str).unwrap_or(serde_json::json!([]));
+        rquickjs_serde::to_value(ctx, &json_value)
+            .map_err(|e| rquickjs::Error::new_from_js_message("serialize", "", &e.to_string()))
     }
 
     // === Async Operations ===
@@ -1615,27 +1615,6 @@ impl QuickJsBackend {
                 editor.spawnBackgroundProcess = _wrapAsyncThenable(editor._spawnBackgroundProcessStart, "spawnBackgroundProcess");
                 editor.getBufferText = _wrapAsync(editor._getBufferTextStart, "getBufferText");
 
-                // Wrapper for getTextPropertiesAtCursor - parses JSON from Rust
-                editor.getTextPropertiesAtCursor = function(bufferId) {
-                    return JSON.parse(editor._getTextPropertiesAtCursorJson(bufferId));
-                };
-
-                // Wrapper for addOverlay - accepts positional args, converts to JSON
-                editor.addOverlay = function(bufferId, namespace, start, end, r, g, b, underline, bold, italic, bg_r, bg_g, bg_b, extend_to_line_end) {
-                    return editor._addOverlayInternal(JSON.stringify({
-                        buffer_id: bufferId,
-                        namespace: namespace,
-                        start: start,
-                        end: end,
-                        r: r, g: g, b: b,
-                        underline: underline,
-                        bold: bold,
-                        italic: italic,
-                        bg_r: bg_r, bg_g: bg_g, bg_b: bg_b,
-                        extend_to_line_end: extend_to_line_end
-                    }));
-                };
-
                 // Wrapper for deleteTheme - wraps sync function in Promise
                 editor.deleteTheme = function(name) {
                     return new Promise(function(resolve, reject) {
@@ -1646,20 +1625,6 @@ impl QuickJsBackend {
                             reject(new Error("Failed to delete theme: " + name));
                         }
                     });
-                };
-
-                // Wrapper for setLineIndicator - accepts positional args, converts to JSON
-                editor.setLineIndicator = function(bufferId, line, namespace, symbol, r, g, b, priority) {
-                    return editor._setLineIndicatorInternal(JSON.stringify({
-                        buffer_id: bufferId,
-                        line: line,
-                        namespace: namespace,
-                        symbol: symbol,
-                        r: r,
-                        g: g,
-                        b: b,
-                        priority: priority || 0
-                    }));
                 };
             "#.as_bytes())?;
 
