@@ -30,7 +30,7 @@ fn main() {
 #[cfg(feature = "embed-plugins")]
 fn generate_plugins_hash() -> Result<(), Box<dyn std::error::Error>> {
     use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hasher};
+    use std::hash::Hasher;
 
     let plugins_dir = Path::new("plugins");
     let mut hasher = DefaultHasher::new();

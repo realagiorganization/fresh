@@ -80,43 +80,6 @@ fn js_to_json(ctx: &rquickjs::Ctx<'_>, val: Value<'_>) -> serde_json::Value {
     }
 }
 
-/// Convert a serde_json::Value to a QuickJS Value
-fn json_to_js<'js>(
-    ctx: &rquickjs::Ctx<'js>,
-    val: serde_json::Value,
-) -> rquickjs::Result<Value<'js>> {
-    match val {
-        serde_json::Value::Null => Ok(Value::new_null(ctx.clone())),
-        serde_json::Value::Bool(b) => Ok(Value::new_bool(ctx.clone(), b)),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(Value::new_int(ctx.clone(), i as i32))
-            } else if let Some(f) = n.as_f64() {
-                Ok(Value::new_float(ctx.clone(), f))
-            } else {
-                Ok(Value::new_null(ctx.clone()))
-            }
-        }
-        serde_json::Value::String(s) => {
-            Ok(rquickjs::String::from_str(ctx.clone(), &s)?.into_value())
-        }
-        serde_json::Value::Array(arr) => {
-            let js_arr = rquickjs::Array::new(ctx.clone())?;
-            for (i, item) in arr.into_iter().enumerate() {
-                js_arr.set(i, json_to_js(ctx, item)?)?;
-            }
-            Ok(js_arr.into_value())
-        }
-        serde_json::Value::Object(map) => {
-            let obj = rquickjs::Object::new(ctx.clone())?;
-            for (key, value) in map {
-                obj.set(key.as_str(), json_to_js(ctx, value)?)?;
-            }
-            Ok(obj.into_value())
-        }
-    }
-}
-
 /// Get text properties at cursor position
 fn get_text_properties_at_cursor_typed(
     snapshot: &Arc<RwLock<EditorStateSnapshot>>,
@@ -404,12 +367,18 @@ impl JsEditorApi {
 
     /// Get the active buffer ID (0 if none)
     pub fn get_active_buffer_id(&self) -> u32 {
-        self.state_snapshot.read().map(|s| s.active_buffer_id.0 as u32).unwrap_or(0)
+        self.state_snapshot
+            .read()
+            .map(|s| s.active_buffer_id.0 as u32)
+            .unwrap_or(0)
     }
 
     /// Get the active split ID
     pub fn get_active_split_id(&self) -> u32 {
-        self.state_snapshot.read().map(|s| s.active_split_id as u32).unwrap_or(0)
+        self.state_snapshot
+            .read()
+            .map(|s| s.active_split_id as u32)
+            .unwrap_or(0)
     }
 
     /// List all open buffers - returns array of BufferInfo objects
@@ -444,17 +413,23 @@ impl JsEditorApi {
     // === Status ===
 
     pub fn set_status(&self, msg: String) {
-        let _ = self.command_sender.send(PluginCommand::SetStatus { message: msg });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::SetStatus { message: msg });
     }
 
     // === Clipboard ===
 
     pub fn copy_to_clipboard(&self, text: String) {
-        let _ = self.command_sender.send(PluginCommand::SetClipboard { text });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::SetClipboard { text });
     }
 
     pub fn set_clipboard(&self, text: String) {
-        let _ = self.command_sender.send(PluginCommand::SetClipboard { text: text });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::SetClipboard { text: text });
     }
 
     // === Command Registration ===
@@ -568,8 +543,14 @@ impl JsEditorApi {
             HashMap::new()
         };
         let res = crate::i18n::translate_plugin_string(&plugin_name, &key, &args_map);
-        
-        tracing::info!("Translating: key={}, plugin={}, args={:?} => res='{}'", key, plugin_name, args_map, res);
+
+        tracing::info!(
+            "Translating: key={}, plugin={}, args={:?} => res='{}'",
+            key,
+            plugin_name,
+            args_map,
+            res
+        );
         res
     }
 
@@ -763,13 +744,7 @@ impl JsEditorApi {
     }
 
     /// Open a file in a specific split
-    pub fn open_file_in_split(
-        &self,
-        split_id: u32,
-        path: String,
-        line: u32,
-        column: u32,
-    ) -> bool {
+    pub fn open_file_in_split(&self, split_id: u32, path: String, line: u32, column: u32) -> bool {
         self.command_sender
             .send(PluginCommand::OpenFileInSplit {
                 split_id: split_id as usize,
@@ -894,7 +869,11 @@ impl JsEditorApi {
     }
 
     /// Read directory contents (returns array of {name, is_file, is_dir})
-    pub fn read_dir<'js>(&self, ctx: rquickjs::Ctx<'js>, path: String) -> rquickjs::Result<Value<'js>> {
+    pub fn read_dir<'js>(
+        &self,
+        ctx: rquickjs::Ctx<'js>,
+        path: String,
+    ) -> rquickjs::Result<Value<'js>> {
         #[derive(serde::Serialize)]
         struct DirEntry {
             name: String,
@@ -928,7 +907,8 @@ impl JsEditorApi {
 
     /// Get current config as JS object
     pub fn get_config<'js>(&self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<Value<'js>> {
-        let config: serde_json::Value = self.state_snapshot
+        let config: serde_json::Value = self
+            .state_snapshot
             .read()
             .map(|s| s.config.clone())
             .unwrap_or_else(|_| serde_json::json!({}));
@@ -939,7 +919,8 @@ impl JsEditorApi {
 
     /// Get user config as JS object
     pub fn get_user_config<'js>(&self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<Value<'js>> {
-        let config: serde_json::Value = self.state_snapshot
+        let config: serde_json::Value = self
+            .state_snapshot
             .read()
             .map(|s| s.user_config.clone())
             .unwrap_or_else(|_| serde_json::json!({}));
@@ -960,7 +941,11 @@ impl JsEditorApi {
 
     /// Get themes directory path
     pub fn get_themes_dir(&self) -> String {
-        self.dir_context.config_dir.join("themes").to_string_lossy().to_string()
+        self.dir_context
+            .config_dir
+            .join("themes")
+            .to_string_lossy()
+            .to_string()
     }
 
     /// Apply a theme by name
@@ -1010,7 +995,11 @@ impl JsEditorApi {
     // === File Stats ===
 
     /// Get file stat information
-    pub fn file_stat<'js>(&self, ctx: rquickjs::Ctx<'js>, path: String) -> rquickjs::Result<Value<'js>> {
+    pub fn file_stat<'js>(
+        &self,
+        ctx: rquickjs::Ctx<'js>,
+        path: String,
+    ) -> rquickjs::Result<Value<'js>> {
         let metadata = std::fs::metadata(&path).ok();
         let stat = metadata.map(|m| {
             serde_json::json!({
@@ -1050,7 +1039,8 @@ impl JsEditorApi {
         key: String,
         args: rquickjs::function::Opt<rquickjs::Object<'js>>,
     ) -> String {
-        let args_map: HashMap<String, String> = args.0
+        let args_map: HashMap<String, String> = args
+            .0
             .map(|obj| {
                 let mut map = HashMap::new();
                 for result in obj.props::<String, String>() {
@@ -1075,7 +1065,9 @@ impl JsEditorApi {
         _ctx: rquickjs::Ctx<'js>,
         opts: rquickjs::Object<'js>,
     ) -> rquickjs::Result<u64> {
-        use crate::services::plugins::api::{CompositeLayoutConfig, CompositeSourceConfig, CompositeHunk, CompositePaneStyle};
+        use crate::services::plugins::api::{
+            CompositeHunk, CompositeLayoutConfig, CompositePaneStyle, CompositeSourceConfig,
+        };
 
         let id = {
             let mut id_ref = self.next_request_id.borrow_mut();
@@ -1090,7 +1082,9 @@ impl JsEditorApi {
         // Parse layout
         let layout_obj: rquickjs::Object = opts.get("layout")?;
         let layout = CompositeLayoutConfig {
-            layout_type: layout_obj.get("type").unwrap_or_else(|_| "side-by-side".to_string()),
+            layout_type: layout_obj
+                .get("type")
+                .unwrap_or_else(|_| "side-by-side".to_string()),
             ratios: layout_obj.get("ratios").ok(),
             show_separator: layout_obj.get("showSeparator").unwrap_or(true),
             spacing: layout_obj.get("spacing").ok(),
@@ -1118,25 +1112,30 @@ impl JsEditorApi {
             .collect();
 
         // Parse hunks (optional)
-        let hunks: Option<Vec<CompositeHunk>> = opts.get::<_, Vec<rquickjs::Object>>("hunks").ok().map(|arr| {
-            arr.into_iter()
-                .map(|obj| CompositeHunk {
-                    old_start: obj.get("oldStart").unwrap_or(0),
-                    old_count: obj.get("oldCount").unwrap_or(0),
-                    new_start: obj.get("newStart").unwrap_or(0),
-                    new_count: obj.get("newCount").unwrap_or(0),
-                })
-                .collect()
-        });
+        let hunks: Option<Vec<CompositeHunk>> = opts
+            .get::<_, Vec<rquickjs::Object>>("hunks")
+            .ok()
+            .map(|arr| {
+                arr.into_iter()
+                    .map(|obj| CompositeHunk {
+                        old_start: obj.get("oldStart").unwrap_or(0),
+                        old_count: obj.get("oldCount").unwrap_or(0),
+                        new_start: obj.get("newStart").unwrap_or(0),
+                        new_count: obj.get("newCount").unwrap_or(0),
+                    })
+                    .collect()
+            });
 
-        let _ = self.command_sender.send(PluginCommand::CreateCompositeBuffer {
-            name,
-            mode,
-            layout,
-            sources,
-            hunks,
-            request_id: Some(id),
-        });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::CreateCompositeBuffer {
+                name,
+                mode,
+                layout,
+                sources,
+                hunks,
+                request_id: Some(id),
+            });
 
         Ok(id)
     }
@@ -1181,7 +1180,11 @@ impl JsEditorApi {
     // === Highlights ===
 
     /// Request syntax highlights for a buffer range (async)
-    #[plugin_api(async_promise, js_name = "getHighlights", ts_return = "TsHighlightSpan[]")]
+    #[plugin_api(
+        async_promise,
+        js_name = "getHighlights",
+        ts_return = "TsHighlightSpan[]"
+    )]
     #[qjs(rename = "_getHighlightsStart")]
     pub fn get_highlights_start(&self, buffer_id: u32, start: u32, end: u32) -> u64 {
         let id = {
@@ -1308,7 +1311,9 @@ impl JsEditorApi {
         tokens: Vec<rquickjs::Object<'js>>,
         _layout_hints: rquickjs::function::Opt<rquickjs::Object<'js>>,
     ) -> rquickjs::Result<bool> {
-        use crate::services::plugins::api::{ViewTransformPayload, ViewTokenWire, ViewTokenWireKind, ViewTokenStyle};
+        use crate::services::plugins::api::{
+            ViewTokenStyle, ViewTokenWire, ViewTokenWireKind, ViewTransformPayload,
+        };
 
         let tokens: Vec<ViewTokenWire> = tokens
             .into_iter()
@@ -1329,8 +1334,20 @@ impl JsEditorApi {
                     let fg: Option<Vec<u8>> = s.get("fg").ok();
                     let bg: Option<Vec<u8>> = s.get("bg").ok();
                     ViewTokenStyle {
-                        fg: fg.and_then(|c| if c.len() >= 3 { Some((c[0], c[1], c[2])) } else { None }),
-                        bg: bg.and_then(|c| if c.len() >= 3 { Some((c[0], c[1], c[2])) } else { None }),
+                        fg: fg.and_then(|c| {
+                            if c.len() >= 3 {
+                                Some((c[0], c[1], c[2]))
+                            } else {
+                                None
+                            }
+                        }),
+                        bg: bg.and_then(|c| {
+                            if c.len() >= 3 {
+                                Some((c[0], c[1], c[2]))
+                            } else {
+                                None
+                            }
+                        }),
                         bold: s.get("bold").unwrap_or(false),
                         italic: s.get("italic").unwrap_or(false),
                     }
@@ -1386,9 +1403,15 @@ impl JsEditorApi {
             .map(|obj| {
                 let color: Vec<u8> = obj.get("color").unwrap_or_else(|_| vec![128, 128, 128]);
                 FileExplorerDecoration {
-                    path: std::path::PathBuf::from(obj.get::<_, String>("path").unwrap_or_default()),
+                    path: std::path::PathBuf::from(
+                        obj.get::<_, String>("path").unwrap_or_default(),
+                    ),
                     symbol: obj.get("symbol").unwrap_or_default(),
-                    color: if color.len() >= 3 { (color[0], color[1], color[2]) } else { (128, 128, 128) },
+                    color: if color.len() >= 3 {
+                        (color[0], color[1], color[2])
+                    } else {
+                        (128, 128, 128)
+                    },
                     priority: obj.get("priority").unwrap_or(0),
                 }
             })
@@ -1824,7 +1847,10 @@ impl JsEditorApi {
     }
 
     /// Get all diagnostics from LSP
-    pub fn get_all_diagnostics<'js>(&self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<Value<'js>> {
+    pub fn get_all_diagnostics<'js>(
+        &self,
+        ctx: rquickjs::Ctx<'js>,
+    ) -> rquickjs::Result<Value<'js>> {
         let diagnostics = if let Ok(s) = self.state_snapshot.read() {
             // Convert to a simpler format for JS
             let mut result: Vec<serde_json::Value> = Vec::new();
@@ -1895,22 +1921,28 @@ impl JsEditorApi {
             "_createVirtualBufferStart: sending CreateVirtualBufferWithContent command, request_id={}",
             id
         );
-        let _ = self.command_sender.send(PluginCommand::CreateVirtualBufferWithContent {
-            name: opts.name,
-            mode: opts.mode.unwrap_or_default(),
-            read_only: opts.read_only.unwrap_or(false),
-            entries,
-            show_line_numbers: opts.show_line_numbers.unwrap_or(false),
-            show_cursors: opts.show_cursors.unwrap_or(true),
-            editing_disabled: opts.editing_disabled.unwrap_or(false),
-            hidden_from_tabs: opts.hidden_from_tabs.unwrap_or(false),
-            request_id: Some(id),
-        });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::CreateVirtualBufferWithContent {
+                name: opts.name,
+                mode: opts.mode.unwrap_or_default(),
+                read_only: opts.read_only.unwrap_or(false),
+                entries,
+                show_line_numbers: opts.show_line_numbers.unwrap_or(false),
+                show_cursors: opts.show_cursors.unwrap_or(true),
+                editing_disabled: opts.editing_disabled.unwrap_or(false),
+                hidden_from_tabs: opts.hidden_from_tabs.unwrap_or(false),
+                request_id: Some(id),
+            });
         Ok(id)
     }
 
     /// Create a virtual buffer in a new split (async, returns request_id)
-    #[plugin_api(async_promise, js_name = "createVirtualBufferInSplit", ts_return = "number")]
+    #[plugin_api(
+        async_promise,
+        js_name = "createVirtualBufferInSplit",
+        ts_return = "number"
+    )]
     #[qjs(rename = "_createVirtualBufferInSplitStart")]
     pub fn create_virtual_buffer_in_split_start(
         &self,
@@ -1934,25 +1966,31 @@ impl JsEditorApi {
             })
             .collect();
 
-        let _ = self.command_sender.send(PluginCommand::CreateVirtualBufferInSplit {
-            name: opts.name,
-            mode: opts.mode.unwrap_or_default(),
-            read_only: opts.read_only.unwrap_or(false),
-            entries,
-            ratio: opts.ratio.unwrap_or(0.5),
-            direction: opts.direction,
-            panel_id: opts.panel_id,
-            show_line_numbers: opts.show_line_numbers.unwrap_or(true),
-            show_cursors: opts.show_cursors.unwrap_or(true),
-            editing_disabled: opts.editing_disabled.unwrap_or(false),
-            line_wrap: opts.line_wrap,
-            request_id: Some(id),
-        });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::CreateVirtualBufferInSplit {
+                name: opts.name,
+                mode: opts.mode.unwrap_or_default(),
+                read_only: opts.read_only.unwrap_or(false),
+                entries,
+                ratio: opts.ratio.unwrap_or(0.5),
+                direction: opts.direction,
+                panel_id: opts.panel_id,
+                show_line_numbers: opts.show_line_numbers.unwrap_or(true),
+                show_cursors: opts.show_cursors.unwrap_or(true),
+                editing_disabled: opts.editing_disabled.unwrap_or(false),
+                line_wrap: opts.line_wrap,
+                request_id: Some(id),
+            });
         Ok(id)
     }
 
     /// Create a virtual buffer in an existing split (async, returns request_id)
-    #[plugin_api(async_promise, js_name = "createVirtualBufferInExistingSplit", ts_return = "number")]
+    #[plugin_api(
+        async_promise,
+        js_name = "createVirtualBufferInExistingSplit",
+        ts_return = "number"
+    )]
     #[qjs(rename = "_createVirtualBufferInExistingSplitStart")]
     pub fn create_virtual_buffer_in_existing_split_start(
         &self,
@@ -1976,18 +2014,20 @@ impl JsEditorApi {
             })
             .collect();
 
-        let _ = self.command_sender.send(PluginCommand::CreateVirtualBufferInExistingSplit {
-            name: opts.name,
-            mode: opts.mode.unwrap_or_default(),
-            read_only: opts.read_only.unwrap_or(false),
-            entries,
-            split_id: SplitId(opts.split_id),
-            show_line_numbers: opts.show_line_numbers.unwrap_or(true),
-            show_cursors: opts.show_cursors.unwrap_or(true),
-            editing_disabled: opts.editing_disabled.unwrap_or(false),
-            line_wrap: opts.line_wrap,
-            request_id: Some(id),
-        });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::CreateVirtualBufferInExistingSplit {
+                name: opts.name,
+                mode: opts.mode.unwrap_or_default(),
+                read_only: opts.read_only.unwrap_or(false),
+                entries,
+                split_id: SplitId(opts.split_id),
+                show_line_numbers: opts.show_line_numbers.unwrap_or(true),
+                show_cursors: opts.show_cursors.unwrap_or(true),
+                editing_disabled: opts.editing_disabled.unwrap_or(false),
+                line_wrap: opts.line_wrap,
+                request_id: Some(id),
+            });
         Ok(id)
     }
 
@@ -2045,7 +2085,10 @@ impl JsEditorApi {
         });
         tracing::info!(
             "spawn_process_start: command='{}', args={:?}, cwd={:?}, callback_id={}",
-            command, args, effective_cwd, id
+            command,
+            args,
+            effective_cwd,
+            id
         );
         let _ = self.command_sender.send(PluginCommand::SpawnProcess {
             callback_id: JsCallbackId::new(id),
@@ -2140,7 +2183,11 @@ impl JsEditorApi {
     }
 
     /// Spawn a background process (async, returns request_id which is also process_id)
-    #[plugin_api(async_thenable, js_name = "spawnBackgroundProcess", ts_return = "BackgroundProcessResult")]
+    #[plugin_api(
+        async_thenable,
+        js_name = "spawnBackgroundProcess",
+        ts_return = "BackgroundProcessResult"
+    )]
     #[qjs(rename = "_spawnBackgroundProcessStart")]
     pub fn spawn_background_process_start(
         &self,
@@ -2156,13 +2203,15 @@ impl JsEditorApi {
         };
         // Use id as process_id for simplicity
         let process_id = id;
-        let _ = self.command_sender.send(PluginCommand::SpawnBackgroundProcess {
-            process_id,
-            command,
-            args,
-            cwd: cwd.0,
-            callback_id: JsCallbackId::new(id),
-        });
+        let _ = self
+            .command_sender
+            .send(PluginCommand::SpawnBackgroundProcess {
+                process_id,
+                command,
+                args,
+                cwd: cwd.0,
+                callback_id: JsCallbackId::new(id),
+            });
         id
     }
 

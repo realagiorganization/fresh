@@ -4141,8 +4141,10 @@ impl Editor {
                                 stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                                 exit_code: output.status.code().unwrap_or(-1),
                             };
-                            self.plugin_manager
-                                .resolve_callback(callback_id, serde_json::to_string(&result).unwrap());
+                            self.plugin_manager.resolve_callback(
+                                callback_id,
+                                serde_json::to_string(&result).unwrap(),
+                            );
                         }
                         Err(e) => {
                             self.plugin_manager
@@ -4158,10 +4160,16 @@ impl Editor {
             } => {
                 // TODO: Implement proper process wait tracking
                 // For now, just reject with an error since there's no process tracking yet
-                tracing::warn!("SpawnProcessWait not fully implemented - process_id={}", process_id);
+                tracing::warn!(
+                    "SpawnProcessWait not fully implemented - process_id={}",
+                    process_id
+                );
                 self.plugin_manager.reject_callback(
                     callback_id,
-                    format!("SpawnProcessWait not yet fully implemented for process_id={}", process_id),
+                    format!(
+                        "SpawnProcessWait not yet fully implemented for process_id={}",
+                        process_id
+                    ),
                 );
             }
 
@@ -4175,8 +4183,9 @@ impl Editor {
                     let callback_id_u64 = callback_id.as_u64();
                     runtime.spawn(async move {
                         tokio::time::sleep(tokio::time::Duration::from_millis(duration_ms)).await;
-                        let _ =
-                            sender.send(AsyncMessage::PluginDelayComplete { callback_id: callback_id_u64 });
+                        let _ = sender.send(AsyncMessage::PluginDelayComplete {
+                            callback_id: callback_id_u64,
+                        });
                     });
                 } else {
                     // Fallback to blocking if no runtime available

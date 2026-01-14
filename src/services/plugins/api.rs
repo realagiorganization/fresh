@@ -95,7 +95,10 @@ pub struct CursorInfo {
     /// Byte position of the cursor
     pub position: usize,
     /// Selection range (if any)
-    #[cfg_attr(feature = "plugins", ts(type = "{ start: number; end: number } | null"))]
+    #[cfg_attr(
+        feature = "plugins",
+        ts(type = "{ start: number; end: number } | null")
+    )]
     pub selection: Option<Range<usize>>,
 }
 
@@ -129,7 +132,12 @@ pub struct BufferInfo {
 }
 
 fn serialize_path<S: serde::Serializer>(path: &Option<PathBuf>, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default())
+    s.serialize_str(
+        &path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+    )
 }
 
 /// Serialize ranges as [start, end] tuples for JS compatibility
@@ -1231,17 +1239,16 @@ pub struct CreateVirtualBufferInExistingSplitOptions {
     pub entries: Option<Vec<JsTextPropertyEntry>>,
 }
 
-fn default_ratio() -> f32 {
-    0.5
-}
-
 /// Result of getTextPropertiesAtCursor - array of property objects
 ///
 /// Each element contains the properties from a text property span that overlaps
 /// with the cursor position. Properties are dynamic key-value pairs set by plugins.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "plugins", derive(TS))]
-#[cfg_attr(feature = "plugins", ts(export, type = "Array<Record<string, unknown>>"))]
+#[cfg_attr(
+    feature = "plugins",
+    ts(export, type = "Array<Record<string, unknown>>")
+)]
 pub struct TextPropertiesAtCursor(pub Vec<HashMap<String, serde_json::Value>>);
 
 // Implement FromJs for option types using rquickjs_serde
@@ -1292,9 +1299,8 @@ mod fromjs_impls {
 
     impl<'js> rquickjs::IntoJs<'js> for TextPropertiesAtCursor {
         fn into_js(self, ctx: &Ctx<'js>) -> rquickjs::Result<Value<'js>> {
-            rquickjs_serde::to_value(ctx.clone(), &self.0).map_err(|e| {
-                rquickjs::Error::new_from_js_message("serialize", "", &e.to_string())
-            })
+            rquickjs_serde::to_value(ctx.clone(), &self.0)
+                .map_err(|e| rquickjs::Error::new_from_js_message("serialize", "", &e.to_string()))
         }
     }
 }

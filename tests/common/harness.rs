@@ -1554,7 +1554,7 @@ impl EditorTestHarness {
         F: FnMut(&Self) -> bool,
     {
         const WAIT_SLEEP: std::time::Duration = std::time::Duration::from_millis(50);
-        
+
         tracing::info!("waiting...");
         loop {
             self.process_async_and_render()?;

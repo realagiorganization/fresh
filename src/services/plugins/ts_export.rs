@@ -177,8 +177,7 @@ pub fn write_fresh_dts() -> Result<(), String> {
     let formatted = format_typescript(&content);
 
     // Determine output path
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     let output_path = std::path::Path::new(&manifest_dir)
         .join("plugins")
         .join("lib")
