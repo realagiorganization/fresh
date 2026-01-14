@@ -2429,6 +2429,9 @@ impl QuickJsBackend {
             // All methods are now in JsEditorApi - export editor as global
             globals.set("editor", editor)?;
 
+            // Define getEditor() globally
+            ctx.eval::<(), _>("globalThis.getEditor = function() { return editor; };")?;
+
             // Provide console.log for debugging
             // Use Rest<T> to handle variadic arguments like console.log('a', 'b', obj)
             let console = Object::new(ctx.clone())?;
