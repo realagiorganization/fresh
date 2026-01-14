@@ -3612,6 +3612,51 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_plugin_translation_with_registered_strings() {
+        let (mut backend, _rx) = create_test_backend();
+
+        // Register translations for the test plugin
+        let mut en_strings = std::collections::HashMap::new();
+        en_strings.insert("greeting".to_string(), "Hello, World!".to_string());
+        en_strings.insert("prompt.find_file".to_string(), "Find file: ".to_string());
+
+        let mut strings = std::collections::HashMap::new();
+        strings.insert("en".to_string(), en_strings);
+
+        // Register for "test" plugin (matches __currentPluginName__ set in create_test_backend)
+        crate::i18n::register_plugin_strings("test", strings);
+
+        // Ensure locale is set to "en"
+        crate::i18n::set_locale("en");
+
+        // Test translation
+        backend
+            .execute_js(
+                r#"
+            const editor = getEditor();
+            globalThis._greeting = editor.t("greeting");
+            globalThis._prompt = editor.t("prompt.find_file");
+            globalThis._missing = editor.t("nonexistent.key");
+        "#,
+                "test.js",
+            )
+            .unwrap();
+
+        backend.context.with(|ctx| {
+            let global = ctx.globals();
+            let greeting: String = global.get("_greeting").unwrap();
+            assert_eq!(greeting, "Hello, World!");
+
+            let prompt: String = global.get("_prompt").unwrap();
+            assert_eq!(prompt, "Find file: ");
+
+            // Missing key should return the key itself
+            let missing: String = global.get("_missing").unwrap();
+            assert_eq!(missing, "nonexistent.key");
+        });
+    }
+
     // ==================== Line Indicator Tests ====================
 
     #[test]
