@@ -269,6 +269,26 @@ interface EditorAPI {
 	*/
 	clearOverlaysInRange(bufferId: number, start: number, end: number): boolean;
 	/**
+	* Remove an overlay by its handle
+	*/
+	removeOverlay(bufferId: number, handle: string): boolean;
+	/**
+	* Submit a view transform for a buffer/split
+	*/
+	submitViewTransform(bufferId: number, splitId: number | null, start: number, end: number, tokens: Record<string, unknown>[], LayoutHints?: Record<string, unknown>): boolean;
+	/**
+	* Clear view transform for a buffer/split
+	*/
+	clearViewTransform(bufferId: number, splitId: number | null): boolean;
+	/**
+	* Set file explorer decorations for a namespace
+	*/
+	setFileExplorerDecorations(namespace: string, decorations: Record<string, unknown>[]): boolean;
+	/**
+	* Clear file explorer decorations for a namespace
+	*/
+	clearFileExplorerDecorations(namespace: string): boolean;
+	/**
 	* Add virtual text (inline text that doesn't exist in the buffer)
 	*/
 	addVirtualText(bufferId: number, virtualTextId: string, position: number, text: string, r: number, g: number, b: number, before: boolean, useBg: boolean): boolean;
