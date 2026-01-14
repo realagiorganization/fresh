@@ -1,4 +1,4 @@
-/// <reference path="../types/fresh.d.ts" />
+/// <reference path="../../plugins/lib/fresh.d.ts" />
 const editor = getEditor();
 
 /**
@@ -119,12 +119,12 @@ async function open_test_view_marker(padLines: number, name: string): Promise<vo
   const bufferId = await editor.createVirtualBufferInExistingSplit({
     name,
     mode: "test-view-marker",
-    read_only: true,
+    readOnly: true,
     entries,
-    split_id: splitId,
-    show_line_numbers: true,
-    show_cursors: true,
-    editing_disabled: true,
+    splitId: splitId,
+    showLineNumbers: true,
+    showCursors: true,
+    editingDisabled: true,
   });
 
   if (bufferId !== null) {
@@ -160,12 +160,12 @@ async function open_test_view_marker_interleaved(name: string): Promise<void> {
   const bufferId = await editor.createVirtualBufferInExistingSplit({
     name,
     mode: "test-view-marker",
-    read_only: true,
+    readOnly: true,
     entries,
-    split_id: splitId,
-    show_line_numbers: true,
-    show_cursors: true,
-    editing_disabled: true,
+    splitId: splitId,
+    showLineNumbers: true,
+    showCursors: true,
+    editingDisabled: true,
   });
 
   if (bufferId !== null) {
