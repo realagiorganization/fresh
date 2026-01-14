@@ -117,15 +117,16 @@ fn json_to_js<'js>(
     }
 }
 
-/// Get text properties at cursor position, returning JSON string
-fn get_text_properties_at_cursor_json(
+/// Get text properties at cursor position
+fn get_text_properties_at_cursor_typed(
     snapshot: &Arc<RwLock<EditorStateSnapshot>>,
     buffer_id: u32,
-) -> String {
-    let empty = "[]".to_string();
+) -> crate::services::plugins::api::TextPropertiesAtCursor {
+    use crate::services::plugins::api::TextPropertiesAtCursor;
+
     let snap = match snapshot.read() {
         Ok(s) => s,
-        Err(_) => return empty,
+        Err(_) => return TextPropertiesAtCursor(Vec::new()),
     };
     let buffer_id_typed = BufferId(buffer_id as usize);
     let cursor_pos = match snap
@@ -140,29 +141,22 @@ fn get_text_properties_at_cursor_json(
             }
         }) {
         Some(pos) => pos,
-        None => return empty,
+        None => return TextPropertiesAtCursor(Vec::new()),
     };
 
     let properties = match snap.buffer_text_properties.get(&buffer_id_typed) {
         Some(p) => p,
-        None => return empty,
+        None => return TextPropertiesAtCursor(Vec::new()),
     };
 
     // Find all properties at cursor position
     let result: Vec<_> = properties
         .iter()
         .filter(|prop| prop.start <= cursor_pos && cursor_pos < prop.end)
-        .map(|prop| {
-            serde_json::Value::Object(
-                prop.properties
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-            )
-        })
+        .map(|prop| prop.properties.clone())
         .collect();
 
-    serde_json::to_string(&result).unwrap_or(empty)
+    TextPropertiesAtCursor(result)
 }
 
 /// Convert a JavaScript value to a string representation for console output
@@ -2015,18 +2009,11 @@ impl JsEditorApi {
     }
 
     /// Get text properties at cursor position (returns JS array)
-    #[plugin_api(ts_return = "Array<Record<string, unknown>>")]
-    pub fn get_text_properties_at_cursor<'js>(
+    pub fn get_text_properties_at_cursor(
         &self,
-        ctx: rquickjs::Ctx<'js>,
         buffer_id: u32,
-    ) -> rquickjs::Result<Value<'js>> {
-        let json_str = get_text_properties_at_cursor_json(&self.state_snapshot, buffer_id);
-        // Parse JSON and convert to JS value
-        let json_value: serde_json::Value =
-            serde_json::from_str(&json_str).unwrap_or(serde_json::json!([]));
-        rquickjs_serde::to_value(ctx, &json_value)
-            .map_err(|e| rquickjs::Error::new_from_js_message("serialize", "", &e.to_string()))
+    ) -> crate::services::plugins::api::TextPropertiesAtCursor {
+        get_text_properties_at_cursor_typed(&self.state_snapshot, buffer_id)
     }
 
     // === Async Operations ===

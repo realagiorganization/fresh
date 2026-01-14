@@ -180,6 +180,7 @@ type SpawnResult = {
 	*/
 	exit_code: number;
 };
+type TextPropertiesAtCursor = Array<Record<string, unknown>>;
 type TsHighlightSpan = {
 	start: number;
 	end: number;
@@ -603,7 +604,7 @@ interface EditorAPI {
 	/**
 	* Get text properties at cursor position (returns JS array)
 	*/
-	getTextPropertiesAtCursor(bufferId: number): Array<Record<string, unknown>>;
+	getTextPropertiesAtCursor(bufferId: number): TextPropertiesAtCursor;
 	/**
 	* Spawn a process (async, returns request_id)
 	*/

@@ -19,7 +19,8 @@ use crate::services::plugins::api::{
     CompositeHunk, CompositeLayoutConfig, CompositePaneStyle, CompositeSourceConfig,
     CreateVirtualBufferInExistingSplitOptions, CreateVirtualBufferInSplitOptions,
     CreateVirtualBufferOptions, CursorInfo, JsTextPropertyEntry, LayoutHints, SpawnResult,
-    TsHighlightSpan, ViewTokenStyle, ViewTokenWire, ViewTokenWireKind, ViewportInfo,
+    TextPropertiesAtCursor, TsHighlightSpan, ViewTokenStyle, ViewTokenWire, ViewTokenWireKind,
+    ViewportInfo,
 };
 
 /// Get the TypeScript declaration for a type by name
@@ -64,6 +65,9 @@ fn get_type_decl(type_name: &str) -> Option<String> {
         "CreateVirtualBufferInExistingSplitOptions" => {
             Some(CreateVirtualBufferInExistingSplitOptions::decl())
         }
+
+        // Return types
+        "TextPropertiesAtCursor" => Some(TextPropertiesAtCursor::decl()),
 
         _ => None,
     }

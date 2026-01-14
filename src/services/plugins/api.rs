@@ -1204,6 +1204,8 @@ fn default_ratio() -> f32 {
 /// Each element contains the properties from a text property span that overlaps
 /// with the cursor position. Properties are dynamic key-value pairs set by plugins.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "plugins", derive(TS))]
+#[cfg_attr(feature = "plugins", ts(export, type = "Array<Record<string, unknown>>"))]
 pub struct TextPropertiesAtCursor(pub Vec<HashMap<String, serde_json::Value>>);
 
 // Implement FromJs for option types using rquickjs_serde
