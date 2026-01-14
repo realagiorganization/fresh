@@ -700,6 +700,7 @@ impl JsEditorApi {
     }
 
     /// Get diff between buffer content and last saved version
+    #[plugin_api(ts_return = "BufferSavedDiff | null")]
     pub fn get_buffer_saved_diff<'js>(
         &self,
         ctx: rquickjs::Ctx<'js>,
@@ -1210,9 +1211,9 @@ impl JsEditorApi {
         r: i32,
         g: i32,
         b: i32,
-        underline: bool,
-        bold: bool,
-        italic: bool,
+        underline: rquickjs::function::Opt<bool>,
+        bold: rquickjs::function::Opt<bool>,
+        italic: rquickjs::function::Opt<bool>,
         bg_r: rquickjs::function::Opt<i32>,
         bg_g: rquickjs::function::Opt<i32>,
         bg_b: rquickjs::function::Opt<i32>,
@@ -1242,9 +1243,9 @@ impl JsEditorApi {
                 range: (start as usize)..(end as usize),
                 color,
                 bg_color,
-                underline,
-                bold,
-                italic,
+                underline: underline.0.unwrap_or(false),
+                bold: bold.0.unwrap_or(false),
+                italic: italic.0.unwrap_or(false),
                 extend_to_line_end: extend_to_line_end.0.unwrap_or(false),
             })
             .is_ok()
