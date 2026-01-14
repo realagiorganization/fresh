@@ -434,6 +434,16 @@ impl JsEditorApi {
 
     // === Command Registration ===
 
+    fn plugin_name<'js>(&self, ctx: &rquickjs::Ctx<'js>) {
+        // Get plugin name from global context
+        let globals = ctx.globals();
+        let plugin_name: String = globals
+            .get("__currentPluginName__")
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        plugin_name
+    }
+
     /// Register a command - reads plugin name from __currentPluginName__ global
     /// context is optional - can be omitted, null, undefined, or a string
     pub fn register_command<'js>(
@@ -444,11 +454,7 @@ impl JsEditorApi {
         handler_name: String,
         context: rquickjs::function::Opt<rquickjs::Value<'js>>,
     ) -> rquickjs::Result<bool> {
-        // Get plugin name from global context
-        let globals = ctx.globals();
-        let plugin_name: String = globals
-            .get("__currentPluginName__")
-            .unwrap_or_else(|_| "unknown".to_string());
+        let plugin_name = self.plugin_name(&ctx);
 
         // Extract context string - handle null, undefined, or missing
         let context_str: Option<String> = context.0.and_then(|v| {
@@ -518,11 +524,7 @@ impl JsEditorApi {
         key: String,
         args: rquickjs::function::Rest<Value<'js>>,
     ) -> String {
-        // Get plugin name from global context
-        let globals = ctx.globals();
-        let plugin_name: String = globals
-            .get("__currentPluginName__")
-            .unwrap_or_else(|_| "unknown".to_string());
+        let plugin_name: String = self.plugin_name(&ctx);
 
         // Convert args to HashMap - args.0 is a Vec of the rest arguments
         let args_map: HashMap<String, String> = if let Some(first_arg) = args.0.first() {
@@ -2577,16 +2579,21 @@ impl QuickJsBackend {
         let define_get_editor = format!(
             r#"
             globalThis.getEditor = function() {{
-                // Set current plugin context for plugin-aware methods
-                globalThis.__currentPluginName__ = "{}";
                 return globalThis.editor;
             }};
-        "#,
-            escaped_name
+        "#
         );
 
         // Wrap plugin code in IIFE for scope isolation
-        let wrapped = format!("(function() {{\n{}\n}})();", code);
+        let wrapped = format!(
+            r#"
+        (function() {{
+            // Set current plugin context for plugin-aware methods
+            const __currentPluginName__ = "{}";
+            {}
+        }})();"#,
+            escaped_name, code
+        );
 
         self.context.with(|ctx| {
             // Define getEditor for this plugin
