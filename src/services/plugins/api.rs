@@ -132,15 +132,51 @@ fn serialize_path<S: serde::Serializer>(path: &Option<PathBuf>, s: S) -> Result<
     s.serialize_str(&path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_default())
 }
 
+/// Serialize ranges as [start, end] tuples for JS compatibility
+fn serialize_ranges_as_tuples<S>(ranges: &[Range<usize>], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeSeq;
+    let mut seq = serializer.serialize_seq(Some(ranges.len()))?;
+    for range in ranges {
+        seq.serialize_element(&(range.start, range.end))?;
+    }
+    seq.end()
+}
+
+/// Serialize optional ranges as [start, end] tuples for JS compatibility
+fn serialize_opt_ranges_as_tuples<S>(
+    ranges: &Option<Vec<Range<usize>>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match ranges {
+        Some(ranges) => {
+            use serde::ser::SerializeSeq;
+            let mut seq = serializer.serialize_seq(Some(ranges.len()))?;
+            for range in ranges {
+                seq.serialize_element(&(range.start, range.end))?;
+            }
+            seq.end()
+        }
+        None => serializer.serialize_none(),
+    }
+}
+
 /// Diff between current buffer content and last saved snapshot
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(feature = "plugins", derive(TS))]
 #[cfg_attr(feature = "plugins", ts(export))]
 pub struct BufferSavedDiff {
     pub equal: bool,
-    #[cfg_attr(feature = "plugins", ts(type = "Array<{ start: number; end: number }>"))]
+    #[serde(serialize_with = "serialize_ranges_as_tuples")]
+    #[cfg_attr(feature = "plugins", ts(type = "Array<[number, number]>"))]
     pub byte_ranges: Vec<Range<usize>>,
-    #[cfg_attr(feature = "plugins", ts(type = "Array<{ start: number; end: number }> | null"))]
+    #[serde(serialize_with = "serialize_opt_ranges_as_tuples")]
+    #[cfg_attr(feature = "plugins", ts(type = "Array<[number, number]> | null"))]
     pub line_ranges: Option<Vec<Range<usize>>>,
 }
 

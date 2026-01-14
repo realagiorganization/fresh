@@ -48,6 +48,11 @@ type BackgroundProcessResult = {
 	*/
 	exit_code: number;
 };
+type BufferSavedDiff = {
+	equal: boolean;
+	byte_ranges: Array<[number, number]>;
+	line_ranges: Array<[number, number]> | null;
+};
 type CreateVirtualBufferInExistingSplitOptions = {
 	/**
 	* Buffer name (displayed in tabs/title)
@@ -280,7 +285,7 @@ interface EditorAPI {
 	/**
 	* Get diff between buffer content and last saved version
 	*/
-	getBufferSavedDiff(bufferId: number): unknown;
+	getBufferSavedDiff(bufferId: number): BufferSavedDiff | null;
 	/**
 	* Insert text at a position in a buffer
 	*/
@@ -432,7 +437,7 @@ interface EditorAPI {
 	/**
 	* Add an overlay with styling
 	*/
-	addOverlay(bufferId: number, namespace: string, start: number, end: number, r: number, g: number, b: number, underline: boolean, bold: boolean, italic: boolean, bgR?: number, bgG?: number, bgB?: number, extendToLineEnd?: boolean): boolean;
+	addOverlay(bufferId: number, namespace: string, start: number, end: number, r: number, g: number, b: number, underline?: boolean, bold?: boolean, italic?: boolean, bgR?: number, bgG?: number, bgB?: number, extendToLineEnd?: boolean): boolean;
 	/**
 	* Clear all overlays in a namespace
 	*/
