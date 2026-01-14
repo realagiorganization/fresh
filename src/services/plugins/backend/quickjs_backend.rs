@@ -2058,6 +2058,10 @@ impl JsEditorApi {
             *id_ref += 1;
             id
         };
+        tracing::info!(
+            "spawn_process_start: command='{}', args={:?}, cwd={:?}, callback_id={}",
+            command, args, cwd.0, id
+        );
         let _ = self.command_sender.send(PluginCommand::SpawnProcess {
             callback_id: id,
             command,

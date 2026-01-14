@@ -961,7 +961,7 @@ impl Editor {
         let result = serde_json::json!({
             "stdout": stdout,
             "stderr": stderr,
-            "exitCode": exit_code
+            "exit_code": exit_code
         });
         self.plugin_manager
             .resolve_callback(process_id, result.to_string());

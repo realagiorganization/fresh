@@ -3399,8 +3399,8 @@ impl Editor {
                     self.background_process_handles.remove(&process_id);
                     // Resolve callback with exit info
                     let result = serde_json::json!({
-                        "processId": process_id,
-                        "exitCode": exit_code
+                        "process_id": process_id,
+                        "exit_code": exit_code
                     });
                     self.plugin_manager
                         .resolve_callback(callback_id, result.to_string());
@@ -4120,7 +4120,7 @@ impl Editor {
                             let result = serde_json::json!({
                                 "stdout": String::from_utf8_lossy(&output.stdout),
                                 "stderr": String::from_utf8_lossy(&output.stderr),
-                                "exitCode": output.status.code().unwrap_or(-1)
+                                "exit_code": output.status.code().unwrap_or(-1)
                             });
                             self.plugin_manager
                                 .resolve_callback(callback_id, result.to_string());
