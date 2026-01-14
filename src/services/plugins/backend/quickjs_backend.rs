@@ -829,8 +829,9 @@ impl JsEditorApi {
 
     /// Get current working directory
     pub fn get_cwd(&self) -> String {
-        std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
+        self.state_snapshot
+            .read()
+            .map(|s| s.working_dir.to_string_lossy().to_string())
             .unwrap_or_else(|_| ".".to_string())
     }
 
@@ -1218,9 +1219,9 @@ impl JsEditorApi {
         underline: bool,
         bold: bool,
         italic: bool,
-        bg_r: i32,
-        bg_g: i32,
-        bg_b: i32,
+        bg_r: rquickjs::function::Opt<i32>,
+        bg_g: rquickjs::function::Opt<i32>,
+        bg_b: rquickjs::function::Opt<i32>,
         extend_to_line_end: rquickjs::function::Opt<bool>,
     ) -> bool {
         // -1 means use default color (white)
@@ -1230,7 +1231,10 @@ impl JsEditorApi {
             (255, 255, 255)
         };
 
-        // -1 for bg means no background
+        // -1 for bg means no background, also None if not provided
+        let bg_r = bg_r.0.unwrap_or(-1);
+        let bg_g = bg_g.0.unwrap_or(-1);
+        let bg_b = bg_b.0.unwrap_or(-1);
         let bg_color = if bg_r >= 0 && bg_g >= 0 && bg_b >= 0 {
             Some((bg_r as u8, bg_g as u8, bg_b as u8))
         } else {

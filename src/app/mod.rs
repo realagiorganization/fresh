@@ -4607,15 +4607,12 @@ impl Editor {
                     );
                 }
 
-                // Send response with buffer ID and split ID via callback resolution
+                // Send response with buffer ID via callback resolution
                 if let Some(req_id) = request_id {
-                    let result = serde_json::json!({
-                        "bufferId": buffer_id.0,
-                        "splitId": split_id.0
-                    });
+                    // Return just the buffer ID as a number (consistent with TypeScript definition)
                     self.plugin_manager.resolve_callback(
                         crate::services::plugins::api::JsCallbackId::from(req_id),
-                        result.to_string(),
+                        buffer_id.0.to_string(),
                     );
                 }
             }
