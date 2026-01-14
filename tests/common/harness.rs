@@ -1531,6 +1531,7 @@ impl EditorTestHarness {
         let start = std::time::Instant::now();
         let timeout = std::time::Duration::from_millis(timeout_ms);
 
+        tracing::info!("waiting...");
         while start.elapsed() < timeout {
             self.process_async_and_render()?;
             if condition(self) {
@@ -1553,6 +1554,8 @@ impl EditorTestHarness {
         F: FnMut(&Self) -> bool,
     {
         const WAIT_SLEEP: std::time::Duration = std::time::Duration::from_millis(50);
+        
+        tracing::info!("waiting...");
         loop {
             self.process_async_and_render()?;
             if condition(self) {
@@ -1605,6 +1608,7 @@ impl EditorTestHarness {
     /// Wait for screen to contain specific text
     pub fn wait_for_screen_contains(&mut self, text: &str) -> anyhow::Result<()> {
         let text = text.to_string();
+        tracing::info!("wait_for_screen_contains: {:?}", text);
         self.wait_until(move |h| h.screen_to_string().contains(&text))
     }
 

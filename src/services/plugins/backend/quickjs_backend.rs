@@ -567,8 +567,10 @@ impl JsEditorApi {
         } else {
             HashMap::new()
         };
-
-        crate::i18n::translate_plugin_string(&plugin_name, &key, &args_map)
+        let res = crate::i18n::translate_plugin_string(&plugin_name, &key, &args_map);
+        
+        tracing::info!("Translating: key={}, plugin={}, args={:?} => res='{}'", key, plugin_name, args_map, res);
+        res
     }
 
     // === Buffer Queries (additional) ===

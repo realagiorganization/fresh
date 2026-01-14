@@ -953,11 +953,11 @@ export class Finder<T> {
   }
 
   private closePreview(): void {
-    if (this.previewState.bufferId !== null) {
+    if (this.previewState.bufferId || this.previewState.bufferId == 0) {
       this.editor.closeBuffer(this.previewState.bufferId);
       this.previewState.bufferId = null;
     }
-    if (this.previewState.splitId !== null) {
+    if (this.previewState.splitId || this.previewState.splitId == 0) {
       this.editor.closeSplit(this.previewState.splitId);
       this.previewState.splitId = null;
     }
