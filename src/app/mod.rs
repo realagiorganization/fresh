@@ -4133,6 +4133,19 @@ impl Editor {
                 }
             }
 
+            PluginCommand::SpawnProcessWait {
+                process_id,
+                callback_id,
+            } => {
+                // TODO: Implement proper process wait tracking
+                // For now, just reject with an error since there's no process tracking yet
+                tracing::warn!("SpawnProcessWait not fully implemented - process_id={}", process_id);
+                self.plugin_manager.reject_callback(
+                    callback_id,
+                    format!("SpawnProcessWait not yet fully implemented for process_id={}", process_id),
+                );
+            }
+
             PluginCommand::Delay {
                 callback_id,
                 duration_ms,

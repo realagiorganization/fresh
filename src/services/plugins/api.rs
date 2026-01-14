@@ -454,6 +454,15 @@ pub enum PluginCommand {
     /// Kill a background process by ID
     KillBackgroundProcess { process_id: u64 },
 
+    /// Wait for a process to complete and get its result
+    /// Used with processes started via SpawnProcess
+    SpawnProcessWait {
+        /// Process ID to wait for
+        process_id: u64,
+        /// Callback ID for async response
+        callback_id: u64,
+    },
+
     /// Set layout hints for a buffer/viewport
     SetLayoutHints {
         buffer_id: BufferId,

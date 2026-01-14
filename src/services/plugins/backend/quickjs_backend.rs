@@ -1961,6 +1961,52 @@ impl JsEditorApi {
         Ok(id)
     }
 
+    /// Create a virtual buffer in an existing split (async, returns request_id)
+    #[plugin_api(async_promise, js_name = "createVirtualBufferInExistingSplit", ts_return = "number")]
+    #[qjs(rename = "_createVirtualBufferInExistingSplitStart")]
+    pub fn create_virtual_buffer_in_existing_split_start<'js>(
+        &self,
+        ctx: rquickjs::Ctx<'js>,
+        opts: rquickjs::Object<'js>,
+    ) -> rquickjs::Result<u64> {
+        let id = {
+            let mut id_ref = self.next_request_id.borrow_mut();
+            let id = *id_ref;
+            *id_ref += 1;
+            id
+        };
+
+        let name: String = opts.get("name")?;
+        let mode: String = opts.get("mode").unwrap_or_default();
+        let read_only: bool = opts.get("readOnly").unwrap_or(false);
+        let split_id: usize = opts.get("splitId")?;
+        let show_line_numbers: bool = opts.get("showLineNumbers").unwrap_or(true);
+        let show_cursors: bool = opts.get("showCursors").unwrap_or(true);
+        let editing_disabled: bool = opts.get("editingDisabled").unwrap_or(false);
+        let line_wrap: Option<bool> = opts.get("lineWrap").ok();
+
+        // entries is array of {text: string, properties?: object}
+        let entries_arr: Vec<rquickjs::Object> = opts.get("entries").unwrap_or_default();
+        let entries: Vec<TextPropertyEntry> = entries_arr
+            .iter()
+            .filter_map(|obj| parse_text_property_entry(&ctx, obj))
+            .collect();
+
+        let _ = self.command_sender.send(PluginCommand::CreateVirtualBufferInExistingSplit {
+            name,
+            mode,
+            read_only,
+            entries,
+            split_id: SplitId(split_id),
+            show_line_numbers,
+            show_cursors,
+            editing_disabled,
+            line_wrap,
+            request_id: Some(id),
+        });
+        Ok(id)
+    }
+
     /// Set virtual buffer content (takes array of entry objects)
     pub fn set_virtual_buffer_content<'js>(
         &self,
@@ -2017,6 +2063,23 @@ impl JsEditorApi {
             command,
             args,
             cwd,
+        });
+        id
+    }
+
+    /// Wait for a process to complete and get its result (async)
+    #[plugin_api(async_promise, js_name = "spawnProcessWait", ts_return = "SpawnResult")]
+    #[qjs(rename = "_spawnProcessWaitStart")]
+    pub fn spawn_process_wait_start(&self, process_id: u64) -> u64 {
+        let id = {
+            let mut id_ref = self.next_request_id.borrow_mut();
+            let id = *id_ref;
+            *id_ref += 1;
+            id
+        };
+        let _ = self.command_sender.send(PluginCommand::SpawnProcessWait {
+            process_id,
+            callback_id: id,
         });
         id
     }
@@ -2371,8 +2434,10 @@ impl QuickJsBackend {
                 editor.delay = _wrapAsync(editor._delayStart, "delay");
                 editor.createVirtualBuffer = _wrapAsync(editor._createVirtualBufferStart, "createVirtualBuffer");
                 editor.createVirtualBufferInSplit = _wrapAsyncThenable(editor._createVirtualBufferInSplitStart, "createVirtualBufferInSplit");
+                editor.createVirtualBufferInExistingSplit = _wrapAsync(editor._createVirtualBufferInExistingSplitStart, "createVirtualBufferInExistingSplit");
                 editor.sendLspRequest = _wrapAsync(editor._sendLspRequestStart, "sendLspRequest");
                 editor.spawnBackgroundProcess = _wrapAsyncThenable(editor._spawnBackgroundProcessStart, "spawnBackgroundProcess");
+                editor.spawnProcessWait = _wrapAsync(editor._spawnProcessWaitStart, "spawnProcessWait");
                 editor.getBufferText = _wrapAsync(editor._getBufferTextStart, "getBufferText");
 
                 // Wrapper for deleteTheme - wraps sync function in Promise

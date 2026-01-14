@@ -460,6 +460,10 @@ interface EditorAPI {
 	*/
 	createVirtualBufferInSplit(opts: Record<string, unknown>): Promise<number>;
 	/**
+	* Create a virtual buffer in an existing split (async, returns request_id)
+	*/
+	createVirtualBufferInExistingSplit(opts: Record<string, unknown>): Promise<number>;
+	/**
 	* Set virtual buffer content (takes array of entry objects)
 	*/
 	setVirtualBufferContent(bufferId: number, entriesArr: Record<string, unknown>[]): boolean;
@@ -471,6 +475,10 @@ interface EditorAPI {
 	* Spawn a process (async, returns request_id)
 	*/
 	spawnProcess(command: string, args: string[], cwd: string | null): ProcessHandle<SpawnResult>;
+	/**
+	* Wait for a process to complete and get its result (async)
+	*/
+	spawnProcessWait(processId: number): Promise<SpawnResult>;
 	/**
 	* Get buffer text range (async, returns request_id)
 	*/
