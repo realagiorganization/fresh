@@ -1,6 +1,6 @@
 # Release Notes
 
-## 0.1.78
+## 0.1.79
 
 ### Breaking Changes
 
