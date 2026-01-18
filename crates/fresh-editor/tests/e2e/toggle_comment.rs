@@ -307,6 +307,58 @@ fn test_toggle_comment_single_line_no_newline() {
     );
 }
 
+/// Test that Toggle Comment uses # for YAML files (issue #774)
+///
+/// Bug: Ctrl+/ doesn't work in yml and yaml files
+/// Root cause: Language::from_path doesn't recognize .yml/.yaml extensions,
+/// so the language defaults to "text" which has no comment_prefix configured.
+#[test]
+fn test_toggle_comment_yaml_prefix() {
+    let temp_dir = TempDir::new().unwrap();
+    let file_path = temp_dir.path().join("test.yaml");
+    std::fs::write(&file_path, "key: value\nnested:\n  child: 123").unwrap();
+
+    let config = Config::default();
+    let mut harness =
+        EditorTestHarness::create(80, 24, HarnessOptions::new().with_config(config)).unwrap();
+    harness.open_file(&file_path).unwrap();
+    harness.render().unwrap();
+
+    // Toggle comment on first line
+    run_command(&mut harness, "Toggle Comment");
+
+    let content = harness.get_buffer_content().unwrap();
+    assert!(
+        content.starts_with("# key: value"),
+        "YAML files should use # for comments. Got: {:?}",
+        content
+    );
+}
+
+/// Test that Toggle Comment uses # for YML files (issue #774)
+#[test]
+fn test_toggle_comment_yml_prefix() {
+    let temp_dir = TempDir::new().unwrap();
+    let file_path = temp_dir.path().join("config.yml");
+    std::fs::write(&file_path, "server:\n  port: 8080").unwrap();
+
+    let config = Config::default();
+    let mut harness =
+        EditorTestHarness::create(80, 24, HarnessOptions::new().with_config(config)).unwrap();
+    harness.open_file(&file_path).unwrap();
+    harness.render().unwrap();
+
+    // Toggle comment on first line
+    run_command(&mut harness, "Toggle Comment");
+
+    let content = harness.get_buffer_content().unwrap();
+    assert!(
+        content.starts_with("# server:"),
+        "YML files should use # for comments. Got: {:?}",
+        content
+    );
+}
+
 /// Test toggle comment on file with selection at exact buffer end
 #[test]
 fn test_toggle_comment_selection_at_buffer_end() {

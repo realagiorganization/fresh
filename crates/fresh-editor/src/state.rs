@@ -309,7 +309,10 @@ impl EditorState {
             reference_highlighter.set_language(lang);
             lang.to_string()
         } else {
-            "text".to_string()
+            // Fall back to config-based detection for languages without tree-sitter support
+            // (e.g., YAML, TOML, etc.)
+            crate::services::lsp::manager::detect_language(path, languages)
+                .unwrap_or_else(|| "text".to_string())
         };
 
         // Initialize marker list with buffer size

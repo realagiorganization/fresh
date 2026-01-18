@@ -2972,7 +2972,6 @@ impl Editor {
     pub(super) fn toggle_comment(&mut self) {
         // Determine comment prefix from language config
         // If no language detected or no comment prefix configured, do nothing
-        // Determine comment prefix from language config
         let language = &self.active_state().language;
         let comment_prefix = self
             .config
