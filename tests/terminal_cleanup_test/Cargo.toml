@@ -14,5 +14,13 @@ path = "src/main.rs"
 name = "capture_sequences"
 path = "capture_sequences.rs"
 
+[[bin]]
+name = "sequence_order_test"
+path = "sequence_order_test.rs"
+
+[[test]]
+name = "sequence_order"
+path = "sequence_order_test.rs"
+
 # Keep this package independent from the parent workspace
 [workspace]
