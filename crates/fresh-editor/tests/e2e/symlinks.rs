@@ -310,6 +310,81 @@ fn test_file_browser_symlink_to_directory_navigation() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Test: Files inside expanded symlink directories should show git status indicators
+#[test]
+fn test_symlink_directory_shows_git_status_indicators() -> anyhow::Result<()> {
+    use crate::common::git_test_helper::GitTestRepo;
+
+    let repo = GitTestRepo::new();
+    repo.setup_git_explorer_plugin();
+
+    // Create a directory with a file
+    std::fs::create_dir(repo.path.join("real_dir")).unwrap();
+    repo.create_file("real_dir/modified.txt", "original content");
+    repo.git_add_all();
+    repo.git_commit("Initial commit");
+
+    // Modify the file to create a git change
+    fs::write(repo.path.join("real_dir/modified.txt"), "changed content").unwrap();
+
+    // Create a symlink to the directory
+    symlink(repo.path.join("real_dir"), repo.path.join("link_dir")).unwrap();
+
+    let mut harness = EditorTestHarness::with_working_dir(120, 40, repo.path.clone())?;
+
+    harness.editor_mut().toggle_file_explorer();
+    harness.wait_for_screen_contains("File Explorer")?;
+
+    // Wait for link_dir to appear
+    harness.wait_for_screen_contains("link_dir")?;
+
+    // Navigate to link_dir and expand it
+    harness.send_key(KeyCode::Home, KeyModifiers::NONE)?;
+    for _ in 0..10 {
+        let screen = harness.screen_to_string();
+        if screen
+            .lines()
+            .any(|l| l.contains("link_dir") && l.contains("▌"))
+        {
+            break;
+        }
+        harness.send_key(KeyCode::Down, KeyModifiers::NONE)?;
+    }
+
+    // Expand the symlink directory
+    harness.send_key(KeyCode::Enter, KeyModifiers::NONE)?;
+    harness.sleep(std::time::Duration::from_millis(100));
+    let _ = harness.editor_mut().process_async_messages();
+    harness.render()?;
+
+    // Wait for modified.txt to appear inside the expanded symlink
+    let found_file = harness
+        .wait_for_async(
+            |h| {
+                let screen = h.screen_to_string();
+                // Look for modified.txt with M indicator on the same line
+                screen
+                    .lines()
+                    .any(|line| line.contains("modified.txt") && line.contains("M"))
+            },
+            3000,
+        )
+        .unwrap_or(false);
+
+    let final_screen = harness.screen_to_string();
+    println!("Screen after expanding symlink dir:\n{}", final_screen);
+
+    assert!(
+        found_file,
+        "Files inside expanded symlink directory should show git status indicators.\n\
+         Expected: modified.txt with M indicator.\n\
+         Screen:\n{}",
+        final_screen
+    );
+
+    Ok(())
+}
+
 /// Test: Verify that canonicalization in open_file works correctly for symlinks
 #[test]
 fn test_symlink_canonicalization_consistency() -> anyhow::Result<()> {
