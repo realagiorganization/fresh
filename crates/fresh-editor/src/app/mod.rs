@@ -4568,11 +4568,12 @@ impl Editor {
                     };
 
                 // Send response with buffer ID and split ID via callback resolution
+                // NOTE: Use snake_case (buffer_id, split_id) to match TypeScript type definitions
                 if let Some(req_id) = request_id {
                     tracing::trace!("CreateVirtualBufferInSplit: resolving callback for request_id={}, buffer_id={:?}, split_id={:?}", req_id, buffer_id, created_split_id);
                     let result = serde_json::json!({
-                        "bufferId": buffer_id.0,
-                        "splitId": created_split_id.map(|s| s.0)
+                        "buffer_id": buffer_id.0,
+                        "split_id": created_split_id.map(|s| s.0)
                     });
                     self.plugin_manager.resolve_callback(
                         fresh_core::api::JsCallbackId::from(req_id),
