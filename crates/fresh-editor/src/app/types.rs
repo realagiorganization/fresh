@@ -367,6 +367,8 @@ pub enum HoverTarget {
     MaximizeSplitButton(SplitId),
     /// Hovering over the file explorer close button
     FileExplorerCloseButton,
+    /// Hovering over a file explorer item's status indicator (path)
+    FileExplorerStatusIndicator(std::path::PathBuf),
     /// Hovering over the status bar LSP indicator
     StatusBarLspIndicator,
     /// Hovering over the status bar warning badge
