@@ -256,6 +256,7 @@
   "buffer.binary_file": "バイナリファイル",
   "buffer.changes_discarded": "バッファを閉じました (変更を破棄)",
   "buffer.close_cancelled": "閉じるをキャンセル",
+  "buffer.cannot_open_directory": "ディレクトリをファイルとして開けません",
   "buffer.closed": "バッファを閉じました",
   "buffer.closed_tabs": "%{count}個のタブを閉じました",
   "buffer.closed_tabs_skipped": "%{closed}個のタブを閉じ、%{skipped}個の変更済みタブをスキップしました",

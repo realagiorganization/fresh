@@ -256,6 +256,7 @@
   "buffer.binary_file": "Двійковий файл",
   "buffer.changes_discarded": "Буфер закрито (зміни відкинуто)",
   "buffer.close_cancelled": "Закриття скасовано",
+  "buffer.cannot_open_directory": "Неможливо відкрити каталог як файл",
   "buffer.closed": "Буфер закрито",
   "buffer.closed_tabs": "Закрито %{count} вкладок",
   "buffer.closed_tabs_skipped": "Закрито %{closed} вкладок, пропущено %{skipped} змінених",

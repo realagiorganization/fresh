@@ -256,6 +256,7 @@
   "buffer.binary_file": "Fichier binaire",
   "buffer.changes_discarded": "Tampon fermé (modifications abandonnées)",
   "buffer.close_cancelled": "Fermeture annulée",
+  "buffer.cannot_open_directory": "Impossible d'ouvrir le répertoire comme fichier",
   "buffer.closed": "Tampon fermé",
   "buffer.closed_tabs": "%{count} onglet(s) fermé(s)",
   "buffer.closed_tabs_skipped": "%{closed} onglet(s) fermé(s), %{skipped} modifié(s) ignoré(s)",

@@ -120,6 +120,12 @@ impl Editor {
         };
         let path = canonical_path.as_path();
 
+        // Check if the path is a directory (after following symlinks via canonicalize)
+        // Directories cannot be opened as files in the editor
+        if path.is_dir() {
+            anyhow::bail!(t!("buffer.cannot_open_directory"));
+        }
+
         // Check if file is already open - return existing buffer without switching
         let already_open = self
             .buffers

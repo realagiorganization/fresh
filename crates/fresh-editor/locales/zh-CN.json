@@ -256,6 +256,7 @@
   "buffer.binary_file": "二进制文件",
   "buffer.changes_discarded": "缓冲区已关闭（更改已丢弃）",
   "buffer.close_cancelled": "关闭已取消",
+  "buffer.cannot_open_directory": "无法将目录作为文件打开",
   "buffer.closed": "缓冲区已关闭",
   "buffer.closed_tabs": "已关闭%{count}个标签页",
   "buffer.closed_tabs_skipped": "已关闭%{closed}个标签页，跳过%{skipped}个已修改的",

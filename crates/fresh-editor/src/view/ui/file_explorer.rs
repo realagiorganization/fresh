@@ -276,6 +276,9 @@ impl FileExplorerRenderer {
             .unwrap_or(false)
         {
             Style::default().fg(theme.line_number_fg)
+        } else if node.entry.is_symlink() {
+            // Symlinks use a distinct color (type color, typically cyan)
+            Style::default().fg(theme.syntax_type)
         } else if node.is_dir() {
             Style::default().fg(theme.syntax_keyword)
         } else {

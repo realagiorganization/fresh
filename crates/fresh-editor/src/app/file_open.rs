@@ -661,6 +661,7 @@ mod tests {
                 FsEntryType::File
             },
             metadata: None,
+            symlink_target_is_dir: false,
         }
     }
 

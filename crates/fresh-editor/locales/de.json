@@ -256,6 +256,7 @@
   "buffer.binary_file": "Binärdatei",
   "buffer.changes_discarded": "Buffer geschlossen (Änderungen verworfen)",
   "buffer.close_cancelled": "Schließen abgebrochen",
+  "buffer.cannot_open_directory": "Verzeichnis kann nicht als Datei geöffnet werden",
   "buffer.closed": "Buffer geschlossen",
   "buffer.closed_tabs": "%{count} Tab(s) geschlossen",
   "buffer.closed_tabs_skipped": "%{closed} Tab(s) geschlossen, %{skipped} modifizierte übersprungen",

@@ -256,6 +256,7 @@
   "buffer.binary_file": "ไฟล์ไบนารี",
   "buffer.changes_discarded": "ปิดบัฟเฟอร์แล้ว (ไม่ได้บันทึกการเปลี่ยนแปลง)",
   "buffer.close_cancelled": "ยกเลิกการปิด",
+  "buffer.cannot_open_directory": "ไม่สามารถเปิดไดเรกทอรีเป็นไฟล์ได้",
   "buffer.closed": "ปิดบัฟเฟอร์แล้ว",
   "buffer.closed_tabs": "ปิด %{count} แท็บแล้ว",
   "buffer.closed_tabs_skipped": "ปิด %{closed} แท็บแล้ว ข้าม %{skipped} แท็บที่มีการแก้ไข",

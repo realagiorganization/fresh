@@ -256,6 +256,7 @@
   "buffer.binary_file": "File binario",
   "buffer.changes_discarded": "Buffer chiuso (modifiche scartate)",
   "buffer.close_cancelled": "Chiusura annullata",
+  "buffer.cannot_open_directory": "Impossibile aprire la directory come file",
   "buffer.closed": "Buffer chiuso",
   "buffer.closed_tabs": "Chiuse %{count} schede",
   "buffer.closed_tabs_skipped": "Chiuse %{closed} schede, saltate %{skipped} modificate",

@@ -10,6 +10,9 @@ pub struct FsEntry {
     pub name: String,
     pub entry_type: FsEntryType,
     pub metadata: Option<FsMetadata>,
+    /// For symlinks, indicates whether the target is a directory.
+    /// This is used to determine if a symlink should be expandable in the file explorer.
+    pub symlink_target_is_dir: bool,
 }
 
 impl FsEntry {
@@ -19,6 +22,18 @@ impl FsEntry {
             name,
             entry_type,
             metadata: None,
+            symlink_target_is_dir: false,
+        }
+    }
+
+    /// Create a symlink entry with information about what it points to
+    pub fn new_symlink(path: PathBuf, name: String, target_is_dir: bool) -> Self {
+        Self {
+            path,
+            name,
+            entry_type: FsEntryType::Symlink,
+            metadata: None,
+            symlink_target_is_dir: target_is_dir,
         }
     }
 
@@ -27,12 +42,17 @@ impl FsEntry {
         self
     }
 
+    /// Returns true if this entry is a directory OR a symlink pointing to a directory.
+    /// Use this method when determining if an entry can be expanded/navigated into.
     pub fn is_dir(&self) -> bool {
         self.entry_type == FsEntryType::Directory
+            || (self.entry_type == FsEntryType::Symlink && self.symlink_target_is_dir)
     }
 
+    /// Returns true only if this is a regular file (not a directory or symlink to directory)
     pub fn is_file(&self) -> bool {
         self.entry_type == FsEntryType::File
+            || (self.entry_type == FsEntryType::Symlink && !self.symlink_target_is_dir)
     }
 
     pub fn is_symlink(&self) -> bool {
@@ -186,6 +206,7 @@ mod tests {
             FsEntryType::File,
         );
         assert!(file.is_file());
+        assert!(!file.is_dir());
 
         let dir = FsEntry::new(
             PathBuf::from("/dir"),
@@ -193,13 +214,27 @@ mod tests {
             FsEntryType::Directory,
         );
         assert!(dir.is_dir());
+        assert!(!dir.is_file());
 
-        let link = FsEntry::new(
-            PathBuf::from("/link"),
-            "link".to_string(),
-            FsEntryType::Symlink,
+        // Symlink to file - should be treated as file
+        let link_to_file = FsEntry::new_symlink(
+            PathBuf::from("/link_to_file"),
+            "link_to_file".to_string(),
+            false, // target is not a directory
         );
-        assert!(link.is_symlink());
+        assert!(link_to_file.is_symlink());
+        assert!(link_to_file.is_file());
+        assert!(!link_to_file.is_dir());
+
+        // Symlink to directory - should be treated as directory
+        let link_to_dir = FsEntry::new_symlink(
+            PathBuf::from("/link_to_dir"),
+            "link_to_dir".to_string(),
+            true, // target is a directory
+        );
+        assert!(link_to_dir.is_symlink());
+        assert!(link_to_dir.is_dir());
+        assert!(!link_to_dir.is_file());
     }
 
     #[test]

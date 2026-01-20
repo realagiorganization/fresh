@@ -254,6 +254,7 @@
   "bookmark.not_set": "Bookmark '%{key}' not set",
   "bookmark.set": "Bookmark '%{key}' set",
   "buffer.binary_file": "Binary file",
+  "buffer.cannot_open_directory": "Cannot open directory as file",
   "buffer.changes_discarded": "Buffer closed (changes discarded)",
   "buffer.close_cancelled": "Close cancelled",
   "buffer.closed": "Buffer closed",

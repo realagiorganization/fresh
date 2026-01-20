@@ -256,6 +256,7 @@
   "buffer.binary_file": "Binární soubor",
   "buffer.changes_discarded": "Buffer zavřen (změny zahozeny)",
   "buffer.close_cancelled": "Zavření zrušeno",
+  "buffer.cannot_open_directory": "Nelze otevřít adresář jako soubor",
   "buffer.closed": "Vyrovnávací paměť uzavřena",
   "buffer.closed_tabs": "Zavřeno %{count} karet",
   "buffer.closed_tabs_skipped": "Zavřeno %{closed} karet, přeskočeno %{skipped} upravených",

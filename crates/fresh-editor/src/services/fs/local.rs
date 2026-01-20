@@ -124,20 +124,26 @@ impl FsBackend for LocalFsBackend {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
 
-            let entry_type = if let Ok(file_type) = entry.file_type().await {
+            let fs_entry = if let Ok(file_type) = entry.file_type().await {
                 if file_type.is_symlink() {
-                    FsEntryType::Symlink
+                    // For symlinks, we need to determine what they point to.
+                    // Use fs::metadata (follows symlinks) to check if target is a directory.
+                    let target_is_dir = fs::metadata(&path)
+                        .await
+                        .map(|m| m.is_dir())
+                        .unwrap_or(false); // If symlink is broken, treat as file
+                    FsEntry::new_symlink(path, name, target_is_dir)
                 } else if file_type.is_dir() {
-                    FsEntryType::Directory
+                    FsEntry::new(path, name, FsEntryType::Directory)
                 } else {
-                    FsEntryType::File
+                    FsEntry::new(path, name, FsEntryType::File)
                 }
             } else {
                 // If we can't determine type, assume file
-                FsEntryType::File
+                FsEntry::new(path, name, FsEntryType::File)
             };
 
-            entries.push(FsEntry::new(path, name, entry_type));
+            entries.push(fs_entry);
         }
 
         Ok(entries)
@@ -177,23 +183,53 @@ impl FsBackend for LocalFsBackend {
     }
 
     async fn get_entry(&self, path: &Path) -> io::Result<FsEntry> {
-        let metadata = fs::metadata(path).await?;
         let name = path
             .file_name()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Invalid path"))?
             .to_string_lossy()
             .into_owned();
 
-        let entry_type = Self::entry_type_from_metadata(&metadata);
+        // First check if it's a symlink using symlink_metadata (doesn't follow symlinks)
+        let symlink_metadata = fs::symlink_metadata(path).await?;
         let is_hidden = is_hidden_file(path);
 
-        let fs_metadata = FsMetadata::new()
-            .with_size(metadata.len())
-            .with_modified(metadata.modified().ok().unwrap_or(std::time::UNIX_EPOCH))
-            .with_hidden(is_hidden)
-            .with_readonly(metadata.permissions().readonly());
+        let entry = if symlink_metadata.is_symlink() {
+            // For symlinks, check what they point to using metadata (follows symlinks)
+            let target_is_dir = fs::metadata(path)
+                .await
+                .map(|m| m.is_dir())
+                .unwrap_or(false); // Broken symlink treated as file
 
-        Ok(FsEntry::new(path.to_path_buf(), name, entry_type).with_metadata(fs_metadata))
+            let fs_metadata = FsMetadata::new()
+                .with_size(symlink_metadata.len())
+                .with_modified(
+                    symlink_metadata
+                        .modified()
+                        .ok()
+                        .unwrap_or(std::time::UNIX_EPOCH),
+                )
+                .with_hidden(is_hidden)
+                .with_readonly(symlink_metadata.permissions().readonly());
+
+            FsEntry::new_symlink(path.to_path_buf(), name, target_is_dir).with_metadata(fs_metadata)
+        } else {
+            // Regular file or directory
+            let entry_type = Self::entry_type_from_metadata(&symlink_metadata);
+            let fs_metadata = FsMetadata::new()
+                .with_size(symlink_metadata.len())
+                .with_modified(
+                    symlink_metadata
+                        .modified()
+                        .ok()
+                        .unwrap_or(std::time::UNIX_EPOCH),
+                )
+                .with_hidden(is_hidden)
+                .with_readonly(symlink_metadata.permissions().readonly());
+
+            FsEntry::new(path.to_path_buf(), name, entry_type).with_metadata(fs_metadata)
+        };
+
+        Ok(entry)
     }
 
     async fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
