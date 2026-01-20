@@ -129,6 +129,8 @@ pub enum DeferredAction {
     PopupTypeChar(char),
     /// Backspace while completion popup is open (for type-to-filter)
     PopupBackspace,
+    /// Copy text to clipboard (from popup text selection)
+    CopyToClipboard(String),
 
     // File browser actions
     FileBrowserSelectPrev,

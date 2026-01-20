@@ -501,6 +501,13 @@ impl Editor {
         self.paste_text(paste_text);
     }
 
+    /// Get clipboard content for testing purposes
+    /// Returns the internal clipboard content
+    #[doc(hidden)]
+    pub fn clipboard_content_for_test(&self) -> String {
+        self.clipboard.get_internal().to_string()
+    }
+
     /// Add a cursor at the next occurrence of the selected text
     /// If no selection, does nothing
     pub fn add_cursor_at_next_match(&mut self) {

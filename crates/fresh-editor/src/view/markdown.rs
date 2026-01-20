@@ -271,6 +271,11 @@ impl StyledLine {
         }
         None
     }
+
+    /// Get the plain text content (without styling)
+    pub fn plain_text(&self) -> String {
+        self.spans.iter().map(|s| s.text.as_str()).collect()
+    }
 }
 
 impl Default for StyledLine {

@@ -262,6 +262,10 @@ impl Editor {
             DeferredAction::PopupBackspace => {
                 self.handle_popup_backspace();
             }
+            DeferredAction::CopyToClipboard(text) => {
+                self.clipboard.copy(text);
+                self.set_status_message(t!("clipboard.copied").to_string());
+            }
 
             // Generic action execution
             DeferredAction::ExecuteAction(kb_action) => {

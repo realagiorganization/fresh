@@ -582,6 +582,8 @@ pub(super) struct MouseState {
     pub dragging_popup_scrollbar: Option<usize>,
     /// Initial scroll offset when starting to drag popup scrollbar
     pub drag_start_popup_scroll: Option<usize>,
+    /// Whether we're currently selecting text in a popup (popup index)
+    pub selecting_in_popup: Option<usize>,
 }
 
 /// Mapping from visual row to buffer positions for mouse click handling

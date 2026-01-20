@@ -5,7 +5,7 @@
 
 use super::popup::PopupManager;
 use crate::input::handler::{DeferredAction, InputContext, InputHandler, InputResult};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 impl InputHandler for PopupManager {
     fn handle_key_event(&mut self, event: &KeyEvent, ctx: &mut InputContext) -> InputResult {
@@ -90,6 +90,18 @@ impl InputHandler for PopupManager {
             KeyCode::Backspace if event.modifiers.is_empty() => {
                 if self.is_completion_popup() {
                     ctx.defer(DeferredAction::PopupBackspace);
+                }
+                InputResult::Consumed
+            }
+
+            // Ctrl+C to copy selected text from popup
+            KeyCode::Char('c') if event.modifiers == KeyModifiers::CONTROL => {
+                if let Some(popup) = self.top() {
+                    if popup.has_selection() {
+                        if let Some(text) = popup.get_selected_text() {
+                            ctx.defer(DeferredAction::CopyToClipboard(text));
+                        }
+                    }
                 }
                 InputResult::Consumed
             }

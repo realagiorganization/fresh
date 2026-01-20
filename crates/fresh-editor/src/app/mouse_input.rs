@@ -11,6 +11,7 @@ use super::*;
 use crate::input::keybindings::Action;
 use crate::model::event::{SplitDirection, SplitId};
 use crate::services::plugins::hooks::HookArgs;
+use crate::view::popup_mouse::{popup_areas_to_layout_info, PopupHitTester};
 use crate::view::prompt::PromptType;
 use anyhow::Result as AnyhowResult;
 use rust_i18n::t;
@@ -138,6 +139,8 @@ impl Editor {
                 // Clear popup scrollbar drag state
                 self.mouse_state.dragging_popup_scrollbar = None;
                 self.mouse_state.drag_start_popup_scroll = None;
+                // Clear popup text selection drag state (selection remains in popup)
+                self.mouse_state.selecting_in_popup = None;
 
                 // If we finished dragging a separator, resize visible terminals
                 if was_dragging_separator {
@@ -568,41 +571,16 @@ impl Editor {
 
     /// Check if mouse position is over a transient popup (hover, signature help)
     fn is_mouse_over_transient_popup(&self, col: u16, row: u16) -> bool {
-        // Check if there's a transient popup showing
-        let has_transient_popup = self
-            .active_state()
-            .popups
-            .top()
-            .is_some_and(|p| p.transient);
-
-        if !has_transient_popup {
-            return false;
-        }
-
-        self.is_mouse_over_any_popup(col, row)
+        let layouts = popup_areas_to_layout_info(&self.cached_layout.popup_areas);
+        let hit_tester = PopupHitTester::new(&layouts, &self.active_state().popups);
+        hit_tester.is_over_transient_popup(col, row)
     }
 
     /// Check if mouse position is over any popup (including non-transient ones like completion)
     fn is_mouse_over_any_popup(&self, col: u16, row: u16) -> bool {
-        // Check if there's any popup showing
-        if !self.active_state().popups.is_visible() {
-            return false;
-        }
-
-        // Check if mouse is over any popup area
-        for (_popup_idx, popup_rect, _inner_rect, _scroll_offset, _num_items, _, _) in
-            self.cached_layout.popup_areas.iter()
-        {
-            if col >= popup_rect.x
-                && col < popup_rect.x + popup_rect.width
-                && row >= popup_rect.y
-                && row < popup_rect.y + popup_rect.height
-            {
-                return true;
-            }
-        }
-
-        false
+        let layouts = popup_areas_to_layout_info(&self.cached_layout.popup_areas);
+        let hit_tester = PopupHitTester::new(&layouts, &self.active_state().popups);
+        hit_tester.is_over_popup(col, row)
     }
 
     /// Compute what hover target is at the given position
@@ -1068,7 +1046,7 @@ impl Editor {
         }
 
         // Check if click is on a popup content area (they're rendered on top)
-        for (_popup_idx, _popup_rect, inner_rect, scroll_offset, num_items, _, _) in
+        for (popup_idx, _popup_rect, inner_rect, scroll_offset, num_items, _, _) in
             self.cached_layout.popup_areas.iter().rev()
         {
             if col >= inner_rect.x
@@ -1117,6 +1095,30 @@ impl Editor {
                         // Execute the popup selection (same as pressing Enter)
                         return self.handle_action(Action::PopupConfirm);
                     }
+                }
+
+                // For text/markdown popups, start text selection
+                let is_text_popup = {
+                    let state = self.active_state();
+                    state.popups.top().map_or(false, |p| {
+                        matches!(
+                            p.content,
+                            crate::view::popup::PopupContent::Text(_)
+                                | crate::view::popup::PopupContent::Markdown(_)
+                        )
+                    })
+                };
+
+                if is_text_popup {
+                    let line = scroll_offset + relative_row;
+                    let popup_idx_copy = *popup_idx; // Copy before mutable borrow
+                    let state = self.active_state_mut();
+                    if let Some(popup) = state.popups.top_mut() {
+                        popup.start_selection(line, relative_col);
+                    }
+                    // Track that we're selecting in a popup
+                    self.mouse_state.selecting_in_popup = Some(popup_idx_copy);
+                    return Ok(());
                 }
             }
         }
@@ -1463,6 +1465,34 @@ impl Editor {
                     return Ok(());
                 }
             }
+        }
+
+        // If selecting text in popup, extend selection
+        if let Some(popup_idx) = self.mouse_state.selecting_in_popup {
+            // Find the popup area from cached layout
+            if let Some((_, _, inner_rect, scroll_offset, _, _, _)) = self
+                .cached_layout
+                .popup_areas
+                .iter()
+                .find(|(idx, _, _, _, _, _, _)| *idx == popup_idx)
+            {
+                // Check if mouse is within the popup inner area
+                if col >= inner_rect.x
+                    && col < inner_rect.x + inner_rect.width
+                    && row >= inner_rect.y
+                    && row < inner_rect.y + inner_rect.height
+                {
+                    let relative_col = (col - inner_rect.x) as usize;
+                    let relative_row = (row - inner_rect.y) as usize;
+                    let line = scroll_offset + relative_row;
+
+                    let state = self.active_state_mut();
+                    if let Some(popup) = state.popups.get_mut(popup_idx) {
+                        popup.extend_selection(line, relative_col);
+                    }
+                }
+            }
+            return Ok(());
         }
 
         // If dragging popup scrollbar, update popup scroll position

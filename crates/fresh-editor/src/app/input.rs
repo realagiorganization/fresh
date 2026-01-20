@@ -58,16 +58,25 @@ impl Editor {
         let mut context = self.get_key_context();
 
         // Special case: Hover and Signature Help popups should be dismissed on any key press
+        // EXCEPT for Ctrl+C when the popup has a text selection (allow copy first)
         if matches!(context, crate::input::keybindings::KeyContext::Popup) {
             // Check if the current popup is transient (hover, signature help)
-            let is_transient_popup = self
-                .active_state()
-                .popups
-                .top()
-                .is_some_and(|p| p.transient);
+            let (is_transient_popup, has_selection) = {
+                let popup = self.active_state().popups.top();
+                (
+                    popup.is_some_and(|p| p.transient),
+                    popup.is_some_and(|p| p.has_selection()),
+                )
+            };
 
-            if is_transient_popup {
-                // Dismiss the popup on any key press
+            // Don't dismiss if popup has selection and user is pressing Ctrl+C (let them copy first)
+            let is_copy_key = key_event.code == crossterm::event::KeyCode::Char('c')
+                && key_event
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL);
+
+            if is_transient_popup && !(has_selection && is_copy_key) {
+                // Dismiss the popup on any key press (except Ctrl+C with selection)
                 self.hide_popup();
                 tracing::debug!("Dismissed transient popup on key press");
                 // Recalculate context now that popup is gone
@@ -322,6 +331,17 @@ impl Editor {
                 }
             }
             Action::Copy => {
+                // Check if there's an active popup with text selection
+                let state = self.active_state();
+                if let Some(popup) = state.popups.top() {
+                    if popup.has_selection() {
+                        if let Some(text) = popup.get_selected_text() {
+                            self.clipboard.copy(text);
+                            self.set_status_message(t!("clipboard.copied").to_string());
+                            return Ok(());
+                        }
+                    }
+                }
                 // Check if active buffer is a composite buffer
                 let buffer_id = self.active_buffer();
                 if self.is_composite_buffer(buffer_id) {

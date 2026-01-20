@@ -39,6 +39,7 @@ pub mod open_folder;
 pub mod paste;
 #[cfg(feature = "plugins")]
 pub mod plugins;
+pub mod popup_selection;
 pub mod position_history;
 pub mod position_history_bugs;
 pub mod position_history_debug;
