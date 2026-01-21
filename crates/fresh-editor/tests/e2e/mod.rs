@@ -55,6 +55,7 @@ pub mod search;
 pub mod selection;
 pub mod session;
 pub mod settings;
+pub mod settings_config_issue_806;
 pub mod settings_paste;
 pub mod shell_command;
 pub mod slow_filesystem;
