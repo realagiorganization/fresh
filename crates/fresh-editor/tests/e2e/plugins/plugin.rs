@@ -831,12 +831,12 @@ globalThis.test_create_virtual_buffer = async function(): Promise<void> {
         const bufferId = await editor.createVirtualBufferInSplit({
             name: "*Test Buffer*",
             mode: "normal",
-            read_only: true,
+            readOnly: true,
             entries: entries,
             ratio: 0.5,
-            panel_id: "test-panel",
-            show_line_numbers: false,
-            show_cursors: true,
+            panelId: "test-panel",
+            showLineNumbers: false,
+            showCursors: true,
         });
 
         // Verify we got a valid buffer ID
