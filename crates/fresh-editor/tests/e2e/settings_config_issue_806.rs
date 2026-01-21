@@ -238,6 +238,148 @@ fn test_issue_806_custom_language_config_lost_on_settings_save() {
     );
 }
 
+/// Issue #806 Variant: External config edit then Settings UI save with actual change
+///
+/// This is the exact scenario reported:
+/// 1. Fresh starts with initial config (lsp.rust.auto_start = true) LOADED INTO MEMORY
+/// 2. User externally edits config.json to change auto_start to false
+/// 3. User opens Settings UI in the same Fresh session
+/// 4. User modifies a DIFFERENT setting (auto_indent)
+/// 5. User saves from Settings UI
+/// 6. BUG: The auto_start change is reverted because the in-memory config
+///    still has auto_start=true, and that gets written to the delta
+///
+/// This test only uses keyboard events and verifies file output (no internal state).
+#[test]
+fn test_issue_806_external_edit_then_settings_change_and_save() {
+    use crate::common::harness::HarnessOptions;
+    use fresh::config_io::DirectoryContext;
+    use tempfile::TempDir;
+
+    // Step 1: Create isolated temp directory and config file BEFORE creating the editor
+    let temp_dir = TempDir::new().unwrap();
+    let config_dir = temp_dir.path().join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+    let user_config_path = config_dir.join("config.json");
+
+    // Write initial config with auto_start = true
+    // This will be loaded into the editor's in-memory config
+    let initial_config = r#"{
+    "lsp": {
+        "rust": {
+            "auto_start": true
+        }
+    }
+}"#;
+    fs::write(&user_config_path, initial_config).unwrap();
+
+    // Create DirectoryContext pointing to our temp dir (isolated .config)
+    let dir_context = DirectoryContext::for_testing(temp_dir.path());
+
+    // Create project_root inside temp_dir for the working directory
+    let project_root = temp_dir.path().join("project_root");
+    fs::create_dir_all(&project_root).unwrap();
+
+    // Create empty plugins dir to prevent embedded plugin loading
+    let plugins_dir = project_root.join("plugins");
+    fs::create_dir_all(&plugins_dir).unwrap();
+
+    // Step 2: Create the editor - this loads the config file into memory
+    let mut harness = EditorTestHarness::create(
+        100,
+        40,
+        HarnessOptions::new()
+            .with_working_dir(project_root)
+            .with_shared_dir_context(dir_context)
+            .without_empty_plugins_dir(),
+    )
+    .unwrap();
+    harness.render().unwrap();
+
+    // At this point, the editor has loaded auto_start=true into memory
+
+    // Step 3: User externally edits config.json (while Fresh is running)
+    // Changes auto_start from true to false
+    let edited_config = r#"{
+    "lsp": {
+        "rust": {
+            "auto_start": false
+        }
+    }
+}"#;
+    fs::write(&user_config_path, edited_config).unwrap();
+
+    // Verify the external edit was written correctly
+    let after_external_edit = fs::read_to_string(&user_config_path).unwrap();
+    eprintln!("Config after external edit:\n{}", after_external_edit);
+    assert!(
+        after_external_edit.contains("\"auto_start\": false"),
+        "External edit should have set auto_start to false"
+    );
+
+    // Step 4: Open Settings UI (Ctrl+,)
+    harness
+        .send_key(KeyCode::Char(','), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Step 5: Change a DIFFERENT setting (search for auto_indent and toggle it)
+    // Press / to open search in settings
+    harness
+        .send_key(KeyCode::Char('/'), KeyModifiers::NONE)
+        .unwrap();
+    send_text(&mut harness, "auto_indent");
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Toggle the auto_indent checkbox (space to toggle)
+    harness
+        .send_key(KeyCode::Char(' '), KeyModifiers::NONE)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Step 6: Save from Settings UI (Ctrl+S)
+    harness
+        .send_key(KeyCode::Char('s'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    // Give the save operation time to complete
+    for _ in 0..10 {
+        harness.render().unwrap();
+    }
+
+    // Step 7: Verify the external auto_start=false edit is preserved in the file
+    let final_content = fs::read_to_string(&user_config_path).unwrap();
+    let final_json: serde_json::Value = serde_json::from_str(&final_content).unwrap();
+
+    eprintln!(
+        "Issue #806 - Final config after Settings save:\n{}",
+        serde_json::to_string_pretty(&final_json).unwrap()
+    );
+
+    // CRITICAL: The external auto_start = false change must be preserved
+    let auto_start = final_json
+        .get("lsp")
+        .and_then(|l| l.get("rust"))
+        .and_then(|r| r.get("auto_start"))
+        .and_then(|a| a.as_bool());
+
+    assert_eq!(
+        auto_start,
+        Some(false),
+        "BUG #806: lsp.rust.auto_start was reverted from false back to true! \
+         The in-memory config had auto_start=true, and that overwrote the external edit. \
+         External config edits should be preserved when saving from Settings UI. \
+         Final content: {}",
+        final_content
+    );
+
+    // Keep temp_dir alive until test completes
+    drop(temp_dir);
+}
+
 /// Issue #806 - Tests that config is properly reloaded when Settings UI opens
 ///
 /// This tests a potential fix approach: reloading config from disk when Settings opens

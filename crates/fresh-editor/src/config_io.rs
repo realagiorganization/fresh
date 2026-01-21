@@ -319,13 +319,28 @@ impl ConfigResolver {
                 .map_err(|e| ConfigError::IoError(format!("{}: {}", parent_dir.display(), e)))?;
         }
 
-        // Write delta to file, stripping null values and empty defaults to keep configs minimal
-        let delta_value =
-            serde_json::to_value(&delta).map_err(|e| ConfigError::SerializeError(e.to_string()))?;
-        let stripped_nulls = strip_nulls(delta_value).unwrap_or(Value::Object(Default::default()));
-        let clean_delta =
+        // Read existing file content (if any) as PartialConfig.
+        // This preserves any manual edits made externally while the editor was running.
+        let existing: PartialConfig = if path.exists() {
+            let content = std::fs::read_to_string(&path)
+                .map_err(|e| ConfigError::IoError(format!("{}: {}", path.display(), e)))?;
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            PartialConfig::default()
+        };
+
+        // Merge: delta values take precedence, existing fills in gaps where delta is None
+        let mut merged = delta;
+        merged.merge_from(&existing);
+
+        // Serialize to JSON, stripping null values and empty defaults to keep configs minimal
+        let merged_value = serde_json::to_value(&merged)
+            .map_err(|e| ConfigError::SerializeError(e.to_string()))?;
+        let stripped_nulls = strip_nulls(merged_value).unwrap_or(Value::Object(Default::default()));
+        let clean_merged =
             strip_empty_defaults(stripped_nulls).unwrap_or(Value::Object(Default::default()));
-        let json = serde_json::to_string_pretty(&clean_delta)
+
+        let json = serde_json::to_string_pretty(&clean_merged)
             .map_err(|e| ConfigError::SerializeError(e.to_string()))?;
         std::fs::write(&path, json)
             .map_err(|e| ConfigError::IoError(format!("{}: {}", path.display(), e)))?;
