@@ -443,7 +443,23 @@ fn rust_to_typescript(ty: &Type, attrs: &[Attribute]) -> String {
                 | "JsTextPropertyEntry"
                 | "CreateVirtualBufferOptions"
                 | "CreateVirtualBufferInSplitOptions"
-                | "CreateVirtualBufferInExistingSplitOptions" => type_name,
+                | "CreateVirtualBufferInExistingSplitOptions"
+                | "VirtualBufferResult"
+                | "ActionSpec"
+                | "ActionPopupAction"
+                | "ActionPopupOptions"
+                | "ViewTokenWire"
+                | "ViewTokenStyle"
+                | "LayoutHints"
+                | "FileExplorerDecoration"
+                | "TsCreateCompositeBufferOptions"
+                | "TsCompositeLayoutConfig"
+                | "TsCompositeSourceConfig"
+                | "TsCompositePaneStyle"
+                | "TsCompositeHunk"
+                | "TsHighlightSpan"
+                | "TsActionPopupAction"
+                | "JsDiagnostic" => type_name,
 
                 // Default: use type name as-is
                 _ => type_name,

@@ -2,6 +2,46 @@
 //!
 //! This module provides a safe, controlled API for plugins (Lua, WASM, etc.)
 //! to interact with the editor without direct access to internal state.
+//!
+//! # Type Safety Architecture
+//!
+//! Rust structs in this module serve as the **single source of truth** for the
+//! TypeScript plugin API. The type safety system works as follows:
+//!
+//! ```text
+//! Rust struct                  Generated TypeScript
+//! ───────────                  ────────────────────
+//! #[derive(TS, Deserialize)]   type ActionPopupOptions = {
+//! #[serde(deny_unknown_fields)]    id: string;
+//! struct ActionPopupOptions {      title: string;
+//!     id: String,                  message: string;
+//!     title: String,               actions: TsActionPopupAction[];
+//!     ...                      };
+//! }
+//! ```
+//!
+//! ## Key Patterns
+//!
+//! 1. **`#[derive(TS)]`** - Generates TypeScript type definitions via ts-rs
+//! 2. **`#[serde(deny_unknown_fields)]`** - Rejects typos/unknown fields at runtime
+//! 3. **`impl FromJs`** - Bridges rquickjs values to typed Rust structs
+//!
+//! ## Validation Layers
+//!
+//! | Layer                  | What it catches                          |
+//! |------------------------|------------------------------------------|
+//! | TypeScript compile     | Wrong field names, missing required fields |
+//! | Rust runtime (serde)   | Typos like `popup_id` instead of `id`    |
+//! | Rust compile           | Type mismatches in method signatures     |
+//!
+//! ## Limitations & Tradeoffs
+//!
+//! - **Manual parsing for complex types**: Some methods (e.g., `submitViewTransform`)
+//!   still use manual object parsing due to enum serialization complexity
+//! - **Two-step deserialization**: Complex nested structs may need
+//!   `rquickjs::Value → serde_json::Value → typed struct` due to rquickjs_serde limits
+//! - **Duplicate attributes**: Both `#[serde(...)]` and `#[ts(...)]` needed since
+//!   they control different things (runtime serialization vs compile-time codegen)
 
 use crate::command::{Command, Suggestion};
 use crate::file_explorer::FileExplorerDecoration;
@@ -203,12 +243,18 @@ pub struct CursorInfo {
 
 /// Specification for an action to execute, with optional repeat count
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export)]
 pub struct ActionSpec {
     /// Action name (e.g., "move_word_right", "delete_line")
     pub action: String,
     /// Number of times to repeat the action (default 1)
+    #[serde(default = "default_action_count")]
     pub count: u32,
+}
+
+fn default_action_count() -> u32 {
+    1
 }
 
 /// Information about a buffer
@@ -444,9 +490,10 @@ pub enum ViewTokenWireKind {
 /// Styling for view tokens (used for injected annotations)
 ///
 /// This allows plugins to specify styling for tokens that don't have a source
-/// mapping (source_offset: None), such as annotation headers in git blame.
-/// For tokens with source_offset: Some(_), syntax highlighting is applied instead.
+/// mapping (sourceOffset: None), such as annotation headers in git blame.
+/// For tokens with sourceOffset: Some(_), syntax highlighting is applied instead.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export)]
 pub struct ViewTokenStyle {
     /// Foreground color as RGB tuple
@@ -467,9 +514,11 @@ pub struct ViewTokenStyle {
 
 /// Wire-format view token with optional source mapping and styling
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export)]
 pub struct ViewTokenWire {
     /// Source byte offset in the buffer. None for injected content (annotations).
+    #[ts(type = "number | null")]
     pub source_offset: Option<usize>,
     /// The token content
     pub kind: ViewTokenWireKind,
@@ -1211,12 +1260,28 @@ pub struct ReviewHunk {
 
 /// Action button for action popups
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export, rename = "TsActionPopupAction")]
 pub struct ActionPopupAction {
     /// Unique action identifier (returned in ActionPopupResult)
     pub id: String,
     /// Display text for the button (can include command hints)
     pub label: String,
+}
+
+/// Options for showActionPopup
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+#[ts(export)]
+pub struct ActionPopupOptions {
+    /// Unique identifier for the popup (used in ActionPopupResult)
+    pub id: String,
+    /// Title text for the popup
+    pub title: String,
+    /// Body message (supports basic formatting)
+    pub message: String,
+    /// Action buttons to display
+    pub actions: Vec<ActionPopupAction>,
 }
 
 /// Syntax highlight span for a buffer range
@@ -1257,6 +1322,7 @@ pub struct BackgroundProcessResult {
 
 /// Entry for virtual buffer content with optional text properties (JS API version)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export, rename = "TextPropertyEntry")]
 pub struct JsTextPropertyEntry {
     /// Text content for this entry
@@ -1318,6 +1384,7 @@ pub struct JsDiagnostic {
 
 /// Options for createVirtualBuffer
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export)]
 pub struct CreateVirtualBufferOptions {
     /// Buffer name (displayed in tabs/title)
@@ -1354,6 +1421,7 @@ pub struct CreateVirtualBufferOptions {
 
 /// Options for createVirtualBufferInSplit
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export)]
 pub struct CreateVirtualBufferInSplitOptions {
     /// Buffer name (displayed in tabs/title)
@@ -1402,6 +1470,7 @@ pub struct CreateVirtualBufferInSplitOptions {
 
 /// Options for createVirtualBufferInExistingSplit
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
 #[ts(export)]
 pub struct CreateVirtualBufferInExistingSplitOptions {
     /// Buffer name (displayed in tabs/title)
@@ -1498,6 +1567,95 @@ mod fromjs_impls {
         fn into_js(self, ctx: &Ctx<'js>) -> rquickjs::Result<Value<'js>> {
             rquickjs_serde::to_value(ctx.clone(), &self.0)
                 .map_err(|e| rquickjs::Error::new_from_js_message("serialize", "", &e.to_string()))
+        }
+    }
+
+    // === Additional input types for type-safe plugin API ===
+
+    impl<'js> FromJs<'js> for ActionSpec {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "ActionSpec",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for ActionPopupAction {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "ActionPopupAction",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for ActionPopupOptions {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "ActionPopupOptions",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for ViewTokenWire {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "ViewTokenWire",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for ViewTokenStyle {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "ViewTokenStyle",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for LayoutHints {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "LayoutHints",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for CreateCompositeBufferOptions {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            // Use two-step deserialization for complex nested structures
+            let json: serde_json::Value =
+                rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                    from: "object",
+                    to: "CreateCompositeBufferOptions (json)",
+                    message: Some(e.to_string()),
+                })?;
+            serde_json::from_value(json).map_err(|e| rquickjs::Error::FromJs {
+                from: "json",
+                to: "CreateCompositeBufferOptions",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for CompositeHunk {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "CompositeHunk",
+                message: Some(e.to_string()),
+            })
         }
     }
 }

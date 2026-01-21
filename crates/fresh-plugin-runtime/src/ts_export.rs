@@ -15,15 +15,16 @@ use oxc_span::SourceType;
 use ts_rs::TS;
 
 use fresh_core::api::{
-    ActionPopupAction, ActionSpec, BackgroundProcessResult, BufferInfo, BufferSavedDiff,
-    CompositeHunk, CompositeLayoutConfig, CompositePaneStyle, CompositeSourceConfig,
-    CreateCompositeBufferOptions, CreateVirtualBufferInExistingSplitOptions,
+    ActionPopupAction, ActionPopupOptions, ActionSpec, BackgroundProcessResult, BufferInfo,
+    BufferSavedDiff, CompositeHunk, CompositeLayoutConfig, CompositePaneStyle,
+    CompositeSourceConfig, CreateCompositeBufferOptions, CreateVirtualBufferInExistingSplitOptions,
     CreateVirtualBufferInSplitOptions, CreateVirtualBufferOptions, CursorInfo, DirEntry,
     JsDiagnostic, JsPosition, JsRange, JsTextPropertyEntry, LayoutHints, SpawnResult,
     TextPropertiesAtCursor, TsHighlightSpan, ViewTokenStyle, ViewTokenWire, ViewTokenWireKind,
     ViewportInfo, VirtualBufferResult,
 };
 use fresh_core::command::Suggestion;
+use fresh_core::file_explorer::FileExplorerDecoration;
 
 /// Get the TypeScript declaration for a type by name
 ///
@@ -61,7 +62,9 @@ fn get_type_decl(type_name: &str) -> Option<String> {
 
         // UI types (ts-rs renames these with Ts prefix)
         "TsActionPopupAction" | "ActionPopupAction" => Some(ActionPopupAction::decl()),
+        "ActionPopupOptions" => Some(ActionPopupOptions::decl()),
         "TsHighlightSpan" => Some(TsHighlightSpan::decl()),
+        "FileExplorerDecoration" => Some(FileExplorerDecoration::decl()),
 
         // Virtual buffer option types
         "TextPropertyEntry" | "JsTextPropertyEntry" => Some(JsTextPropertyEntry::decl()),
@@ -109,6 +112,10 @@ const DEPENDENCY_TYPES: &[&str] = &[
     "JsDiagnostic",                   // Used by getAllDiagnostics
     "JsRange",                        // Used by JsDiagnostic
     "JsPosition",                     // Used by JsRange
+    "ActionSpec",                     // Used by executeActions
+    "TsActionPopupAction",            // Used by ActionPopupOptions.actions
+    "ActionPopupOptions",             // Used by showActionPopup
+    "FileExplorerDecoration",         // Used by setFileExplorerDecorations
 ];
 
 /// Collect TypeScript type declarations based on referenced types from proc macro

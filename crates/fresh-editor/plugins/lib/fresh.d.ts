@@ -218,10 +218,6 @@ type PromptSuggestion = {
 	* Optional keyboard shortcut
 	*/
 	keybinding?: string;
-	/**
-	* Source of the command (for command palette)
-	*/
-	source?: CommandSource;
 };
 type DirEntry = {
 	/**
@@ -297,6 +293,62 @@ type JsPosition = {
 	*/
 	character: number;
 };
+type ActionSpec = {
+	/**
+	* Action name (e.g., "move_word_right", "delete_line")
+	*/
+	action: string;
+	/**
+	* Number of times to repeat the action (default 1)
+	*/
+	count: number;
+};
+type TsActionPopupAction = {
+	/**
+	* Unique action identifier (returned in ActionPopupResult)
+	*/
+	id: string;
+	/**
+	* Display text for the button (can include command hints)
+	*/
+	label: string;
+};
+type ActionPopupOptions = {
+	/**
+	* Unique identifier for the popup (used in ActionPopupResult)
+	*/
+	id: string;
+	/**
+	* Title text for the popup
+	*/
+	title: string;
+	/**
+	* Body message (supports basic formatting)
+	*/
+	message: string;
+	/**
+	* Action buttons to display
+	*/
+	actions: Array<TsActionPopupAction>;
+};
+type FileExplorerDecoration = {
+	/**
+	* File path to decorate
+	*/
+	path: string;
+	/**
+	* Symbol to display (e.g., "●", "M", "A")
+	*/
+	symbol: string;
+	/**
+	* Color as RGB array (for rquickjs compatibility)
+	*/
+	color: [number, number, number];
+	/**
+	* Priority for display when multiple decorations exist (higher wins)
+	*/
+	priority: number;
+};
 type BackgroundProcessResult = {
 	/**
 	* Unique process ID for later reference
@@ -312,6 +364,46 @@ type BufferSavedDiff = {
 	equal: boolean;
 	byte_ranges: Array<[number, number]>;
 	line_ranges: Array<[number, number]> | null;
+};
+type TsCompositeHunk = {
+	/**
+	* Starting line in old buffer (0-indexed)
+	*/
+	oldStart: number;
+	/**
+	* Number of lines in old buffer
+	*/
+	oldCount: number;
+	/**
+	* Starting line in new buffer (0-indexed)
+	*/
+	newStart: number;
+	/**
+	* Number of lines in new buffer
+	*/
+	newCount: number;
+};
+type TsCreateCompositeBufferOptions = {
+	/**
+	* Buffer name (displayed in tabs/title)
+	*/
+	name: string;
+	/**
+	* Mode for keybindings
+	*/
+	mode: string;
+	/**
+	* Layout configuration
+	*/
+	layout: TsCompositeLayoutConfig;
+	/**
+	* Source pane configurations
+	*/
+	sources: Array<TsCompositeSourceConfig>;
+	/**
+	* Diff hunks for alignment (optional)
+	*/
+	hunks: Array<TsCompositeHunk> | null;
 };
 type CreateVirtualBufferInExistingSplitOptions = {
 	/**
@@ -444,6 +536,28 @@ type SpawnResult = {
 	* Process exit code (0 usually means success, -1 if killed)
 	*/
 	exit_code: number;
+};
+type PromptSuggestion = {
+	/**
+	* The text to display
+	*/
+	text: string;
+	/**
+	* Optional description
+	*/
+	description?: string;
+	/**
+	* The value to use when selected (defaults to text if None)
+	*/
+	value?: string;
+	/**
+	* Whether this suggestion is disabled (greyed out, defaults to false)
+	*/
+	disabled?: boolean;
+	/**
+	* Optional keyboard shortcut
+	*/
+	keybinding?: string;
 };
 type TextPropertiesAtCursor = Array<Record<string, unknown>>;
 type TsHighlightSpan = {
@@ -702,19 +816,16 @@ interface EditorAPI {
 	/**
 	* Create a composite buffer (async)
 	* 
-	* Uses serde deserialization with `deny_unknown_fields` to validate:
-	* - All required fields are present
-	* - No unknown/misspelled fields are passed
+	* Uses typed CreateCompositeBufferOptions - serde validates field names at runtime
+	* via `deny_unknown_fields` attribute
 	*/
-	createCompositeBuffer(opts: unknown): Promise<number>;
+	createCompositeBuffer(opts: CreateCompositeBufferOptions): Promise<number>;
 	/**
 	* Update alignment hunks for a composite buffer
 	* 
-	* Uses serde deserialization with `deny_unknown_fields` to validate:
-	* - All required fields are present
-	* - No unknown/misspelled fields are passed
+	* Uses typed Vec<CompositeHunk> - serde validates field names at runtime
 	*/
-	updateCompositeAlignment(bufferId: number, hunks: unknown): boolean;
+	updateCompositeAlignment(bufferId: number, hunks: CompositeHunk[]): boolean;
 	/**
 	* Close a composite buffer
 	*/
@@ -745,6 +856,9 @@ interface EditorAPI {
 	removeOverlay(bufferId: number, handle: string): boolean;
 	/**
 	* Submit a view transform for a buffer/split
+	* 
+	* Note: tokens should be ViewTokenWire[], layoutHints should be LayoutHints
+	* These use manual parsing due to complex enum handling
 	*/
 	submitViewTransform(bufferId: number, splitId: number | null, start: number, end: number, tokens: Record<string, unknown>[], LayoutHints?: Record<string, unknown>): boolean;
 	/**
@@ -753,8 +867,10 @@ interface EditorAPI {
 	clearViewTransform(bufferId: number, splitId: number | null): boolean;
 	/**
 	* Set file explorer decorations for a namespace
+	* 
+	* Uses typed Vec<FileExplorerDecoration> - serde validates field names at runtime
 	*/
-	setFileExplorerDecorations(namespace: string, decorations: Record<string, unknown>[]): boolean;
+	setFileExplorerDecorations(namespace: string, decorations: FileExplorerDecoration[]): boolean;
 	/**
 	* Clear file explorer decorations for a namespace
 	*/
@@ -797,9 +913,11 @@ interface EditorAPI {
 	*/
 	startPromptWithInitial(label: string, promptType: string, initialValue: string): boolean;
 	/**
-	* Set suggestions for the current prompt (takes array of suggestion objects)
+	* Set suggestions for the current prompt
+	* 
+	* Uses typed Vec<Suggestion> - serde validates field names at runtime
 	*/
-	setPromptSuggestions(suggestionsArr: Record<string, unknown>[]): boolean;
+	setPromptSuggestions(suggestions: Suggestion[]): boolean;
 	/**
 	* Define a buffer mode (takes bindings as array of [key, command] pairs)
 	*/
@@ -866,12 +984,16 @@ interface EditorAPI {
 	removeScrollSyncGroup(groupId: number): boolean;
 	/**
 	* Execute multiple actions in sequence
+	* 
+	* Takes typed ActionSpec array - serde validates field names at runtime
 	*/
-	executeActions(actions: Record<string, unknown>[]): boolean;
+	executeActions(actions: ActionSpec[]): boolean;
 	/**
 	* Show an action popup
+	* 
+	* Takes a typed ActionPopupOptions struct - serde validates field names at runtime
 	*/
-	showActionPopup(opts: Record<string, unknown>): boolean;
+	showActionPopup(opts: ActionPopupOptions): boolean;
 	/**
 	* Disable LSP for a specific language
 	*/
@@ -898,6 +1020,8 @@ interface EditorAPI {
 	createVirtualBufferInExistingSplit(opts: CreateVirtualBufferInExistingSplitOptions): Promise<VirtualBufferResult>;
 	/**
 	* Set virtual buffer content (takes array of entry objects)
+	* 
+	* Note: entries should be TextPropertyEntry[] - uses manual parsing for HashMap support
 	*/
 	setVirtualBufferContent(bufferId: number, entriesArr: Record<string, unknown>[]): boolean;
 	/**

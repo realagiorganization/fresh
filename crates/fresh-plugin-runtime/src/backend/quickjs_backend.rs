@@ -5,8 +5,8 @@
 
 use anyhow::{anyhow, Result};
 use fresh_core::api::{
-    ActionPopupAction, ActionSpec, BufferInfo, EditorStateSnapshot, JsCallbackId, PluginCommand,
-    PluginResponse,
+    ActionSpec, BufferInfo, CompositeHunk, CreateCompositeBufferOptions, EditorStateSnapshot,
+    JsCallbackId, PluginCommand, PluginResponse,
 };
 use fresh_core::command::Command;
 use fresh_core::overlay::OverlayNamespace;
@@ -1170,18 +1170,11 @@ impl JsEditorApi {
 
     /// Create a composite buffer (async)
     ///
-    /// Uses serde deserialization with `deny_unknown_fields` to validate:
-    /// - All required fields are present
-    /// - No unknown/misspelled fields are passed
+    /// Uses typed CreateCompositeBufferOptions - serde validates field names at runtime
+    /// via `deny_unknown_fields` attribute
     #[plugin_api(async_promise, js_name = "createCompositeBuffer", ts_return = "number")]
     #[qjs(rename = "_createCompositeBufferStart")]
-    pub fn create_composite_buffer_start<'js>(
-        &self,
-        _ctx: rquickjs::Ctx<'js>,
-        opts: rquickjs::Value<'js>,
-    ) -> rquickjs::Result<u64> {
-        use fresh_core::api::CreateCompositeBufferOptions;
-
+    pub fn create_composite_buffer_start(&self, opts: CreateCompositeBufferOptions) -> u64 {
         let id = {
             let mut id_ref = self.next_request_id.borrow_mut();
             let id = *id_ref;
@@ -1193,64 +1186,30 @@ impl JsEditorApi {
             id
         };
 
-        // Deserialize by going through serde_json::Value first.
-        // Direct deserialization with rquickjs_serde has issues with complex nested structures,
-        // but deserializing to Value works fine, so we use a two-step approach.
-        let json: serde_json::Value = rquickjs_serde::from_value(opts).map_err(|e| {
-            rquickjs::Error::new_from_js_message(
-                "createCompositeBuffer",
-                "opts",
-                &format!("Failed to convert to JSON: {}", e),
-            )
-        })?;
-
-        let parsed: CreateCompositeBufferOptions = serde_json::from_value(json).map_err(|e| {
-            rquickjs::Error::new_from_js_message("createCompositeBuffer", "opts", &e.to_string())
-        })?;
-
         let _ = self
             .command_sender
             .send(PluginCommand::CreateCompositeBuffer {
-                name: parsed.name,
-                mode: parsed.mode,
-                layout: parsed.layout,
-                sources: parsed.sources,
-                hunks: parsed.hunks,
+                name: opts.name,
+                mode: opts.mode,
+                layout: opts.layout,
+                sources: opts.sources,
+                hunks: opts.hunks,
                 request_id: Some(id),
             });
 
-        Ok(id)
+        id
     }
 
     /// Update alignment hunks for a composite buffer
     ///
-    /// Uses serde deserialization with `deny_unknown_fields` to validate:
-    /// - All required fields are present
-    /// - No unknown/misspelled fields are passed
-    pub fn update_composite_alignment<'js>(
-        &self,
-        _ctx: rquickjs::Ctx<'js>,
-        buffer_id: u32,
-        hunks: rquickjs::Value<'js>,
-    ) -> rquickjs::Result<bool> {
-        use fresh_core::api::CompositeHunk;
-
-        // Deserialize using serde - validates required fields and rejects unknown fields
-        let parsed_hunks: Vec<CompositeHunk> = rquickjs_serde::from_value(hunks).map_err(|e| {
-            rquickjs::Error::new_from_js_message(
-                "updateCompositeAlignment",
-                "hunks",
-                &e.to_string(),
-            )
-        })?;
-
-        Ok(self
-            .command_sender
+    /// Uses typed Vec<CompositeHunk> - serde validates field names at runtime
+    pub fn update_composite_alignment(&self, buffer_id: u32, hunks: Vec<CompositeHunk>) -> bool {
+        self.command_sender
             .send(PluginCommand::UpdateCompositeAlignment {
                 buffer_id: BufferId(buffer_id as usize),
-                hunks: parsed_hunks,
+                hunks,
             })
-            .is_ok())
+            .is_ok()
     }
 
     /// Close a composite buffer
@@ -1395,6 +1354,9 @@ impl JsEditorApi {
     // === View Transform ===
 
     /// Submit a view transform for a buffer/split
+    ///
+    /// Note: tokens should be ViewTokenWire[], layoutHints should be LayoutHints
+    /// These use manual parsing due to complex enum handling
     #[allow(clippy::too_many_arguments)]
     pub fn submit_view_transform<'js>(
         &self,
@@ -1485,40 +1447,19 @@ impl JsEditorApi {
     // === File Explorer ===
 
     /// Set file explorer decorations for a namespace
-    pub fn set_file_explorer_decorations<'js>(
+    ///
+    /// Uses typed Vec<FileExplorerDecoration> - serde validates field names at runtime
+    pub fn set_file_explorer_decorations(
         &self,
-        _ctx: rquickjs::Ctx<'js>,
         namespace: String,
-        decorations: Vec<rquickjs::Object<'js>>,
-    ) -> rquickjs::Result<bool> {
-        use fresh_core::file_explorer::FileExplorerDecoration;
-
-        let decorations: Vec<FileExplorerDecoration> = decorations
-            .into_iter()
-            .map(|obj| {
-                let color: Vec<u8> = obj.get("color").unwrap_or_else(|_| vec![128, 128, 128]);
-                FileExplorerDecoration {
-                    path: std::path::PathBuf::from(
-                        obj.get::<_, String>("path").unwrap_or_default(),
-                    ),
-                    symbol: obj.get("symbol").unwrap_or_default(),
-                    color: if color.len() >= 3 {
-                        (color[0], color[1], color[2])
-                    } else {
-                        (128, 128, 128)
-                    },
-                    priority: obj.get("priority").unwrap_or(0),
-                }
-            })
-            .collect();
-
-        Ok(self
-            .command_sender
+        decorations: Vec<fresh_core::file_explorer::FileExplorerDecoration>,
+    ) -> bool {
+        self.command_sender
             .send(PluginCommand::SetFileExplorerDecorations {
                 namespace,
                 decorations,
             })
-            .is_ok())
+            .is_ok()
     }
 
     /// Clear file explorer decorations for a namespace
@@ -1682,27 +1623,16 @@ impl JsEditorApi {
             .is_ok()
     }
 
-    /// Set suggestions for the current prompt (takes array of suggestion objects)
-    pub fn set_prompt_suggestions<'js>(
+    /// Set suggestions for the current prompt
+    ///
+    /// Uses typed Vec<Suggestion> - serde validates field names at runtime
+    pub fn set_prompt_suggestions(
         &self,
-        _ctx: rquickjs::Ctx<'js>,
-        suggestions_arr: Vec<rquickjs::Object<'js>>,
-    ) -> rquickjs::Result<bool> {
-        let suggestions: Vec<fresh_core::command::Suggestion> = suggestions_arr
-            .into_iter()
-            .map(|obj| fresh_core::command::Suggestion {
-                text: obj.get("text").unwrap_or_default(),
-                description: obj.get("description").ok(),
-                value: obj.get("value").ok(),
-                disabled: obj.get("disabled").ok(),
-                keybinding: obj.get("keybinding").ok(),
-                source: None,
-            })
-            .collect();
-        Ok(self
-            .command_sender
+        suggestions: Vec<fresh_core::command::Suggestion>,
+    ) -> bool {
+        self.command_sender
             .send(PluginCommand::SetPromptSuggestions { suggestions })
-            .is_ok())
+            .is_ok()
     }
 
     // === Modes ===
@@ -1931,52 +1861,26 @@ impl JsEditorApi {
     // === Actions ===
 
     /// Execute multiple actions in sequence
-    pub fn execute_actions<'js>(
-        &self,
-        _ctx: rquickjs::Ctx<'js>,
-        actions: Vec<rquickjs::Object<'js>>,
-    ) -> rquickjs::Result<bool> {
-        let specs: Vec<ActionSpec> = actions
-            .into_iter()
-            .map(|obj| ActionSpec {
-                action: obj.get("action").unwrap_or_default(),
-                count: obj.get("count").unwrap_or(1),
-            })
-            .collect();
-        Ok(self
-            .command_sender
-            .send(PluginCommand::ExecuteActions { actions: specs })
-            .is_ok())
+    ///
+    /// Takes typed ActionSpec array - serde validates field names at runtime
+    pub fn execute_actions(&self, actions: Vec<ActionSpec>) -> bool {
+        self.command_sender
+            .send(PluginCommand::ExecuteActions { actions })
+            .is_ok()
     }
 
     /// Show an action popup
-    pub fn show_action_popup<'js>(
-        &self,
-        _ctx: rquickjs::Ctx<'js>,
-        opts: rquickjs::Object<'js>,
-    ) -> rquickjs::Result<bool> {
-        let popup_id: String = opts.get("popupId").unwrap_or_default();
-        let title: String = opts.get("title").unwrap_or_default();
-        let message: String = opts.get("message").unwrap_or_default();
-        let actions_arr: Vec<rquickjs::Object> = opts.get("actions").unwrap_or_default();
-
-        let actions: Vec<ActionPopupAction> = actions_arr
-            .into_iter()
-            .map(|obj| ActionPopupAction {
-                id: obj.get("id").unwrap_or_default(),
-                label: obj.get("label").unwrap_or_default(),
-            })
-            .collect();
-
-        Ok(self
-            .command_sender
+    ///
+    /// Takes a typed ActionPopupOptions struct - serde validates field names at runtime
+    pub fn show_action_popup(&self, opts: fresh_core::api::ActionPopupOptions) -> bool {
+        self.command_sender
             .send(PluginCommand::ShowActionPopup {
-                popup_id,
-                title,
-                message,
-                actions,
+                popup_id: opts.id,
+                title: opts.title,
+                message: opts.message,
+                actions: opts.actions,
             })
-            .is_ok())
+            .is_ok()
     }
 
     /// Disable LSP for a specific language
@@ -2204,6 +2108,8 @@ impl JsEditorApi {
     }
 
     /// Set virtual buffer content (takes array of entry objects)
+    ///
+    /// Note: entries should be TextPropertyEntry[] - uses manual parsing for HashMap support
     pub fn set_virtual_buffer_content<'js>(
         &self,
         ctx: rquickjs::Ctx<'js>,
