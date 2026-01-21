@@ -12,9 +12,9 @@ pub struct FileExplorerDecoration {
     pub path: PathBuf,
     /// Symbol to display (e.g., "●", "M", "A")
     pub symbol: String,
-    /// Color as RGB array (for rquickjs compatibility)
+    /// Color as RGB array (rquickjs_serde requires array, not tuple)
     #[ts(type = "[number, number, number]")]
-    pub color: (u8, u8, u8),
+    pub color: [u8; 3],
     /// Priority for display when multiple decorations exist (higher wins)
     #[serde(default)]
     pub priority: i32,

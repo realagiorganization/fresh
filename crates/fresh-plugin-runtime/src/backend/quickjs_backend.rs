@@ -1447,19 +1447,49 @@ impl JsEditorApi {
     // === File Explorer ===
 
     /// Set file explorer decorations for a namespace
-    ///
-    /// Uses typed Vec<FileExplorerDecoration> - serde validates field names at runtime
-    pub fn set_file_explorer_decorations(
+    pub fn set_file_explorer_decorations<'js>(
         &self,
+        _ctx: rquickjs::Ctx<'js>,
         namespace: String,
-        decorations: Vec<fresh_core::file_explorer::FileExplorerDecoration>,
-    ) -> bool {
-        self.command_sender
+        decorations: Vec<rquickjs::Object<'js>>,
+    ) -> rquickjs::Result<bool> {
+        use fresh_core::file_explorer::FileExplorerDecoration;
+
+        let decorations: Vec<FileExplorerDecoration> = decorations
+            .into_iter()
+            .map(|obj| {
+                let path: String = obj.get("path")?;
+                let symbol: String = obj.get("symbol")?;
+                let color: Vec<u8> = obj.get("color")?;
+                let priority: i32 = obj.get("priority").unwrap_or(0);
+
+                if color.len() < 3 {
+                    return Err(rquickjs::Error::FromJs {
+                        from: "array",
+                        to: "color",
+                        message: Some(format!(
+                            "color array must have at least 3 elements, got {}",
+                            color.len()
+                        )),
+                    });
+                }
+
+                Ok(FileExplorerDecoration {
+                    path: std::path::PathBuf::from(path),
+                    symbol,
+                    color: [color[0], color[1], color[2]],
+                    priority,
+                })
+            })
+            .collect::<rquickjs::Result<Vec<_>>>()?;
+
+        Ok(self
+            .command_sender
             .send(PluginCommand::SetFileExplorerDecorations {
                 namespace,
                 decorations,
             })
-            .is_ok()
+            .is_ok())
     }
 
     /// Clear file explorer decorations for a namespace

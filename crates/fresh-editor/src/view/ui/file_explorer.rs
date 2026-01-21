@@ -320,7 +320,7 @@ impl FileExplorerRenderer {
     }
 
     fn decoration_color(decoration: &crate::view::file_tree::FileExplorerDecoration) -> Color {
-        let (r, g, b) = decoration.color;
+        let [r, g, b] = decoration.color;
         Color::Rgb(r, g, b)
     }
 }

@@ -341,7 +341,7 @@ type FileExplorerDecoration = {
 	*/
 	symbol: string;
 	/**
-	* Color as RGB array (for rquickjs compatibility)
+	* Color as RGB array (rquickjs_serde requires array, not tuple)
 	*/
 	color: [number, number, number];
 	/**
