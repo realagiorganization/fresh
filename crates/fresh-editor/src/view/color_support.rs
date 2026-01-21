@@ -74,6 +74,11 @@ impl ColorCapability {
             }
         }
 
+        // Windows Terminal sets WT_SESSION and supports truecolor
+        if std::env::var("WT_SESSION").is_ok() {
+            return ColorCapability::TrueColor;
+        }
+
         // Check TERM for other indicators
         if let Ok(term) = std::env::var("TERM") {
             let t = term.to_lowercase();
