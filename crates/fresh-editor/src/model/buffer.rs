@@ -1,5 +1,6 @@
 /// Text buffer that uses PieceTree with integrated line tracking
 /// Architecture where the tree is the single source of truth for text and line information
+use crate::model::filesystem::{FileMetadata, FileSystem, StdFileSystem};
 use crate::model::piece_tree::{
     BufferData, BufferLocation, Cursor, PieceInfo, PieceRangeIter, PieceTree, Position,
     StringBuffer, TreeStats,
@@ -12,9 +13,6 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
 
 /// Error returned when a file save operation requires elevated privileges.
 ///
@@ -131,6 +129,10 @@ impl LineNumber {
 /// A text buffer that manages document content using a piece table
 /// with integrated line tracking
 pub struct TextBuffer {
+    /// Filesystem abstraction for file I/O operations.
+    /// Stored internally so methods can access it without threading through call chains.
+    fs: Arc<dyn FileSystem + Send + Sync>,
+
     /// The piece tree for efficient text manipulation with integrated line tracking
     piece_tree: PieceTree,
 
@@ -181,12 +183,18 @@ pub struct TextBuffer {
 }
 
 impl TextBuffer {
-    /// Create a new text buffer (with large_file_threshold for backwards compatibility)
+    /// Create a new text buffer with the default StdFileSystem.
     /// Note: large_file_threshold is ignored in the new implementation
     pub fn new(_large_file_threshold: usize) -> Self {
+        Self::new_with_fs(Arc::new(StdFileSystem))
+    }
+
+    /// Create a new text buffer with a custom filesystem implementation.
+    pub fn new_with_fs(fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
         let piece_tree = PieceTree::empty();
         let line_ending = LineEnding::default();
         TextBuffer {
+            fs,
             saved_root: piece_tree.root(),
             piece_tree,
             buffers: vec![StringBuffer::new(0, Vec::new())],
@@ -208,6 +216,16 @@ impl TextBuffer {
         self.version
     }
 
+    /// Get a reference to the filesystem implementation used by this buffer.
+    pub fn filesystem(&self) -> &Arc<dyn FileSystem + Send + Sync> {
+        &self.fs
+    }
+
+    /// Set the filesystem implementation for this buffer.
+    pub fn set_filesystem(&mut self, fs: Arc<dyn FileSystem + Send + Sync>) {
+        self.fs = fs;
+    }
+
     #[inline]
     fn bump_version(&mut self) {
         self.version = self.version.wrapping_add(1);
@@ -220,8 +238,16 @@ impl TextBuffer {
         self.bump_version();
     }
 
-    /// Create a text buffer from initial content
+    /// Create a text buffer from initial content with the default StdFileSystem.
     pub fn from_bytes(content: Vec<u8>) -> Self {
+        Self::from_bytes_with_fs(content, Arc::new(StdFileSystem))
+    }
+
+    /// Create a text buffer from initial content with a custom filesystem.
+    pub fn from_bytes_with_fs(
+        content: Vec<u8>,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> Self {
         let bytes = content.len();
 
         // Auto-detect line ending format from content
@@ -240,6 +266,7 @@ impl TextBuffer {
         let saved_root = piece_tree.root();
 
         TextBuffer {
+            fs,
             line_ending,
             original_line_ending: line_ending,
             piece_tree,
@@ -256,17 +283,23 @@ impl TextBuffer {
         }
     }
 
-    /// Create a text buffer from a string
+    /// Create a text buffer from a string with the default StdFileSystem.
     pub fn from_str(s: &str, _large_file_threshold: usize) -> Self {
         Self::from_bytes(s.as_bytes().to_vec())
     }
 
-    /// Create an empty text buffer
+    /// Create an empty text buffer with the default StdFileSystem.
     pub fn empty() -> Self {
+        Self::empty_with_fs(Arc::new(StdFileSystem))
+    }
+
+    /// Create an empty text buffer with a custom filesystem.
+    pub fn empty_with_fs(fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
         let piece_tree = PieceTree::empty();
         let saved_root = piece_tree.root();
         let line_ending = LineEnding::default();
         TextBuffer {
+            fs,
             piece_tree,
             saved_root,
             buffers: vec![StringBuffer::new(0, Vec::new())],
@@ -283,16 +316,25 @@ impl TextBuffer {
         }
     }
 
-    /// Load a text buffer from a file
+    /// Load a text buffer from a file using the default StdFileSystem.
     pub fn load_from_file<P: AsRef<Path>>(
         path: P,
         large_file_threshold: usize,
     ) -> anyhow::Result<Self> {
+        Self::load_from_file_with_fs(path, large_file_threshold, Arc::new(StdFileSystem))
+    }
+
+    /// Load a text buffer from a file using a custom filesystem.
+    pub fn load_from_file_with_fs<P: AsRef<Path>>(
+        path: P,
+        large_file_threshold: usize,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> anyhow::Result<Self> {
         let path = path.as_ref();
 
         // Get file size to determine loading strategy
-        let metadata = std::fs::metadata(path)?;
-        let file_size = metadata.len() as usize;
+        let metadata = fs.metadata(path)?;
+        let file_size = metadata.size as usize;
 
         // Use threshold parameter or default
         let threshold = if large_file_threshold > 0 {
@@ -303,18 +345,18 @@ impl TextBuffer {
 
         // Choose loading strategy based on file size
         if file_size >= threshold {
-            Self::load_large_file(path, file_size)
+            Self::load_large_file_with_fs(path, file_size, fs)
         } else {
-            Self::load_small_file(path)
+            Self::load_small_file_with_fs(path, fs)
         }
     }
 
     /// Load a small file with full eager loading and line indexing
-    fn load_small_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
-        let path = path.as_ref();
-        let mut file = std::fs::File::open(path)?;
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents)?;
+    fn load_small_file_with_fs(
+        path: &Path,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let contents = fs.read_file(path)?;
 
         // Detect if this is a binary file
         let is_binary = Self::detect_binary(&contents);
@@ -323,7 +365,7 @@ impl TextBuffer {
         let line_ending = Self::detect_line_ending(&contents);
 
         // Keep original line endings - the view layer handles CRLF display
-        let mut buffer = Self::from_bytes(contents);
+        let mut buffer = Self::from_bytes_with_fs(contents, fs);
         buffer.file_path = Some(path.to_path_buf());
         buffer.modified = false;
         buffer.large_file = false;
@@ -334,22 +376,19 @@ impl TextBuffer {
     }
 
     /// Load a large file with unloaded buffer (no line indexing, lazy loading)
-    fn load_large_file<P: AsRef<Path>>(path: P, file_size: usize) -> anyhow::Result<Self> {
+    fn load_large_file_with_fs(
+        path: &Path,
+        file_size: usize,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> anyhow::Result<Self> {
         use crate::model::piece_tree::{BufferData, BufferLocation};
-
-        let path = path.as_ref();
 
         // Read a sample of the file to detect if it's binary and line ending format
         // We read the first 8KB for both binary and line ending detection
-        let (is_binary, line_ending) = {
-            let mut file = std::fs::File::open(path)?;
-            let sample_size = file_size.min(8 * 1024);
-            let mut sample = vec![0u8; sample_size];
-            file.read_exact(&mut sample)?;
-            let is_binary = Self::detect_binary(&sample);
-            let line_ending = Self::detect_line_ending(&sample);
-            (is_binary, line_ending)
-        };
+        let sample_size = file_size.min(8 * 1024);
+        let sample = fs.read_range(path, 0, sample_size)?;
+        let is_binary = Self::detect_binary(&sample);
+        let line_ending = Self::detect_line_ending(&sample);
 
         // Create an unloaded buffer that references the entire file
         let buffer = StringBuffer {
@@ -377,6 +416,7 @@ impl TextBuffer {
         );
 
         Ok(TextBuffer {
+            fs,
             piece_tree,
             saved_root,
             buffers: vec![buffer],
@@ -405,59 +445,30 @@ impl TextBuffer {
         }
     }
 
-    /// Create a temporary file for saving.
-    ///
-    /// Tries to create the file in the same directory as the destination file first
-    /// to allow for an atomic rename. If that fails (e.g., due to directory permissions),
-    /// falls back to the system temporary directory.
     /// Check if we should use in-place writing to preserve file ownership.
     /// Returns true if the file exists and is owned by a different user.
     /// On Unix, only root or the file owner can change file ownership with chown.
     /// When the current user is not the file owner, using atomic write (temp file + rename)
     /// would change the file's ownership to the current user. To preserve ownership,
     /// we must write directly to the existing file instead.
-    #[cfg(unix)]
-    fn should_use_inplace_write(dest_path: &Path) -> bool {
-        if let Ok(meta) = std::fs::metadata(dest_path) {
-            let file_uid = meta.uid();
-            let current_uid = unsafe { libc::getuid() };
-            // If file is owned by a different user, we should write in-place
-            // to preserve ownership (since we can't chown to another user)
-            file_uid != current_uid
-        } else {
-            // File doesn't exist, use normal atomic write
-            false
-        }
+    fn should_use_inplace_write(&self, dest_path: &Path) -> bool {
+        !self.fs.is_owner(dest_path)
     }
 
-    #[cfg(not(unix))]
-    fn should_use_inplace_write(_dest_path: &Path) -> bool {
-        // On non-Unix platforms, always use atomic write
-        false
-    }
-
-    fn create_temp_file(dest_path: &Path) -> io::Result<(PathBuf, std::fs::File)> {
+    /// Create a temporary file for saving.
+    ///
+    /// Tries to create the file in the same directory as the destination file first
+    /// to allow for an atomic rename. If that fails (e.g., due to directory permissions),
+    /// falls back to the system temporary directory.
+    fn create_temp_file(&self, dest_path: &Path) -> io::Result<(PathBuf, Box<dyn crate::model::filesystem::FileWriter>)> {
         // Try creating in same directory first
-        let same_dir_temp = dest_path.with_extension("tmp");
-        match std::fs::File::create(&same_dir_temp) {
+        let same_dir_temp = self.fs.temp_path_for(dest_path);
+        match self.fs.create_file(&same_dir_temp) {
             Ok(file) => Ok((same_dir_temp, file)),
             Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
                 // Fallback to system temp directory
-                let temp_dir = std::env::temp_dir();
-                let file_name = dest_path
-                    .file_name()
-                    .unwrap_or_else(|| std::ffi::OsStr::new("fresh-save"));
-                let timestamp = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0);
-                let temp_path = temp_dir.join(format!(
-                    "{}-{}-{}.tmp",
-                    file_name.to_string_lossy(),
-                    std::process::id(),
-                    timestamp
-                ));
-                let file = std::fs::File::create(&temp_path)?;
+                let temp_path = self.fs.unique_temp_path(dest_path);
+                let file = self.fs.create_file(&temp_path)?;
                 Ok((temp_path, file))
             }
             Err(e) => Err(e),
@@ -478,7 +489,7 @@ impl TextBuffer {
 
         // Get original file metadata (permissions, owner, etc.) before writing
         // so we can preserve it after creating/renaming the temp file
-        let original_metadata = std::fs::metadata(dest_path).ok();
+        let original_metadata = self.fs.metadata_if_exists(dest_path);
 
         // Check if we need to convert line endings
         let needs_conversion = self.line_ending != self.original_line_ending;
@@ -488,34 +499,30 @@ impl TextBuffer {
         // When the file is owned by a different user (e.g., editing with group write
         // permissions), we must write directly to the file to preserve ownership,
         // since non-root users cannot chown files to other users.
-        let use_inplace = Self::should_use_inplace_write(dest_path);
+        let use_inplace = self.should_use_inplace_write(dest_path);
 
         // Stage A: Create output file (either temp file or open existing for in-place write)
-        let (temp_path, mut out_file) = if use_inplace {
+        let (temp_path, mut out_file): (Option<PathBuf>, Box<dyn crate::model::filesystem::FileWriter>) = if use_inplace {
             // In-place write: open existing file with truncate to preserve ownership
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .truncate(true)
-                .open(dest_path)
-            {
+            match self.fs.open_file_for_write(dest_path) {
                 Ok(file) => (None, file),
                 Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
                     // Permission denied on in-place write: fall back to atomic write
                     // with temp file. The rename will also fail, triggering SudoSaveRequired.
-                    let (path, file) = Self::create_temp_file(dest_path)?;
+                    let (path, file) = self.create_temp_file(dest_path)?;
                     (Some(path), file)
                 }
                 Err(e) => return Err(e.into()),
             }
         } else {
             // Atomic write: create temp file, will rename later
-            let (path, file) = Self::create_temp_file(dest_path)?;
+            let (path, file) = self.create_temp_file(dest_path)?;
             (Some(path), file)
         };
 
         if total > 0 {
             // Cache for open source files (for streaming unloaded regions)
-            let mut source_file_cache: Option<(PathBuf, std::fs::File)> = None;
+            let mut source_file_cache: Option<(PathBuf, Box<dyn crate::model::filesystem::FileReader>)> = None;
 
             // Iterate through all pieces and write them
             for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
@@ -547,11 +554,11 @@ impl TextBuffer {
                         file_offset,
                         ..
                     } => {
-                        // Stream from source file
-                        let source_file = match &mut source_file_cache {
+                        // Stream from source file using the filesystem abstraction
+                        let source_file: &mut Box<dyn crate::model::filesystem::FileReader> = match &mut source_file_cache {
                             Some((cached_path, file)) if cached_path == file_path => file,
                             _ => {
-                                let file = std::fs::File::open(file_path)?;
+                                let file = self.fs.open_file(file_path)?;
                                 source_file_cache = Some((file_path.clone(), file));
                                 &mut source_file_cache.as_mut().unwrap().1
                             }
@@ -594,23 +601,25 @@ impl TextBuffer {
 
         // Stage B & C: Only needed for atomic write (not in-place write)
         if let Some(temp_path) = temp_path {
-            // Restore original file permissions/owner before renaming
+            // Restore original file permissions before renaming
             if let Some(ref meta) = original_metadata {
-                // Best effort restore
-                let _ = Self::restore_file_metadata(&temp_path, meta);
+                if let Some(ref perms) = meta.permissions {
+                    // Best effort restore
+                    let _ = self.fs.set_permissions(&temp_path, perms);
+                }
             }
 
             // Stage C: Atomic Replacement or Sudo Fallback
-            if let Err(e) = std::fs::rename(&temp_path, dest_path) {
+            if let Err(e) = self.fs.rename(&temp_path, dest_path) {
                 let is_permission_denied = e.kind() == io::ErrorKind::PermissionDenied;
                 let is_cross_device = cfg!(unix) && e.raw_os_error() == Some(18);
 
                 if is_cross_device {
                     #[cfg(unix)]
                     {
-                        match std::fs::copy(&temp_path, dest_path) {
+                        match self.fs.copy(&temp_path, dest_path) {
                             Ok(_) => {
-                                let _ = std::fs::remove_file(&temp_path);
+                                let _ = self.fs.remove_file(&temp_path);
                             }
                             Err(copy_err) if copy_err.kind() == io::ErrorKind::PermissionDenied => {
                                 return Err(self.make_sudo_error(
@@ -633,7 +642,7 @@ impl TextBuffer {
         // preserving ownership since we modified the existing inode
 
         // Update saved file size to match the file on disk
-        let new_size = std::fs::metadata(dest_path)?.len() as usize;
+        let new_size = self.fs.metadata(dest_path)?.size as usize;
         tracing::debug!(
             "Buffer::save: updating saved_file_size from {:?} to {}",
             self.saved_file_size,
@@ -655,7 +664,7 @@ impl TextBuffer {
     ///
     /// This updates the saved snapshot and file size to match the new state on disk.
     pub fn finalize_external_save(&mut self, dest_path: PathBuf) -> anyhow::Result<()> {
-        let new_size = std::fs::metadata(&dest_path)?.len() as usize;
+        let new_size = self.fs.metadata(&dest_path)?.size as usize;
         self.saved_file_size = Some(new_size);
         self.file_path = Some(dest_path);
         self.mark_saved_snapshot();
@@ -668,18 +677,22 @@ impl TextBuffer {
         &self,
         temp_path: PathBuf,
         dest_path: &Path,
-        original_metadata: Option<std::fs::Metadata>,
+        original_metadata: Option<FileMetadata>,
     ) -> anyhow::Error {
-        let (uid, gid, mode) = if let Some(meta) = original_metadata {
-            #[cfg(unix)]
-            {
-                (meta.uid(), meta.gid(), meta.mode() & 0o7777)
-            }
-            #[cfg(not(unix))]
-            (0, 0, 0)
+        #[cfg(unix)]
+        let (uid, gid, mode) = if let Some(ref meta) = original_metadata {
+            (
+                meta.uid.unwrap_or(0),
+                meta.gid.unwrap_or(0),
+                meta.permissions.as_ref().map(|p| p.mode() & 0o7777).unwrap_or(0),
+            )
         } else {
             (0, 0, 0)
         };
+        #[cfg(not(unix))]
+        let (uid, gid, mode) = (0u32, 0u32, 0u32);
+
+        let _ = original_metadata; // suppress unused warning on non-Unix
 
         anyhow::anyhow!(SudoSaveRequired {
             temp_path,
@@ -688,29 +701,6 @@ impl TextBuffer {
             gid,
             mode,
         })
-    }
-
-    /// Restore file metadata (permissions, owner/group) from original file
-    fn restore_file_metadata(path: &Path, original_meta: &std::fs::Metadata) -> anyhow::Result<()> {
-        // Restore permissions (works cross-platform)
-        std::fs::set_permissions(path, original_meta.permissions())?;
-
-        // On Unix, also restore owner and group
-        #[cfg(unix)]
-        {
-            let uid = original_meta.uid();
-            let gid = original_meta.gid();
-            // Use libc to set owner/group - ignore errors since we may not have permission
-            // (e.g., only root can chown to a different user)
-            unsafe {
-                use std::os::unix::ffi::OsStrExt;
-                let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
-                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-                libc::chown(c_path.as_ptr(), uid, gid);
-            }
-        }
-
-        Ok(())
     }
 
     /// Get the total number of bytes in the document
