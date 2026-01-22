@@ -1,7 +1,5 @@
 use crate::model::buffer::{Buffer, LineNumber};
 use crate::model::cursor::{Cursor, Cursors};
-use crate::model::filesystem::FileSystem;
-use std::sync::Arc;
 use crate::model::document_model::{
     DocumentCapabilities, DocumentModel, DocumentPosition, ViewportContent, ViewportLine,
 };
@@ -9,6 +7,7 @@ use crate::model::event::{
     Event, MarginContentData, MarginPositionData, OverlayFace as EventOverlayFace, PopupData,
     PopupPositionData,
 };
+use crate::model::filesystem::FileSystem;
 use crate::model::marker::MarkerList;
 use crate::primitives::grammar::GrammarRegistry;
 use crate::primitives::highlight_engine::HighlightEngine;
@@ -25,6 +24,7 @@ use anyhow::Result;
 use ratatui::style::{Color, Style};
 use std::cell::RefCell;
 use std::ops::Range;
+use std::sync::Arc;
 
 /// Display mode for a buffer
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1212,6 +1212,12 @@ pub struct SemanticTokenSpan {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::filesystem::StdFileSystem;
+    use std::sync::Arc;
+
+    fn test_fs() -> Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> {
+        Arc::new(StdFileSystem)
+    }
     use super::*;
     use crate::model::event::CursorId;
 

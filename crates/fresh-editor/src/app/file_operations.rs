@@ -377,7 +377,12 @@ impl Editor {
         };
 
         // Check file size
-        let file_size = self.filesystem.metadata(path).ok().map(|m| m.size).unwrap_or(0);
+        let file_size = self
+            .filesystem
+            .metadata(path)
+            .ok()
+            .map(|m| m.size)
+            .unwrap_or(0);
         if file_size > self.config.editor.large_file_threshold_bytes {
             let reason = format!("File too large ({} bytes)", file_size);
             tracing::warn!(
@@ -700,7 +705,12 @@ impl Editor {
             // Check if the file actually changed (compare mod times)
             // We use optimistic concurrency: check mtime, and if we decide to revert,
             // re-check to handle the race where a save completed between our checks.
-            let current_mtime = match self.filesystem.metadata(&path).ok().and_then(|m| m.modified) {
+            let current_mtime = match self
+                .filesystem
+                .metadata(&path)
+                .ok()
+                .and_then(|m| m.modified)
+            {
                 Some(mtime) => mtime,
                 None => continue, // Can't read file, skip
             };

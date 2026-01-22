@@ -197,11 +197,8 @@ impl FileOpenState {
 
         // Add ".." entry for parent directory navigation (unless at root)
         if let Some(parent) = self.current_dir.parent() {
-            let parent_entry = DirEntry::new(
-                parent.to_path_buf(),
-                "..".to_string(),
-                EntryType::Directory,
-            );
+            let parent_entry =
+                DirEntry::new(parent.to_path_buf(), "..".to_string(), EntryType::Directory);
             result.push(FileOpenEntry {
                 fs_entry: parent_entry,
                 matches_filter: true,
@@ -347,18 +344,8 @@ impl FileOpenState {
                     .to_lowercase()
                     .cmp(&b.fs_entry.name.to_lowercase()),
                 SortMode::Size => {
-                    let a_size = a
-                        .fs_entry
-                        .metadata
-                        .as_ref()
-                        .map(|m| m.size)
-                        .unwrap_or(0);
-                    let b_size = b
-                        .fs_entry
-                        .metadata
-                        .as_ref()
-                        .map(|m| m.size)
-                        .unwrap_or(0);
+                    let a_size = a.fs_entry.metadata.as_ref().map(|m| m.size).unwrap_or(0);
+                    let b_size = b.fs_entry.metadata.as_ref().map(|m| m.size).unwrap_or(0);
                     a_size.cmp(&b_size)
                 }
                 SortMode::Modified => {

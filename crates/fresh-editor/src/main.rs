@@ -10,9 +10,8 @@ use fresh::services::gpm::{gpm_to_crossterm, GpmClient};
 use fresh::services::terminal_modes::{self, KeyboardConfig, TerminalModes};
 use fresh::services::tracing_setup;
 use fresh::{
-    app::Editor, config, config_io::DirectoryContext,
-    model::filesystem::StdFileSystem, services::release_checker,
-    services::signal_handler, services::warning_log::WarningLogHandle,
+    app::Editor, config, config_io::DirectoryContext, model::filesystem::StdFileSystem,
+    services::release_checker, services::signal_handler, services::warning_log::WarningLogHandle,
 };
 use ratatui::Terminal;
 use std::{

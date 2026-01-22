@@ -85,8 +85,8 @@ use crate::input::commands::Suggestion;
 use crate::input::keybindings::{Action, KeyContext, KeybindingResolver};
 use crate::input::position_history::PositionHistory;
 use crate::model::event::{Event, EventLog, SplitDirection, SplitId};
-use crate::services::async_bridge::{AsyncBridge, AsyncMessage};
 use crate::model::filesystem::FileSystem;
+use crate::services::async_bridge::{AsyncBridge, AsyncMessage};
 use crate::services::fs::FsManager;
 use crate::services::lsp::manager::{detect_language, LspManager};
 use crate::services::plugins::PluginManager;
@@ -5196,6 +5196,11 @@ mod tests {
         (dir_context, temp_dir)
     }
 
+    /// Create a test filesystem
+    fn test_filesystem() -> Arc<dyn FileSystem + Send + Sync> {
+        Arc::new(crate::model::filesystem::StdFileSystem)
+    }
+
     #[test]
     fn test_editor_new() {
         let config = Config::default();
@@ -5206,6 +5211,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5223,6 +5229,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5242,6 +5249,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5265,6 +5273,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5293,6 +5302,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5334,6 +5344,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5380,6 +5391,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5407,6 +5419,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5426,6 +5439,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5466,6 +5480,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5517,6 +5532,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5568,6 +5584,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5608,6 +5625,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5654,6 +5672,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5727,6 +5746,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5765,6 +5785,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5950,6 +5971,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -5994,6 +6016,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6033,6 +6056,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6072,6 +6096,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6120,6 +6145,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6167,6 +6193,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6361,6 +6388,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6508,6 +6536,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6607,6 +6636,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
 
@@ -6789,6 +6819,7 @@ mod tests {
             24,
             dir_context,
             crate::view::color_support::ColorCapability::TrueColor,
+            test_filesystem(),
         )
         .unwrap();
         let split_id = editor.split_manager.active_split();

@@ -187,7 +187,10 @@ impl FsManager {
             if is_symlink {
                 // For symlinks, check what they point to
                 let target_is_dir = fs.is_dir(&path_buf).unwrap_or(false);
-                Ok(DirEntry::new_symlink(path_buf, name, target_is_dir).with_metadata(symlink_meta))
+                Ok(
+                    DirEntry::new_symlink(path_buf, name, target_is_dir)
+                        .with_metadata(symlink_meta),
+                )
             } else {
                 // Regular file or directory
                 let entry_type = if fs.is_dir(&path_buf).unwrap_or(false) {

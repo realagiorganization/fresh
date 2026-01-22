@@ -519,12 +519,10 @@ impl Editor {
                             let truncate_pos = state.backing_file_history_end();
                             // Always truncate to remove appended visible screen
                             // (even if truncate_pos is 0, meaning no scrollback yet)
-                            if let Err(e) = self.filesystem.set_file_length(backing_path, truncate_pos)
+                            if let Err(e) =
+                                self.filesystem.set_file_length(backing_path, truncate_pos)
                             {
-                                tracing::warn!(
-                                    "Failed to truncate terminal backing file: {}",
-                                    e
-                                );
+                                tracing::warn!("Failed to truncate terminal backing file: {}", e);
                             }
                         }
                     }

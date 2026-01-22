@@ -271,7 +271,11 @@ impl TextBuffer {
     }
 
     /// Create a text buffer from a string with the given filesystem.
-    pub fn from_str(s: &str, _large_file_threshold: usize, fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
+    pub fn from_str(
+        s: &str,
+        _large_file_threshold: usize,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> Self {
         Self::from_bytes(s.as_bytes().to_vec(), fs)
     }
 
@@ -326,10 +330,7 @@ impl TextBuffer {
     }
 
     /// Load a small file with full eager loading and line indexing
-    fn load_small_file(
-        path: &Path,
-        fs: Arc<dyn FileSystem + Send + Sync>,
-    ) -> anyhow::Result<Self> {
+    fn load_small_file(path: &Path, fs: Arc<dyn FileSystem + Send + Sync>) -> anyhow::Result<Self> {
         let contents = fs.read_file(path)?;
 
         // Detect if this is a binary file
@@ -434,7 +435,10 @@ impl TextBuffer {
     /// Tries to create the file in the same directory as the destination file first
     /// to allow for an atomic rename. If that fails (e.g., due to directory permissions),
     /// falls back to the system temporary directory.
-    fn create_temp_file(&self, dest_path: &Path) -> io::Result<(PathBuf, Box<dyn crate::model::filesystem::FileWriter>)> {
+    fn create_temp_file(
+        &self,
+        dest_path: &Path,
+    ) -> io::Result<(PathBuf, Box<dyn crate::model::filesystem::FileWriter>)> {
         // Try creating in same directory first
         let same_dir_temp = self.fs.temp_path_for(dest_path);
         match self.fs.create_file(&same_dir_temp) {
@@ -476,7 +480,10 @@ impl TextBuffer {
         let use_inplace = self.should_use_inplace_write(dest_path);
 
         // Stage A: Create output file (either temp file or open existing for in-place write)
-        let (temp_path, mut out_file): (Option<PathBuf>, Box<dyn crate::model::filesystem::FileWriter>) = if use_inplace {
+        let (temp_path, mut out_file): (
+            Option<PathBuf>,
+            Box<dyn crate::model::filesystem::FileWriter>,
+        ) = if use_inplace {
             // In-place write: open existing file with truncate to preserve ownership
             match self.fs.open_file_for_write(dest_path) {
                 Ok(file) => (None, file),
@@ -496,7 +503,10 @@ impl TextBuffer {
 
         if total > 0 {
             // Cache for open source files (for streaming unloaded regions)
-            let mut source_file_cache: Option<(PathBuf, Box<dyn crate::model::filesystem::FileReader>)> = None;
+            let mut source_file_cache: Option<(
+                PathBuf,
+                Box<dyn crate::model::filesystem::FileReader>,
+            )> = None;
 
             // Iterate through all pieces and write them
             for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
@@ -529,14 +539,15 @@ impl TextBuffer {
                         ..
                     } => {
                         // Stream from source file using the filesystem abstraction
-                        let source_file: &mut Box<dyn crate::model::filesystem::FileReader> = match &mut source_file_cache {
-                            Some((cached_path, file)) if cached_path == file_path => file,
-                            _ => {
-                                let file = self.fs.open_file(file_path)?;
-                                source_file_cache = Some((file_path.clone(), file));
-                                &mut source_file_cache.as_mut().unwrap().1
-                            }
-                        };
+                        let source_file: &mut Box<dyn crate::model::filesystem::FileReader> =
+                            match &mut source_file_cache {
+                                Some((cached_path, file)) if cached_path == file_path => file,
+                                _ => {
+                                    let file = self.fs.open_file(file_path)?;
+                                    source_file_cache = Some((file_path.clone(), file));
+                                    &mut source_file_cache.as_mut().unwrap().1
+                                }
+                            };
 
                         // Seek to the right position in source file
                         let read_offset = *file_offset + piece_view.buffer_offset;
@@ -658,7 +669,10 @@ impl TextBuffer {
             (
                 meta.uid.unwrap_or(0),
                 meta.gid.unwrap_or(0),
-                meta.permissions.as_ref().map(|p| p.mode() & 0o7777).unwrap_or(0),
+                meta.permissions
+                    .as_ref()
+                    .map(|p| p.mode() & 0o7777)
+                    .unwrap_or(0),
             )
         } else {
             (0, 0, 0)
@@ -2804,18 +2818,24 @@ impl<'a> Iterator for OverlappingChunks<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::filesystem::StdFileSystem;
+    use std::sync::Arc;
+
+    fn test_fs() -> Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> {
+        Arc::new(StdFileSystem)
+    }
     use super::*;
 
     #[test]
     fn test_empty_buffer() {
-        let buffer = TextBuffer::empty();
+        let buffer = TextBuffer::empty(test_fs());
         assert_eq!(buffer.total_bytes(), 0);
         assert_eq!(buffer.line_count(), Some(1)); // Empty doc has 1 line
     }
 
     #[test]
     fn test_line_positions_multiline() {
-        let buffer = TextBuffer::from_bytes(b"Hello\nNew Line\nWorld!".to_vec());
+        let buffer = TextBuffer::from_bytes(b"Hello\nNew Line\nWorld!".to_vec(), test_fs());
 
         // Check line count
         assert_eq!(buffer.line_count(), Some(3));
@@ -2841,20 +2861,20 @@ mod tests {
 
     #[test]
     fn test_new_from_content() {
-        let buffer = TextBuffer::from_bytes(b"hello\nworld".to_vec());
+        let buffer = TextBuffer::from_bytes(b"hello\nworld".to_vec(), test_fs());
         assert_eq!(buffer.total_bytes(), 11);
         assert_eq!(buffer.line_count(), Some(2));
     }
 
     #[test]
     fn test_get_all_text() {
-        let buffer = TextBuffer::from_bytes(b"hello\nworld".to_vec());
+        let buffer = TextBuffer::from_bytes(b"hello\nworld".to_vec(), test_fs());
         assert_eq!(buffer.get_all_text().unwrap(), b"hello\nworld");
     }
 
     #[test]
     fn test_insert_at_start() {
-        let mut buffer = TextBuffer::from_bytes(b"world".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"world".to_vec(), test_fs());
         buffer.insert_bytes(0, b"hello ".to_vec());
 
         assert_eq!(buffer.get_all_text().unwrap(), b"hello world");
@@ -2863,7 +2883,7 @@ mod tests {
 
     #[test]
     fn test_insert_in_middle() {
-        let mut buffer = TextBuffer::from_bytes(b"helloworld".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"helloworld".to_vec(), test_fs());
         buffer.insert_bytes(5, b" ".to_vec());
 
         assert_eq!(buffer.get_all_text().unwrap(), b"hello world");
@@ -2872,7 +2892,7 @@ mod tests {
 
     #[test]
     fn test_insert_at_end() {
-        let mut buffer = TextBuffer::from_bytes(b"hello".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello".to_vec(), test_fs());
         buffer.insert_bytes(5, b" world".to_vec());
 
         assert_eq!(buffer.get_all_text().unwrap(), b"hello world");
@@ -2881,7 +2901,7 @@ mod tests {
 
     #[test]
     fn test_insert_with_newlines() {
-        let mut buffer = TextBuffer::from_bytes(b"hello".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello".to_vec(), test_fs());
         buffer.insert_bytes(5, b"\nworld\ntest".to_vec());
 
         assert_eq!(buffer.get_all_text().unwrap(), b"hello\nworld\ntest");
@@ -2890,7 +2910,7 @@ mod tests {
 
     #[test]
     fn test_delete_from_start() {
-        let mut buffer = TextBuffer::from_bytes(b"hello world".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello world".to_vec(), test_fs());
         buffer.delete_bytes(0, 6);
 
         assert_eq!(buffer.get_all_text().unwrap(), b"world");
@@ -2899,7 +2919,7 @@ mod tests {
 
     #[test]
     fn test_delete_from_middle() {
-        let mut buffer = TextBuffer::from_bytes(b"hello world".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello world".to_vec(), test_fs());
         buffer.delete_bytes(5, 1);
 
         assert_eq!(buffer.get_all_text().unwrap(), b"helloworld");
@@ -2908,7 +2928,7 @@ mod tests {
 
     #[test]
     fn test_delete_from_end() {
-        let mut buffer = TextBuffer::from_bytes(b"hello world".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello world".to_vec(), test_fs());
         buffer.delete_bytes(6, 5);
 
         assert_eq!(buffer.get_all_text().unwrap(), b"hello ");
@@ -2917,7 +2937,7 @@ mod tests {
 
     #[test]
     fn test_delete_with_newlines() {
-        let mut buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec(), test_fs());
         buffer.delete_bytes(5, 7); // Delete "\nworld\n"
 
         assert_eq!(buffer.get_all_text().unwrap(), b"hellotest");
@@ -2926,7 +2946,7 @@ mod tests {
 
     #[test]
     fn test_offset_position_conversions() {
-        let buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec());
+        let buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec(), test_fs());
 
         let pos = buffer.offset_to_position(0);
         assert_eq!(pos, Some(Position { line: 0, column: 0 }));
@@ -2940,7 +2960,7 @@ mod tests {
 
     #[test]
     fn test_insert_at_position() {
-        let mut buffer = TextBuffer::from_bytes(b"hello\nworld".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello\nworld".to_vec(), test_fs());
         buffer.insert_at_position(Position { line: 1, column: 0 }, b"beautiful ".to_vec());
 
         assert_eq!(buffer.get_all_text().unwrap(), b"hello\nbeautiful world");
@@ -2948,7 +2968,7 @@ mod tests {
 
     #[test]
     fn test_delete_range() {
-        let mut buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec(), test_fs());
 
         let start = Position { line: 0, column: 5 };
         let end = Position { line: 2, column: 0 };
@@ -2959,7 +2979,7 @@ mod tests {
 
     #[test]
     fn test_get_line() {
-        let buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec());
+        let buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec(), test_fs());
 
         assert_eq!(buffer.get_line(0), Some(b"hello\n".to_vec()));
         assert_eq!(buffer.get_line(1), Some(b"world\n".to_vec()));
@@ -2969,7 +2989,7 @@ mod tests {
 
     #[test]
     fn test_multiple_operations() {
-        let mut buffer = TextBuffer::from_bytes(b"line1\nline2\nline3".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"line1\nline2\nline3".to_vec(), test_fs());
 
         buffer.insert_bytes(0, b"start\n".to_vec());
         assert_eq!(buffer.line_count(), Some(4));
@@ -2986,7 +3006,7 @@ mod tests {
 
     #[test]
     fn test_get_text_range() {
-        let buffer = TextBuffer::from_bytes(b"hello world".to_vec());
+        let buffer = TextBuffer::from_bytes(b"hello world".to_vec(), test_fs());
 
         assert_eq!(buffer.get_text_range(0, 5), Some(b"hello".to_vec()));
         assert_eq!(buffer.get_text_range(6, 5), Some(b"world".to_vec()));
@@ -2995,7 +3015,7 @@ mod tests {
 
     #[test]
     fn test_empty_operations() {
-        let mut buffer = TextBuffer::from_bytes(b"hello".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"hello".to_vec(), test_fs());
 
         buffer.insert_bytes(2, Vec::new());
         assert_eq!(buffer.get_all_text().unwrap(), b"hello");
@@ -3007,7 +3027,7 @@ mod tests {
     #[test]
     fn test_sequential_inserts_at_beginning() {
         // Regression test for piece tree duplicate insertion bug
-        let mut buffer = TextBuffer::from_bytes(b"initial\ntext".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"initial\ntext".to_vec(), test_fs());
 
         // Delete all
         buffer.delete_bytes(0, 12);
@@ -3050,7 +3070,7 @@ mod tests {
 
         #[test]
         fn test_line_count_is_some_for_small_buffer() {
-            let buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec());
+            let buffer = TextBuffer::from_bytes(b"hello\nworld\ntest".to_vec(), test_fs());
             assert_eq!(buffer.line_count(), Some(3));
         }
 
@@ -3158,7 +3178,7 @@ mod tests {
                 .unwrap();
 
             // Load with default threshold
-            let buffer = TextBuffer::load_from_file(&file_path, 0).unwrap();
+            let buffer = TextBuffer::load_from_file(&file_path, 0, test_fs()).unwrap();
 
             // Should be eagerly loaded (not large_file mode)
             assert!(!buffer.large_file);
@@ -3183,7 +3203,7 @@ mod tests {
                 .unwrap();
 
             // Load with threshold of 10 bytes (file is 17 bytes, so it's "large")
-            let buffer = TextBuffer::load_from_file(&file_path, 10).unwrap();
+            let buffer = TextBuffer::load_from_file(&file_path, 10, test_fs()).unwrap();
 
             // Should be in large_file mode
             assert!(buffer.large_file);
@@ -3217,7 +3237,7 @@ mod tests {
                 .unwrap();
 
             // Load with small threshold to force lazy loading
-            let mut buffer = TextBuffer::load_from_file(&file_path, 10).unwrap();
+            let mut buffer = TextBuffer::load_from_file(&file_path, 10, test_fs()).unwrap();
 
             // Verify we're in large file mode with unloaded buffer
             assert!(buffer.large_file, "Buffer should be in large file mode");
@@ -3264,7 +3284,7 @@ mod tests {
                 .unwrap();
 
             // Load with threshold of 100 bytes - should be large file (>= threshold)
-            let buffer = TextBuffer::load_from_file(&file_path, 100).unwrap();
+            let buffer = TextBuffer::load_from_file(&file_path, 100, test_fs()).unwrap();
             assert!(buffer.large_file);
 
             // Test just below threshold
@@ -3292,7 +3312,7 @@ mod tests {
                 .unwrap();
 
             // Load with threshold 0 - should use DEFAULT_LARGE_FILE_THRESHOLD
-            let buffer = TextBuffer::load_from_file(&file_path, 0).unwrap();
+            let buffer = TextBuffer::load_from_file(&file_path, 0, test_fs()).unwrap();
 
             // 5 bytes < 100MB, so should not be large file
             assert!(!buffer.large_file);
@@ -3310,7 +3330,7 @@ mod tests {
                 .unwrap();
 
             // Load as large file
-            let buffer = TextBuffer::load_from_file(&file_path, 5).unwrap();
+            let buffer = TextBuffer::load_from_file(&file_path, 5, test_fs()).unwrap();
 
             // Should have correct total bytes
             assert_eq!(buffer.total_bytes(), test_data.len());
@@ -3331,7 +3351,7 @@ mod tests {
             File::create(&file_path).unwrap();
 
             // Load as large file
-            let buffer = TextBuffer::load_from_file(&file_path, 0).unwrap();
+            let buffer = TextBuffer::load_from_file(&file_path, 0, test_fs()).unwrap();
 
             // Empty file is handled gracefully
             assert_eq!(buffer.total_bytes(), 0);
@@ -3351,7 +3371,7 @@ mod tests {
                 .unwrap();
 
             // Load as large file (use small threshold to trigger large file mode)
-            let mut buffer = TextBuffer::load_from_file(&file_path, 10).unwrap();
+            let mut buffer = TextBuffer::load_from_file(&file_path, 10, test_fs()).unwrap();
 
             // Verify it's in large file mode
             assert!(buffer.large_file);
@@ -3441,7 +3461,7 @@ mod tests {
             file.flush().unwrap();
 
             // Load as large file (use threshold of 1 byte to ensure large file mode)
-            let mut buffer = TextBuffer::load_from_file(&file_path, 1).unwrap();
+            let mut buffer = TextBuffer::load_from_file(&file_path, 1, test_fs()).unwrap();
 
             // Verify it's in large file mode
             assert!(buffer.large_file);
@@ -3495,7 +3515,7 @@ mod tests {
 
             // Most importantly: validate the entire buffer content matches the original file
             // Create a fresh buffer to read the original file
-            let mut buffer2 = TextBuffer::load_from_file(&file_path, 1).unwrap();
+            let mut buffer2 = TextBuffer::load_from_file(&file_path, 1, test_fs()).unwrap();
 
             // Read the entire file in chunks and verify each chunk
             let chunk_read_size = 64 * 1024; // Read in 64KB chunks for efficiency
@@ -3549,7 +3569,7 @@ mod tests {
             file.flush().unwrap();
 
             // Load as large file (threshold of 100 bytes)
-            let mut buffer = TextBuffer::load_from_file(&file_path, 100).unwrap();
+            let mut buffer = TextBuffer::load_from_file(&file_path, 100, test_fs()).unwrap();
             assert!(buffer.large_file);
             assert_eq!(buffer.total_bytes(), file_size);
 
@@ -3612,7 +3632,7 @@ mod tests {
             std::fs::write(&file_path, &content).unwrap();
 
             // Load as large file (threshold of 500 bytes)
-            let mut buffer = TextBuffer::load_from_file(&file_path, 500).unwrap();
+            let mut buffer = TextBuffer::load_from_file(&file_path, 500, test_fs()).unwrap();
             assert!(
                 buffer.line_count().is_none(),
                 "Should be in large file mode"
@@ -3661,7 +3681,7 @@ mod tests {
         // Line 2: "c\n" (bytes 4-5, newline at 5)
         // Line 3: "d" (bytes 6, no newline)
         let content = b"a\nb\nc\nd";
-        let buffer = TextBuffer::from_bytes(content.to_vec());
+        let buffer = TextBuffer::from_bytes(content.to_vec(), test_fs());
 
         // Verify specific positions
         let pos = buffer
@@ -3704,7 +3724,7 @@ mod tests {
     #[test]
     fn test_offset_to_position_after_insert() {
         // Start with simple content
-        let mut buffer = TextBuffer::from_bytes(b"a\nb\n".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"a\nb\n".to_vec(), test_fs());
 
         // Insert at position 2 (start of line 1)
         buffer.insert_at_position(Position { line: 1, column: 0 }, b"x\n".to_vec());
@@ -3739,7 +3759,7 @@ mod tests {
     #[test]
     fn test_offset_to_position_empty_lines() {
         // Test with empty lines: "\n\n\n"
-        let buffer = TextBuffer::from_bytes(b"\n\n\n".to_vec());
+        let buffer = TextBuffer::from_bytes(b"\n\n\n".to_vec(), test_fs());
 
         // Line 0: "\n" (byte 0)
         // Line 1: "\n" (byte 1)
@@ -3813,7 +3833,7 @@ mod tests {
     #[test]
     fn test_line_iterator_with_offset_to_position() {
         // This combines line iterator with offset_to_position to find issues
-        let mut buffer = TextBuffer::from_bytes(b"line0\nline1\nline2\n".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"line0\nline1\nline2\n".to_vec(), test_fs());
 
         // Test creating line iterator at various positions
         for byte_pos in 0..=buffer.len() {
@@ -3839,7 +3859,7 @@ mod tests {
     #[test]
     fn test_piece_tree_line_count_after_insert() {
         // Debug the piece tree structure after insert
-        let mut buffer = TextBuffer::from_bytes(b"a\nb\n".to_vec());
+        let mut buffer = TextBuffer::from_bytes(b"a\nb\n".to_vec(), test_fs());
 
         // Insert at line 1, column 0
         buffer.insert_at_position(Position { line: 1, column: 0 }, b"x\n".to_vec());
@@ -3866,7 +3886,7 @@ mod tests {
 
         // Initial content: "fn foo(val: i32) {\n    val + 1\n}\n"
         let initial = b"fn foo(val: i32) {\n    val + 1\n}\n";
-        let mut buffer = TextBuffer::from_bytes(initial.to_vec());
+        let mut buffer = TextBuffer::from_bytes(initial.to_vec(), test_fs());
 
         // Verify initial positions work correctly
         // Position 23 is 'v' of second "val" on line 1
@@ -3966,7 +3986,7 @@ mod tests {
         std::fs::write(&file_path, &original_content).unwrap();
 
         // Load with small threshold to trigger large file mode
-        let mut buffer = TextBuffer::load_from_file(&file_path, 1024).unwrap();
+        let mut buffer = TextBuffer::load_from_file(&file_path, 1024, test_fs()).unwrap();
         assert!(buffer.large_file, "Should be in large file mode");
         assert!(!buffer.buffers[0].is_loaded(), "Buffer should be unloaded");
 
@@ -4057,7 +4077,7 @@ mod tests {
 
         #[test]
         fn test_set_line_ending_marks_modified() {
-            let mut buffer = TextBuffer::from_bytes(b"Hello\nWorld\n".to_vec());
+            let mut buffer = TextBuffer::from_bytes(b"Hello\nWorld\n".to_vec(), test_fs());
             assert!(!buffer.is_modified());
 
             buffer.set_line_ending(LineEnding::CRLF);
@@ -4066,7 +4086,7 @@ mod tests {
 
         #[test]
         fn test_set_default_line_ending_does_not_mark_modified() {
-            let mut buffer = TextBuffer::empty();
+            let mut buffer = TextBuffer::empty(test_fs());
             assert!(!buffer.is_modified());
 
             buffer.set_default_line_ending(LineEnding::CRLF);
@@ -4149,7 +4169,7 @@ mod tests {
             // Make directory unwritable to prevent rename/temp file creation
             std::fs::set_permissions(&unwritable_dir, Permissions::from_mode(0o555))?;
 
-            let mut buffer = TextBuffer::from_bytes(b"new content".to_vec());
+            let mut buffer = TextBuffer::from_bytes(b"new content".to_vec(), test_fs());
             let result = buffer.save_to_file(&file_path);
 
             // Verify that it returns SudoSaveRequired
@@ -4186,7 +4206,7 @@ mod tests {
             // Make directory unwritable (no write allowed)
             std::fs::set_permissions(&unwritable_dir, Permissions::from_mode(0o555))?;
 
-            let mut buffer = TextBuffer::from_bytes(b"content".to_vec());
+            let mut buffer = TextBuffer::from_bytes(b"content".to_vec(), test_fs());
             let result = buffer.save_to_file(&file_path);
 
             match result {
@@ -4347,7 +4367,7 @@ mod property_tests {
 
         #[test]
         fn prop_operations_maintain_consistency(operations in operation_strategy()) {
-            let mut buffer = TextBuffer::from_bytes(b"initial\ntext".to_vec());
+            let mut buffer = TextBuffer::from_bytes(b"initial\ntext".to_vec(), test_fs());
             let mut expected_text = b"initial\ntext".to_vec();
 
             for op in operations {
@@ -4380,7 +4400,7 @@ mod property_tests {
 
         #[test]
         fn prop_line_count_never_zero(operations in operation_strategy()) {
-            let mut buffer = TextBuffer::from_bytes(b"test".to_vec());
+            let mut buffer = TextBuffer::from_bytes(b"test".to_vec(), test_fs());
 
             for op in operations {
                 match op {
@@ -4400,7 +4420,7 @@ mod property_tests {
 
         #[test]
         fn prop_total_bytes_never_negative(operations in operation_strategy()) {
-            let mut buffer = TextBuffer::from_bytes(b"test".to_vec());
+            let mut buffer = TextBuffer::from_bytes(b"test".to_vec(), test_fs());
 
             for op in operations {
                 match op {
@@ -4420,7 +4440,7 @@ mod property_tests {
 
         #[test]
         fn prop_piece_tree_and_line_index_stay_synced(operations in operation_strategy()) {
-            let mut buffer = TextBuffer::from_bytes(b"line1\nline2\nline3".to_vec());
+            let mut buffer = TextBuffer::from_bytes(b"line1\nline2\nline3".to_vec(), test_fs());
 
             for op in operations {
                 match op {

@@ -447,22 +447,37 @@ pub trait FileSystem: Send + Sync {
 /// ```
 pub trait FileSystemExt: FileSystem {
     /// Async version of read_file
-    fn read_file_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<Vec<u8>>> + Send {
+    fn read_file_async(
+        &self,
+        path: &Path,
+    ) -> impl std::future::Future<Output = io::Result<Vec<u8>>> + Send {
         async { self.read_file(path) }
     }
 
     /// Async version of read_range
-    fn read_range_async(&self, path: &Path, offset: u64, len: usize) -> impl std::future::Future<Output = io::Result<Vec<u8>>> + Send {
+    fn read_range_async(
+        &self,
+        path: &Path,
+        offset: u64,
+        len: usize,
+    ) -> impl std::future::Future<Output = io::Result<Vec<u8>>> + Send {
         async move { self.read_range(path, offset, len) }
     }
 
     /// Async version of write_file
-    fn write_file_async(&self, path: &Path, data: &[u8]) -> impl std::future::Future<Output = io::Result<()>> + Send {
+    fn write_file_async(
+        &self,
+        path: &Path,
+        data: &[u8],
+    ) -> impl std::future::Future<Output = io::Result<()>> + Send {
         async { self.write_file(path, data) }
     }
 
     /// Async version of metadata
-    fn metadata_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<FileMetadata>> + Send {
+    fn metadata_async(
+        &self,
+        path: &Path,
+    ) -> impl std::future::Future<Output = io::Result<FileMetadata>> + Send {
         async { self.metadata(path) }
     }
 
@@ -472,22 +487,34 @@ pub trait FileSystemExt: FileSystem {
     }
 
     /// Async version of is_dir
-    fn is_dir_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<bool>> + Send {
+    fn is_dir_async(
+        &self,
+        path: &Path,
+    ) -> impl std::future::Future<Output = io::Result<bool>> + Send {
         async { self.is_dir(path) }
     }
 
     /// Async version of is_file
-    fn is_file_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<bool>> + Send {
+    fn is_file_async(
+        &self,
+        path: &Path,
+    ) -> impl std::future::Future<Output = io::Result<bool>> + Send {
         async { self.is_file(path) }
     }
 
     /// Async version of read_dir
-    fn read_dir_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<Vec<DirEntry>>> + Send {
+    fn read_dir_async(
+        &self,
+        path: &Path,
+    ) -> impl std::future::Future<Output = io::Result<Vec<DirEntry>>> + Send {
         async { self.read_dir(path) }
     }
 
     /// Async version of canonicalize
-    fn canonicalize_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<PathBuf>> + Send {
+    fn canonicalize_async(
+        &self,
+        path: &Path,
+    ) -> impl std::future::Future<Output = io::Result<PathBuf>> + Send {
         async { self.canonicalize(path) }
     }
 }
@@ -889,11 +916,7 @@ mod tests {
 
     #[test]
     fn test_dir_entry_types() {
-        let file = DirEntry::new(
-            PathBuf::from("/file"),
-            "file".to_string(),
-            EntryType::File,
-        );
+        let file = DirEntry::new(PathBuf::from("/file"), "file".to_string(), EntryType::File);
         assert!(file.is_file());
         assert!(!file.is_dir());
 
@@ -905,11 +928,7 @@ mod tests {
         assert!(dir.is_dir());
         assert!(!dir.is_file());
 
-        let link_to_dir = DirEntry::new_symlink(
-            PathBuf::from("/link"),
-            "link".to_string(),
-            true,
-        );
+        let link_to_dir = DirEntry::new_symlink(PathBuf::from("/link"), "link".to_string(), true);
         assert!(link_to_dir.is_symlink());
         assert!(link_to_dir.is_dir());
     }
