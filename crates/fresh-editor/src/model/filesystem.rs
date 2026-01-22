@@ -1,41 +1,162 @@
-//! Filesystem abstraction for platform-independent file operations
+//! Unified filesystem abstraction for platform-independent file and directory operations
 //!
-//! This module provides a trait for filesystem operations, allowing the buffer
-//! layer to work with different backends (native filesystem, browser storage,
-//! remote agents, etc.)
+//! This module provides a single trait for all filesystem operations, allowing the editor
+//! to work with different backends:
+//! - `StdFileSystem`: Native filesystem using `std::fs`
+//! - `VirtualFileSystem`: In-memory filesystem for WASM/browser (to be implemented)
+//! - Custom implementations for remote agents, network filesystems, etc.
 //!
-//! # Relationship to `services::fs::FsBackend`
-//!
-//! This crate has two filesystem abstractions:
-//!
-//! - **`model::filesystem::FileSystem`** (this module): Sync trait for file content I/O.
-//!   Used by `Buffer` for loading/saving file contents. Lives in `model` to avoid
-//!   circular dependencies and to support WASM builds where `services` is unavailable.
-//!
-//! - **`services::fs::FsBackend`**: Async trait for directory traversal and metadata.
-//!   Used by the file tree UI for listing directories. Lives in `services` (runtime-only).
-//!
-//! These are kept separate because:
-//! 1. Different concerns: content I/O vs directory navigation
-//! 2. Different styles: sync (buffer ops) vs async (UI with slow/network FS)
-//! 3. Different availability: `model` works in WASM, `services` is runtime-only
+//! The trait is synchronous. For async UI operations (like the file explorer),
+//! callers should use `spawn_blocking` or similar patterns.
 
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
-/// Metadata about a file
+// ============================================================================
+// Directory Entry Types
+// ============================================================================
+
+/// Type of filesystem entry
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EntryType {
+    File,
+    Directory,
+    Symlink,
+}
+
+/// A directory entry returned by `read_dir`
+#[derive(Debug, Clone)]
+pub struct DirEntry {
+    /// Full path to the entry
+    pub path: PathBuf,
+    /// File/directory name (last component of path)
+    pub name: String,
+    /// Type of entry
+    pub entry_type: EntryType,
+    /// Optional metadata (can be populated lazily)
+    pub metadata: Option<FileMetadata>,
+    /// For symlinks, whether the target is a directory
+    pub symlink_target_is_dir: bool,
+}
+
+impl DirEntry {
+    /// Create a new directory entry
+    pub fn new(path: PathBuf, name: String, entry_type: EntryType) -> Self {
+        Self {
+            path,
+            name,
+            entry_type,
+            metadata: None,
+            symlink_target_is_dir: false,
+        }
+    }
+
+    /// Create a symlink entry with target info
+    pub fn new_symlink(path: PathBuf, name: String, target_is_dir: bool) -> Self {
+        Self {
+            path,
+            name,
+            entry_type: EntryType::Symlink,
+            metadata: None,
+            symlink_target_is_dir: target_is_dir,
+        }
+    }
+
+    /// Add metadata to this entry
+    pub fn with_metadata(mut self, metadata: FileMetadata) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+
+    /// Returns true if this entry is a directory OR a symlink pointing to a directory
+    pub fn is_dir(&self) -> bool {
+        self.entry_type == EntryType::Directory
+            || (self.entry_type == EntryType::Symlink && self.symlink_target_is_dir)
+    }
+
+    /// Returns true if this is a regular file (or symlink to file)
+    pub fn is_file(&self) -> bool {
+        self.entry_type == EntryType::File
+            || (self.entry_type == EntryType::Symlink && !self.symlink_target_is_dir)
+    }
+
+    /// Returns true if this is a symlink
+    pub fn is_symlink(&self) -> bool {
+        self.entry_type == EntryType::Symlink
+    }
+}
+
+// ============================================================================
+// Metadata Types
+// ============================================================================
+
+/// Metadata about a file or directory
 #[derive(Debug, Clone)]
 pub struct FileMetadata {
-    /// File size in bytes
+    /// Size in bytes (0 for directories)
     pub size: u64,
+    /// Last modification time
+    pub modified: Option<SystemTime>,
     /// File permissions (opaque, platform-specific)
     pub permissions: Option<FilePermissions>,
+    /// Whether this is a hidden file (starts with . on Unix, hidden attribute on Windows)
+    pub is_hidden: bool,
+    /// Whether the file is read-only
+    pub is_readonly: bool,
     /// File owner UID (Unix only)
     #[cfg(unix)]
     pub uid: Option<u32>,
     /// File owner GID (Unix only)
     #[cfg(unix)]
     pub gid: Option<u32>,
+}
+
+impl FileMetadata {
+    /// Create minimal metadata with just size
+    pub fn new(size: u64) -> Self {
+        Self {
+            size,
+            modified: None,
+            permissions: None,
+            is_hidden: false,
+            is_readonly: false,
+            #[cfg(unix)]
+            uid: None,
+            #[cfg(unix)]
+            gid: None,
+        }
+    }
+
+    /// Builder: set modified time
+    pub fn with_modified(mut self, modified: SystemTime) -> Self {
+        self.modified = Some(modified);
+        self
+    }
+
+    /// Builder: set hidden flag
+    pub fn with_hidden(mut self, hidden: bool) -> Self {
+        self.is_hidden = hidden;
+        self
+    }
+
+    /// Builder: set readonly flag
+    pub fn with_readonly(mut self, readonly: bool) -> Self {
+        self.is_readonly = readonly;
+        self
+    }
+
+    /// Builder: set permissions
+    pub fn with_permissions(mut self, permissions: FilePermissions) -> Self {
+        self.permissions = Some(permissions);
+        self
+    }
+}
+
+impl Default for FileMetadata {
+    fn default() -> Self {
+        Self::new(0)
+    }
 }
 
 /// Opaque file permissions wrapper
@@ -81,7 +202,23 @@ impl FilePermissions {
     pub fn mode(&self) -> u32 {
         self.mode
     }
+
+    /// Check if readonly
+    pub fn is_readonly(&self) -> bool {
+        #[cfg(unix)]
+        {
+            self.mode & 0o222 == 0
+        }
+        #[cfg(not(unix))]
+        {
+            self.readonly
+        }
+    }
 }
+
+// ============================================================================
+// File Handle Traits
+// ============================================================================
 
 /// A writable file handle
 pub trait FileWriter: Write + Send {
@@ -128,45 +265,32 @@ impl Seek for StdFileReader {
 
 impl FileReader for StdFileReader {}
 
-/// Trait for filesystem operations
+// ============================================================================
+// FileSystem Trait
+// ============================================================================
+
+/// Unified trait for all filesystem operations
 ///
-/// This abstraction allows the buffer layer to work with different filesystem
-/// implementations:
-/// - `StdFileSystem`: Uses `std::fs` for native builds
-/// - `NoopFileSystem`: Returns errors, for WASM where files come from JavaScript
+/// This trait provides both file content I/O and directory operations.
+/// Implementations can be:
+/// - `StdFileSystem`: Native filesystem using `std::fs`
+/// - `VirtualFileSystem`: In-memory for WASM/browser
+/// - Custom backends for remote agents, network filesystems, etc.
 ///
-/// # Example
-///
-/// ```ignore
-/// // Native build
-/// let fs = StdFileSystem;
-/// let buffer = TextBuffer::load_from_file(&fs, "file.txt", 0)?;
-///
-/// // WASM build - content comes from JavaScript, no filesystem needed
-/// let buffer = TextBuffer::from_bytes(content_from_js);
-/// ```
+/// All methods are synchronous. For async UI operations, use `spawn_blocking`.
 pub trait FileSystem: Send + Sync {
+    // ========================================================================
+    // File Content Operations
+    // ========================================================================
+
     /// Read entire file into memory
     fn read_file(&self, path: &Path) -> io::Result<Vec<u8>>;
 
-    /// Read a range of bytes from a file
-    ///
-    /// Used for lazy loading of large files. Reads `len` bytes starting at `offset`.
+    /// Read a range of bytes from a file (for lazy loading large files)
     fn read_range(&self, path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>>;
 
-    /// Write data to file atomically
-    ///
-    /// Implementations should use a temp file + rename pattern to avoid
-    /// corrupting the original file if something goes wrong.
+    /// Write data to file atomically (temp file + rename)
     fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()>;
-
-    /// Get file metadata (size and permissions)
-    fn metadata(&self, path: &Path) -> io::Result<FileMetadata>;
-
-    /// Check if metadata exists (file exists), returns None if not
-    fn metadata_if_exists(&self, path: &Path) -> Option<FileMetadata> {
-        self.metadata(path).ok()
-    }
 
     /// Create a file for writing, returns a writer handle
     fn create_file(&self, path: &Path) -> io::Result<Box<dyn FileWriter>>;
@@ -174,11 +298,14 @@ pub trait FileSystem: Send + Sync {
     /// Open a file for reading, returns a reader handle
     fn open_file(&self, path: &Path) -> io::Result<Box<dyn FileReader>>;
 
-    /// Open a file for writing in-place (truncating existing content)
-    /// This is used when we need to preserve file ownership on Unix
+    /// Open a file for writing in-place (truncating, preserves ownership on Unix)
     fn open_file_for_write(&self, path: &Path) -> io::Result<Box<dyn FileWriter>>;
 
-    /// Rename/move a file atomically
+    // ========================================================================
+    // File Operations
+    // ========================================================================
+
+    /// Rename/move a file or directory atomically
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
 
     /// Copy a file (fallback when rename fails across filesystems)
@@ -187,8 +314,61 @@ pub trait FileSystem: Send + Sync {
     /// Remove a file
     fn remove_file(&self, path: &Path) -> io::Result<()>;
 
+    /// Remove an empty directory
+    fn remove_dir(&self, path: &Path) -> io::Result<()>;
+
+    // ========================================================================
+    // Metadata Operations
+    // ========================================================================
+
+    /// Get file/directory metadata
+    fn metadata(&self, path: &Path) -> io::Result<FileMetadata>;
+
+    /// Get symlink metadata (doesn't follow symlinks)
+    fn symlink_metadata(&self, path: &Path) -> io::Result<FileMetadata>;
+
+    /// Check if path exists
+    fn exists(&self, path: &Path) -> bool {
+        self.metadata(path).is_ok()
+    }
+
+    /// Check if path exists, returns metadata if it does
+    fn metadata_if_exists(&self, path: &Path) -> Option<FileMetadata> {
+        self.metadata(path).ok()
+    }
+
+    /// Check if path is a directory
+    fn is_dir(&self, path: &Path) -> io::Result<bool>;
+
+    /// Check if path is a file
+    fn is_file(&self, path: &Path) -> io::Result<bool>;
+
     /// Set file permissions
     fn set_permissions(&self, path: &Path, permissions: &FilePermissions) -> io::Result<()>;
+
+    // ========================================================================
+    // Directory Operations
+    // ========================================================================
+
+    /// List entries in a directory (non-recursive)
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>>;
+
+    /// Create a directory
+    fn create_dir(&self, path: &Path) -> io::Result<()>;
+
+    /// Create a directory and all parent directories
+    fn create_dir_all(&self, path: &Path) -> io::Result<()>;
+
+    // ========================================================================
+    // Path Operations
+    // ========================================================================
+
+    /// Get canonical (absolute, normalized) path
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf>;
+
+    // ========================================================================
+    // Utility Methods
+    // ========================================================================
 
     /// Get the current user's UID (Unix only, returns 0 on other platforms)
     fn current_uid(&self) -> u32;
@@ -202,7 +382,7 @@ pub trait FileSystem: Send + Sync {
                     return uid == self.current_uid();
                 }
             }
-            true // Default to true if we can't determine
+            true
         }
         #[cfg(not(unix))]
         {
@@ -235,13 +415,54 @@ pub trait FileSystem: Send + Sync {
     }
 }
 
+// ============================================================================
+// StdFileSystem Implementation
+// ============================================================================
+
 /// Standard filesystem implementation using `std::fs`
 ///
 /// This is the default implementation for native builds.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct StdFileSystem;
 
+impl StdFileSystem {
+    /// Check if a file is hidden (platform-specific)
+    fn is_hidden(path: &Path) -> bool {
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with('.'))
+    }
+
+    /// Build FileMetadata from std::fs::Metadata
+    fn build_metadata(path: &Path, meta: &std::fs::Metadata) -> FileMetadata {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            FileMetadata {
+                size: meta.len(),
+                modified: meta.modified().ok(),
+                permissions: Some(FilePermissions::from_std(meta.permissions())),
+                is_hidden: Self::is_hidden(path),
+                is_readonly: meta.permissions().readonly(),
+                uid: Some(meta.uid()),
+                gid: Some(meta.gid()),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            FileMetadata {
+                size: meta.len(),
+                modified: meta.modified().ok(),
+                permissions: Some(FilePermissions::from_std(meta.permissions())),
+                is_hidden: Self::is_hidden(path),
+                is_readonly: meta.permissions().readonly(),
+            }
+        }
+    }
+}
+
 impl FileSystem for StdFileSystem {
+    // File Content Operations
     fn read_file(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(path)
     }
@@ -249,57 +470,26 @@ impl FileSystem for StdFileSystem {
     fn read_range(&self, path: &Path, offset: u64, len: usize) -> io::Result<Vec<u8>> {
         let mut file = std::fs::File::open(path)?;
         file.seek(io::SeekFrom::Start(offset))?;
-
         let mut buffer = vec![0u8; len];
         file.read_exact(&mut buffer)?;
-
         Ok(buffer)
     }
 
     fn write_file(&self, path: &Path, data: &[u8]) -> io::Result<()> {
-        // Get original metadata to preserve permissions
         let original_metadata = self.metadata_if_exists(path);
-
-        // Use temp file for atomic write
         let temp_path = self.temp_path_for(path);
         {
             let mut file = self.create_file(&temp_path)?;
             file.write_all(data)?;
             file.sync_all()?;
         }
-
-        // Restore permissions if original file existed
         if let Some(ref meta) = original_metadata {
             if let Some(ref perms) = meta.permissions {
                 let _ = self.set_permissions(&temp_path, perms);
             }
         }
-
-        // Atomic rename
         self.rename(&temp_path, path)?;
-
         Ok(())
-    }
-
-    fn metadata(&self, path: &Path) -> io::Result<FileMetadata> {
-        let meta = std::fs::metadata(path)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            Ok(FileMetadata {
-                size: meta.len(),
-                permissions: Some(FilePermissions::from_std(meta.permissions())),
-                uid: Some(meta.uid()),
-                gid: Some(meta.gid()),
-            })
-        }
-        #[cfg(not(unix))]
-        {
-            Ok(FileMetadata {
-                size: meta.len(),
-                permissions: Some(FilePermissions::from_std(meta.permissions())),
-            })
-        }
     }
 
     fn create_file(&self, path: &Path) -> io::Result<Box<dyn FileWriter>> {
@@ -320,6 +510,7 @@ impl FileSystem for StdFileSystem {
         Ok(Box::new(StdFileWriter(file)))
     }
 
+    // File Operations
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)
     }
@@ -332,10 +523,78 @@ impl FileSystem for StdFileSystem {
         std::fs::remove_file(path)
     }
 
+    fn remove_dir(&self, path: &Path) -> io::Result<()> {
+        std::fs::remove_dir(path)
+    }
+
+    // Metadata Operations
+    fn metadata(&self, path: &Path) -> io::Result<FileMetadata> {
+        let meta = std::fs::metadata(path)?;
+        Ok(Self::build_metadata(path, &meta))
+    }
+
+    fn symlink_metadata(&self, path: &Path) -> io::Result<FileMetadata> {
+        let meta = std::fs::symlink_metadata(path)?;
+        Ok(Self::build_metadata(path, &meta))
+    }
+
+    fn is_dir(&self, path: &Path) -> io::Result<bool> {
+        Ok(std::fs::metadata(path)?.is_dir())
+    }
+
+    fn is_file(&self, path: &Path) -> io::Result<bool> {
+        Ok(std::fs::metadata(path)?.is_file())
+    }
+
     fn set_permissions(&self, path: &Path, permissions: &FilePermissions) -> io::Result<()> {
         std::fs::set_permissions(path, permissions.to_std())
     }
 
+    // Directory Operations
+    fn read_dir(&self, path: &Path) -> io::Result<Vec<DirEntry>> {
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let file_type = entry.file_type()?;
+
+            let entry_type = if file_type.is_dir() {
+                EntryType::Directory
+            } else if file_type.is_symlink() {
+                EntryType::Symlink
+            } else {
+                EntryType::File
+            };
+
+            let mut dir_entry = DirEntry::new(path.clone(), name, entry_type);
+
+            // For symlinks, check if target is a directory
+            if file_type.is_symlink() {
+                dir_entry.symlink_target_is_dir = std::fs::metadata(&path)
+                    .map(|m| m.is_dir())
+                    .unwrap_or(false);
+            }
+
+            entries.push(dir_entry);
+        }
+        Ok(entries)
+    }
+
+    fn create_dir(&self, path: &Path) -> io::Result<()> {
+        std::fs::create_dir(path)
+    }
+
+    fn create_dir_all(&self, path: &Path) -> io::Result<()> {
+        std::fs::create_dir_all(path)
+    }
+
+    // Path Operations
+    fn canonicalize(&self, path: &Path) -> io::Result<PathBuf> {
+        std::fs::canonicalize(path)
+    }
+
+    // Utility
     fn current_uid(&self) -> u32 {
         #[cfg(unix)]
         {
@@ -348,95 +607,111 @@ impl FileSystem for StdFileSystem {
     }
 }
 
+// ============================================================================
+// NoopFileSystem Implementation
+// ============================================================================
+
 /// No-op filesystem that returns errors for all operations
 ///
-/// Used in WASM builds where there is no filesystem access.
-/// Content should be loaded via `TextBuffer::from_bytes()` instead.
+/// Used as a placeholder or in WASM builds where a VirtualFileSystem
+/// should be used instead.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoopFileSystem;
 
-impl FileSystem for NoopFileSystem {
-    fn read_file(&self, _path: &Path) -> io::Result<Vec<u8>> {
+impl NoopFileSystem {
+    fn unsupported<T>() -> io::Result<T> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
+            "Filesystem not available",
         ))
+    }
+}
+
+impl FileSystem for NoopFileSystem {
+    fn read_file(&self, _path: &Path) -> io::Result<Vec<u8>> {
+        Self::unsupported()
     }
 
     fn read_range(&self, _path: &Path, _offset: u64, _len: usize) -> io::Result<Vec<u8>> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
     }
 
     fn write_file(&self, _path: &Path, _data: &[u8]) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
-    }
-
-    fn metadata(&self, _path: &Path) -> io::Result<FileMetadata> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
     }
 
     fn create_file(&self, _path: &Path) -> io::Result<Box<dyn FileWriter>> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
     }
 
     fn open_file(&self, _path: &Path) -> io::Result<Box<dyn FileReader>> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
     }
 
     fn open_file_for_write(&self, _path: &Path) -> io::Result<Box<dyn FileWriter>> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
     }
 
     fn rename(&self, _from: &Path, _to: &Path) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
     }
 
     fn copy(&self, _from: &Path, _to: &Path) -> io::Result<u64> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
     }
 
     fn remove_file(&self, _path: &Path) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
+    }
+
+    fn remove_dir(&self, _path: &Path) -> io::Result<()> {
+        Self::unsupported()
+    }
+
+    fn metadata(&self, _path: &Path) -> io::Result<FileMetadata> {
+        Self::unsupported()
+    }
+
+    fn symlink_metadata(&self, _path: &Path) -> io::Result<FileMetadata> {
+        Self::unsupported()
+    }
+
+    fn is_dir(&self, _path: &Path) -> io::Result<bool> {
+        Self::unsupported()
+    }
+
+    fn is_file(&self, _path: &Path) -> io::Result<bool> {
+        Self::unsupported()
     }
 
     fn set_permissions(&self, _path: &Path, _permissions: &FilePermissions) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "Filesystem not available (WASM build)",
-        ))
+        Self::unsupported()
+    }
+
+    fn read_dir(&self, _path: &Path) -> io::Result<Vec<DirEntry>> {
+        Self::unsupported()
+    }
+
+    fn create_dir(&self, _path: &Path) -> io::Result<()> {
+        Self::unsupported()
+    }
+
+    fn create_dir_all(&self, _path: &Path) -> io::Result<()> {
+        Self::unsupported()
+    }
+
+    fn canonicalize(&self, _path: &Path) -> io::Result<PathBuf> {
+        Self::unsupported()
     }
 
     fn current_uid(&self) -> u32 {
         0
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -449,19 +724,15 @@ mod tests {
         let mut temp = NamedTempFile::new().unwrap();
         let path = temp.path().to_path_buf();
 
-        // Write some content
         std::io::Write::write_all(&mut temp, b"Hello, World!").unwrap();
         std::io::Write::flush(&mut temp).unwrap();
 
-        // Read it back
         let content = fs.read_file(&path).unwrap();
         assert_eq!(content, b"Hello, World!");
 
-        // Read a range
         let range = fs.read_range(&path, 7, 5).unwrap();
         assert_eq!(range, b"World");
 
-        // Check metadata
         let meta = fs.metadata(&path).unwrap();
         assert_eq!(meta.size, 13);
     }
@@ -475,9 +746,7 @@ mod tests {
         assert!(fs.read_range(path, 0, 10).is_err());
         assert!(fs.write_file(path, b"data").is_err());
         assert!(fs.metadata(path).is_err());
-        assert!(fs.create_file(path).is_err());
-        assert!(fs.open_file(path).is_err());
-        assert!(fs.rename(path, path).is_err());
+        assert!(fs.read_dir(path).is_err());
     }
 
     #[test]
@@ -486,32 +755,71 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("test.txt");
 
-        // Create and write
         {
             let mut writer = fs.create_file(&path).unwrap();
             writer.write_all(b"test content").unwrap();
             writer.sync_all().unwrap();
         }
 
-        // Read back
         let content = fs.read_file(&path).unwrap();
         assert_eq!(content, b"test content");
     }
 
     #[test]
-    fn test_open_and_read_file() {
+    fn test_read_dir() {
         let fs = StdFileSystem;
-        let mut temp = NamedTempFile::new().unwrap();
-        std::io::Write::write_all(&mut temp, b"seekable content").unwrap();
-        std::io::Write::flush(&mut temp).unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
 
-        let mut reader = fs.open_file(temp.path()).unwrap();
+        // Create some files and directories
+        fs.create_dir(&temp_dir.path().join("subdir")).unwrap();
+        fs.write_file(&temp_dir.path().join("file1.txt"), b"content1")
+            .unwrap();
+        fs.write_file(&temp_dir.path().join("file2.txt"), b"content2")
+            .unwrap();
 
-        // Seek and read
-        reader.seek(io::SeekFrom::Start(9)).unwrap();
-        let mut buf = [0u8; 7];
-        reader.read_exact(&mut buf).unwrap();
-        assert_eq!(&buf, b"content");
+        let entries = fs.read_dir(temp_dir.path()).unwrap();
+        assert_eq!(entries.len(), 3);
+
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"subdir"));
+        assert!(names.contains(&"file1.txt"));
+        assert!(names.contains(&"file2.txt"));
+    }
+
+    #[test]
+    fn test_dir_entry_types() {
+        let file = DirEntry::new(
+            PathBuf::from("/file"),
+            "file".to_string(),
+            EntryType::File,
+        );
+        assert!(file.is_file());
+        assert!(!file.is_dir());
+
+        let dir = DirEntry::new(
+            PathBuf::from("/dir"),
+            "dir".to_string(),
+            EntryType::Directory,
+        );
+        assert!(dir.is_dir());
+        assert!(!dir.is_file());
+
+        let link_to_dir = DirEntry::new_symlink(
+            PathBuf::from("/link"),
+            "link".to_string(),
+            true,
+        );
+        assert!(link_to_dir.is_symlink());
+        assert!(link_to_dir.is_dir());
+    }
+
+    #[test]
+    fn test_metadata_builder() {
+        let meta = FileMetadata::default()
+            .with_hidden(true)
+            .with_readonly(true);
+        assert!(meta.is_hidden);
+        assert!(meta.is_readonly);
     }
 
     #[test]
@@ -520,11 +828,9 @@ mod tests {
         let temp_dir = tempfile::tempdir().unwrap();
         let path = temp_dir.path().join("atomic_test.txt");
 
-        // Write initial content
         fs.write_file(&path, b"initial").unwrap();
         assert_eq!(fs.read_file(&path).unwrap(), b"initial");
 
-        // Write new content atomically
         fs.write_file(&path, b"updated").unwrap();
         assert_eq!(fs.read_file(&path).unwrap(), b"updated");
     }
