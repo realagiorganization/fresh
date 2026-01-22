@@ -1,11 +1,11 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.10.0.schema.json
 # Winget manifest for fresh-editor
 #
 # This template is used for the initial submission to winget-pkgs.
 # Replace VERSION_PLACEHOLDER with the version (e.g., 0.1.87) and
 # HASH_PLACEHOLDER with the SHA256 hash of the installer zip.
 #
-# Key configuration: Scope is set to "user" (no admin required).
+# Key configuration: Portable installer type (inherently user-scoped, no admin required).
 # Subsequent releases use wingetcreate update which preserves this setting.
 
 PackageIdentifier: sinelaw.fresh-editor
@@ -36,11 +36,10 @@ Installers:
     InstallerType: zip
     InstallerUrl: https://github.com/sinelaw/fresh/releases/download/vVERSION_PLACEHOLDER/fresh-editor-x86_64-pc-windows-msvc.zip
     InstallerSha256: HASH_PLACEHOLDER
-    # Install to user scope by default (no admin required)
-    Scope: user
+    # Portable apps are inherently user-scoped (no admin required)
     NestedInstallerType: portable
     NestedInstallerFiles:
-      - RelativeFilePath: fresh-editor-x86_64-pc-windows-msvc\fresh.exe
+      - RelativeFilePath: fresh.exe
         PortableCommandAlias: fresh
 ManifestType: singleton
-ManifestVersion: 1.6.0
+ManifestVersion: 1.10.0
