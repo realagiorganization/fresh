@@ -416,20 +416,16 @@ impl Editor {
             // The scrollback has already been incrementally streamed by the PTY read loop
             if let Some(handle) = self.terminal_manager.get(terminal_id) {
                 if let Ok(mut state) = handle.state.lock() {
-                    // Open backing file in append mode to add visible screen
-                    if let Ok(mut file) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&backing_file)
-                    {
-                        // Record the current file position as the history end point
-                        // (before appending visible screen) so we can truncate back to it
-                        if let Ok(metadata) = file.metadata() {
-                            state.set_backing_file_history_end(metadata.len());
-                        }
+                    // Record the current file size as the history end point
+                    // (before appending visible screen) so we can truncate back to it
+                    if let Ok(metadata) = self.filesystem.metadata(&backing_file) {
+                        state.set_backing_file_history_end(metadata.size);
+                    }
 
+                    // Open backing file in append mode to add visible screen
+                    if let Ok(mut file) = self.filesystem.open_file_for_append(&backing_file) {
                         use std::io::BufWriter;
-                        let mut writer = BufWriter::new(&mut file);
+                        let mut writer = BufWriter::new(&mut *file);
                         if let Err(e) = state.append_visible_screen(&mut writer) {
                             tracing::error!(
                                 "Failed to append visible screen to backing file: {}",
@@ -523,15 +519,12 @@ impl Editor {
                             let truncate_pos = state.backing_file_history_end();
                             // Always truncate to remove appended visible screen
                             // (even if truncate_pos is 0, meaning no scrollback yet)
-                            if let Ok(file) =
-                                std::fs::OpenOptions::new().write(true).open(backing_path)
+                            if let Err(e) = self.filesystem.set_file_length(backing_path, truncate_pos)
                             {
-                                if let Err(e) = file.set_len(truncate_pos) {
-                                    tracing::warn!(
-                                        "Failed to truncate terminal backing file: {}",
-                                        e
-                                    );
-                                }
+                                tracing::warn!(
+                                    "Failed to truncate terminal backing file: {}",
+                                    e
+                                );
                             }
                         }
                     }

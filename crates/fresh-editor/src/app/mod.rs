@@ -3586,7 +3586,7 @@ impl Editor {
                             self.terminal_backing_files.get(&terminal_id).cloned()
                         {
                             if let Ok(mut file) =
-                                std::fs::OpenOptions::new().append(true).open(&backing_path)
+                                self.filesystem.open_file_for_append(&backing_path)
                             {
                                 use std::io::Write;
                                 let _ = file.write_all(exit_msg.as_bytes());

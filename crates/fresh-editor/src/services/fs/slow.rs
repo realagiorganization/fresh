@@ -198,6 +198,18 @@ impl FileSystem for SlowFileSystem {
         self.inner.open_file_for_write(path)
     }
 
+    fn open_file_for_append(&self, path: &Path) -> io::Result<Box<dyn FileWriter>> {
+        self.add_delay(self.config.write_file_delay);
+        self.metrics.write_file_calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.open_file_for_append(path)
+    }
+
+    fn set_file_length(&self, path: &Path, len: u64) -> io::Result<()> {
+        self.add_delay(self.config.write_file_delay);
+        self.metrics.write_file_calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.set_file_length(path, len)
+    }
+
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         self.add_delay(self.config.other_delay);
         self.metrics.other_calls.fetch_add(1, Ordering::SeqCst);

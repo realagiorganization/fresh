@@ -393,12 +393,8 @@ impl Editor {
             if let Some(handle) = self.terminal_manager.get(terminal_id) {
                 if let Ok(state) = handle.state.lock() {
                     // Append visible screen to backing file
-                    if let Ok(mut file) = std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(&backing_path)
-                    {
-                        let mut writer = BufWriter::new(&mut file);
+                    if let Ok(mut file) = self.filesystem.open_file_for_append(&backing_path) {
+                        let mut writer = BufWriter::new(&mut *file);
                         if let Err(e) = state.append_visible_screen(&mut writer) {
                             tracing::warn!(
                                 "Failed to sync terminal {:?} to backing file: {}",

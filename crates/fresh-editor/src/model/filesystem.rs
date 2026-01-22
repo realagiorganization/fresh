@@ -301,6 +301,12 @@ pub trait FileSystem: Send + Sync {
     /// Open a file for writing in-place (truncating, preserves ownership on Unix)
     fn open_file_for_write(&self, path: &Path) -> io::Result<Box<dyn FileWriter>>;
 
+    /// Open a file for appending (creates if doesn't exist)
+    fn open_file_for_append(&self, path: &Path) -> io::Result<Box<dyn FileWriter>>;
+
+    /// Set file length (truncate or extend with zeros)
+    fn set_file_length(&self, path: &Path, len: u64) -> io::Result<()>;
+
     // ========================================================================
     // File Operations
     // ========================================================================
@@ -584,6 +590,19 @@ impl FileSystem for StdFileSystem {
         Ok(Box::new(StdFileWriter(file)))
     }
 
+    fn open_file_for_append(&self, path: &Path) -> io::Result<Box<dyn FileWriter>> {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        Ok(Box::new(StdFileWriter(file)))
+    }
+
+    fn set_file_length(&self, path: &Path, len: u64) -> io::Result<()> {
+        let file = std::fs::OpenOptions::new().write(true).open(path)?;
+        file.set_len(len)
+    }
+
     // File Operations
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)
@@ -723,6 +742,14 @@ impl FileSystem for NoopFileSystem {
     }
 
     fn open_file_for_write(&self, _path: &Path) -> io::Result<Box<dyn FileWriter>> {
+        Self::unsupported()
+    }
+
+    fn open_file_for_append(&self, _path: &Path) -> io::Result<Box<dyn FileWriter>> {
+        Self::unsupported()
+    }
+
+    fn set_file_length(&self, _path: &Path, _len: u64) -> io::Result<()> {
         Self::unsupported()
     }
 
