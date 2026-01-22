@@ -4,6 +4,7 @@
 
 pub mod buffer;
 pub mod composite_buffer;
+pub mod filesystem;
 pub mod control_event;
 pub mod cursor;
 pub mod document_model;
