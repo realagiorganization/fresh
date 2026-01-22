@@ -651,9 +651,9 @@ impl Editor {
                 if let Some(handle) = self.terminal_manager.get(terminal_id) {
                     if let Ok(state) = handle.state.lock() {
                         let cursor_pos = state.cursor_position();
-                        // Only show cursor for the active terminal in terminal mode
-                        let cursor_visible =
-                            state.cursor_visible() && is_active && self.terminal_mode;
+                        // Only show cursor if terminal reports it as visible (not hidden by app)
+                        let cursor_visible = state.cursor_visible() && is_active;
+                        let cursor_shape = state.cursor_shape();
                         let (_, rows) = state.size();
 
                         // Collect content
@@ -670,6 +670,7 @@ impl Editor {
                             &content,
                             cursor_pos,
                             cursor_visible,
+                            cursor_shape,
                             *content_rect,
                             frame.buffer_mut(),
                             self.theme.terminal_fg,
@@ -684,6 +685,7 @@ impl Editor {
 
 /// Terminal rendering utilities
 pub mod render {
+    use crate::config::CursorStyle;
     use crate::services::terminal::TerminalCell;
     use ratatui::buffer::Buffer;
     use ratatui::layout::Rect;
@@ -694,6 +696,7 @@ pub mod render {
         content: &[Vec<TerminalCell>],
         cursor_pos: (u16, u16),
         cursor_visible: bool,
+        cursor_shape: CursorStyle,
         area: Rect,
         buf: &mut Buffer,
         default_fg: Color,
@@ -739,12 +742,24 @@ pub mod render {
                     style = style.add_modifier(Modifier::REVERSED);
                 }
 
-                // Check if this is the cursor position
-                if cursor_visible
+                // Render cursor at this position if visible
+                let is_cursor = cursor_visible
                     && row_idx as u16 == cursor_pos.1
-                    && col_idx as u16 == cursor_pos.0
-                {
-                    style = style.add_modifier(Modifier::REVERSED);
+                    && col_idx as u16 == cursor_pos.0;
+
+                if is_cursor {
+                    match cursor_shape {
+                        CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock | CursorStyle::Default => {
+                            style = style.add_modifier(Modifier::REVERSED);
+                        }
+                        CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline => {
+                            style = style.add_modifier(Modifier::UNDERLINED);
+                        }
+                        CursorStyle::BlinkingBar | CursorStyle::SteadyBar => {
+                            // For bar cursor, use reversed as fallback (can't easily render a bar)
+                            style = style.add_modifier(Modifier::REVERSED);
+                        }
+                    }
                 }
 
                 buf.set_string(x, y, cell.c.to_string(), style);

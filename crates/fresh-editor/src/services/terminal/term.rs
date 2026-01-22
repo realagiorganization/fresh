@@ -127,11 +127,21 @@ impl TerminalState {
         (cursor.column.0 as u16, cursor.line.0 as u16)
     }
 
-    /// Check if cursor is visible
+    /// Check if cursor is visible (not hidden by application)
     pub fn cursor_visible(&self) -> bool {
-        // alacritty_terminal doesn't expose cursor visibility directly
-        // We'll assume it's always visible for now
-        true
+        use alacritty_terminal::vte::ansi::CursorShape;
+        self.term.cursor_style().shape != CursorShape::Hidden
+    }
+
+    /// Get the cursor shape for rendering, mapped to config::CursorStyle
+    pub fn cursor_shape(&self) -> crate::config::CursorStyle {
+        use alacritty_terminal::vte::ansi::CursorShape;
+        match self.term.cursor_style().shape {
+            CursorShape::Block | CursorShape::HollowBlock => crate::config::CursorStyle::SteadyBlock,
+            CursorShape::Underline => crate::config::CursorStyle::SteadyUnderline,
+            CursorShape::Beam => crate::config::CursorStyle::SteadyBar,
+            CursorShape::Hidden => crate::config::CursorStyle::Default, // Won't be used since cursor_visible() returns false
+        }
     }
 
     /// Get a line of content for rendering
