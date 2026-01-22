@@ -4177,6 +4177,12 @@ impl SplitRenderer {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::filesystem::StdFileSystem;
+    use std::sync::Arc;
+
+    fn test_fs() -> Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> {
+        Arc::new(StdFileSystem)
+    }
     use super::*;
     use crate::model::buffer::Buffer;
     use crate::primitives::display_width::str_width;
@@ -4196,8 +4202,8 @@ mod tests {
         cursor_pos: usize,
         gutters_enabled: bool,
     ) -> (LineRenderOutput, usize, bool, usize) {
-        let mut state = EditorState::new(20, 6, 1024);
-        state.buffer = Buffer::from_str(content, 1024);
+        let mut state = EditorState::new(20, 6, 1024, test_fs());
+        state.buffer = Buffer::from_str(content, 1024, test_fs());
         state.cursors.primary_mut().position = cursor_pos.min(state.buffer.len());
         // Create a standalone viewport (no longer part of EditorState)
         let viewport = Viewport::new(20, 4);
@@ -4618,7 +4624,7 @@ mod tests {
         // Default gutter includes: 1 char indicator + line number width + separator
         // For a 1-line buffer, line number width is typically 1 digit + padding
         let gutter_width = {
-            let mut state = EditorState::new(20, 6, 1024);
+            let mut state = EditorState::new(20, 6, 1024, test_fs());
             state.margins.left_config.enabled = true;
             state.margins.update_width_for_buffer(1);
             state.margins.left_total_width()
@@ -4888,7 +4894,7 @@ mod tests {
     fn test_build_base_tokens_crlf_single_line() {
         // Content: "abc\r\n" (5 bytes: a=0, b=1, c=2, \r=3, \n=4)
         let content = b"abc\r\n";
-        let mut buffer = Buffer::from_bytes(content.to_vec());
+        let mut buffer = Buffer::from_bytes(content.to_vec(), test_fs());
         buffer.set_line_ending(LineEnding::CRLF);
 
         let tokens = SplitRenderer::build_base_tokens_for_hook(
@@ -4937,7 +4943,7 @@ mod tests {
         // Line 2: d=5, e=6, f=7, \r=8, \n=9
         // Line 3: g=10, h=11, i=12, \r=13, \n=14
         let content = b"abc\r\ndef\r\nghi\r\n";
-        let mut buffer = Buffer::from_bytes(content.to_vec());
+        let mut buffer = Buffer::from_bytes(content.to_vec(), test_fs());
         buffer.set_line_ending(LineEnding::CRLF);
 
         let tokens = SplitRenderer::build_base_tokens_for_hook(
@@ -5017,7 +5023,7 @@ mod tests {
         // Line 1: a=0, b=1, c=2, \n=3
         // Line 2: d=4, e=5, f=6, \n=7
         let content = b"abc\ndef\n";
-        let mut buffer = Buffer::from_bytes(content.to_vec());
+        let mut buffer = Buffer::from_bytes(content.to_vec(), test_fs());
         buffer.set_line_ending(LineEnding::LF);
 
         let tokens = SplitRenderer::build_base_tokens_for_hook(
@@ -5064,7 +5070,7 @@ mod tests {
     fn test_build_base_tokens_crlf_in_lf_mode_shows_control_char() {
         // Content: "abc\r\n" but buffer is in LF mode
         let content = b"abc\r\n";
-        let mut buffer = Buffer::from_bytes(content.to_vec());
+        let mut buffer = Buffer::from_bytes(content.to_vec(), test_fs());
         buffer.set_line_ending(LineEnding::LF); // Force LF mode
 
         let tokens = SplitRenderer::build_base_tokens_for_hook(
@@ -5093,7 +5099,7 @@ mod tests {
         // Content: "abc\r\ndef\r\nghi\r\n" (15 bytes)
         // Start from byte 5 (beginning of "def")
         let content = b"abc\r\ndef\r\nghi\r\n";
-        let mut buffer = Buffer::from_bytes(content.to_vec());
+        let mut buffer = Buffer::from_bytes(content.to_vec(), test_fs());
         buffer.set_line_ending(LineEnding::CRLF);
 
         let tokens = SplitRenderer::build_base_tokens_for_hook(
@@ -5137,7 +5143,7 @@ mod tests {
         // Bytes: i=0, n=1, t=2, ' '=3, x=4, ;=5, \r=6, \n=7,
         //        i=8, n=9, t=10, ' '=11, y=12, ;=13, \r=14, \n=15
         let content = b"int x;\r\nint y;\r\n";
-        let mut buffer = Buffer::from_bytes(content.to_vec());
+        let mut buffer = Buffer::from_bytes(content.to_vec(), test_fs());
         buffer.set_line_ending(LineEnding::CRLF);
 
         // Step 1: Generate tokens

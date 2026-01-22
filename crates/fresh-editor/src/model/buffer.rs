@@ -2568,13 +2568,16 @@ impl TextBuffer {
     /// Create a buffer from a string for testing
     #[cfg(test)]
     pub fn from_str_test(s: &str) -> Self {
-        Self::from_bytes(s.as_bytes().to_vec())
+        Self::from_bytes(
+            s.as_bytes().to_vec(),
+            std::sync::Arc::new(crate::model::filesystem::StdFileSystem),
+        )
     }
 
     /// Create a new empty buffer for testing
     #[cfg(test)]
     pub fn new_test() -> Self {
-        Self::empty()
+        Self::empty(std::sync::Arc::new(crate::model::filesystem::StdFileSystem))
     }
 }
 
@@ -3296,7 +3299,7 @@ mod tests {
                 .unwrap();
 
             // Load with threshold of 100 bytes - should be small file (< threshold)
-            let buffer2 = TextBuffer::load_from_file(&file_path2, 100).unwrap();
+            let buffer2 = TextBuffer::load_from_file(&file_path2, 100, test_fs()).unwrap();
             assert!(!buffer2.large_file);
         }
 
@@ -3795,7 +3798,7 @@ mod tests {
         content.extend_from_slice(b"bbbbbbbbbb\n"); // Line 1: 11 bytes
         content.extend_from_slice(b"cccccccccc"); // Line 2: 10 bytes (no newline)
 
-        let buffer = TextBuffer::from_bytes(content.clone());
+        let buffer = TextBuffer::from_bytes(content.clone(), test_fs());
 
         // Test positions at start of each line
         let pos = buffer
@@ -4107,7 +4110,8 @@ mod tests {
 
             // Load the file
             let mut buffer =
-                TextBuffer::load_from_file(&file_path, DEFAULT_LARGE_FILE_THRESHOLD).unwrap();
+                TextBuffer::load_from_file(&file_path, DEFAULT_LARGE_FILE_THRESHOLD, test_fs())
+                    .unwrap();
             assert_eq!(buffer.line_ending(), LineEnding::LF);
 
             // Change line ending to CRLF
@@ -4136,7 +4140,8 @@ mod tests {
 
             // Load the file
             let mut buffer =
-                TextBuffer::load_from_file(&file_path, DEFAULT_LARGE_FILE_THRESHOLD).unwrap();
+                TextBuffer::load_from_file(&file_path, DEFAULT_LARGE_FILE_THRESHOLD, test_fs())
+                    .unwrap();
             assert_eq!(buffer.line_ending(), LineEnding::CRLF);
 
             // Change line ending to LF
@@ -4232,6 +4237,12 @@ mod tests {
 
 #[cfg(test)]
 mod property_tests {
+    use crate::model::filesystem::StdFileSystem;
+    use std::sync::Arc;
+
+    fn test_fs() -> Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> {
+        Arc::new(StdFileSystem)
+    }
     use super::*;
     use proptest::prelude::*;
 
@@ -4265,7 +4276,7 @@ mod property_tests {
     proptest! {
         #[test]
         fn prop_line_count_consistent(text in text_with_newlines()) {
-            let buffer = TextBuffer::from_bytes(text.clone());
+            let buffer = TextBuffer::from_bytes(text.clone(), test_fs());
 
             let newline_count = text.iter().filter(|&&b| b == b'\n').count();
             prop_assert_eq!(buffer.line_count(), Some(newline_count + 1));
@@ -4273,7 +4284,7 @@ mod property_tests {
 
         #[test]
         fn prop_get_all_text_matches_original(text in text_with_newlines()) {
-            let buffer = TextBuffer::from_bytes(text.clone());
+            let buffer = TextBuffer::from_bytes(text.clone(), test_fs());
             prop_assert_eq!(buffer.get_all_text().unwrap(), text);
         }
 
@@ -4283,7 +4294,7 @@ mod property_tests {
             offset in 0usize..100,
             insert_text in text_with_newlines()
         ) {
-            let mut buffer = TextBuffer::from_bytes(text);
+            let mut buffer = TextBuffer::from_bytes(text, test_fs());
             let initial_bytes = buffer.total_bytes();
 
             let offset = offset.min(buffer.total_bytes());
@@ -4302,7 +4313,7 @@ mod property_tests {
                 return Ok(());
             }
 
-            let mut buffer = TextBuffer::from_bytes(text);
+            let mut buffer = TextBuffer::from_bytes(text, test_fs());
             let initial_bytes = buffer.total_bytes();
 
             let offset = offset.min(buffer.total_bytes());
@@ -4323,7 +4334,7 @@ mod property_tests {
             offset in 0usize..100,
             insert_text in text_with_newlines()
         ) {
-            let mut buffer = TextBuffer::from_bytes(text.clone());
+            let mut buffer = TextBuffer::from_bytes(text.clone(), test_fs());
 
             let offset = offset.min(buffer.total_bytes());
             buffer.insert_bytes(offset, insert_text.clone());
@@ -4334,7 +4345,7 @@ mod property_tests {
 
         #[test]
         fn prop_offset_position_roundtrip(text in text_with_newlines()) {
-            let buffer = TextBuffer::from_bytes(text.clone());
+            let buffer = TextBuffer::from_bytes(text.clone(), test_fs());
 
             for offset in 0..text.len() {
                 let pos = buffer.offset_to_position(offset).expect("offset_to_position should succeed for valid offset");
@@ -4353,7 +4364,7 @@ mod property_tests {
                 return Ok(());
             }
 
-            let buffer = TextBuffer::from_bytes(text.clone());
+            let buffer = TextBuffer::from_bytes(text.clone(), test_fs());
             let offset = offset.min(buffer.total_bytes());
             let length = length.min(buffer.total_bytes() - offset);
 

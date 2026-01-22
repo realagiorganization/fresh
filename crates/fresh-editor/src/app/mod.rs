@@ -6396,7 +6396,8 @@ mod tests {
         // Line 0: positions 0-19 (includes newline)
         // Line 1: positions 19-31 (includes newline)
         let initial = "fn foo(val: i32) {\n    val + 1\n}\n";
-        editor.active_state_mut().buffer = Buffer::from_str(initial, 1024 * 1024);
+        editor.active_state_mut().buffer =
+            Buffer::from_str(initial, 1024 * 1024, test_filesystem());
 
         // Simulate LSP rename batch: rename "val" to "value" in two places
         // This is applied in reverse order to preserve positions:
@@ -6544,7 +6545,8 @@ mod tests {
         // Line 0: positions 0-19 (includes newline)
         // Line 1: positions 19-31 (includes newline)
         let initial = "fn foo(val: i32) {\n    val + 1\n}\n";
-        editor.active_state_mut().buffer = Buffer::from_str(initial, 1024 * 1024);
+        editor.active_state_mut().buffer =
+            Buffer::from_str(initial, 1024 * 1024, test_filesystem());
 
         // Position cursor at the second "val" (position 23 = 'v' of "val" on line 1)
         let original_cursor_pos = 23;
@@ -6642,7 +6644,8 @@ mod tests {
 
         // Initial content: "fn foo(val: i32) {\n    val + 1\n}\n"
         let initial = "fn foo(val: i32) {\n    val + 1\n}\n";
-        editor.active_state_mut().buffer = Buffer::from_str(initial, 1024 * 1024);
+        editor.active_state_mut().buffer =
+            Buffer::from_str(initial, 1024 * 1024, test_filesystem());
 
         let cursor_id = editor.active_state().cursors.primary_id();
         let buffer_id = editor.active_buffer();

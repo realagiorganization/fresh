@@ -87,6 +87,12 @@ pub fn apply_semantic_tokens_range_to_state(
 
 #[cfg(test)]
 mod tests {
+    use crate::model::filesystem::StdFileSystem;
+    use std::sync::Arc;
+
+    fn test_fs() -> Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> {
+        Arc::new(StdFileSystem)
+    }
     use super::*;
     use crate::config::LARGE_FILE_THRESHOLD_BYTES;
     use crate::model::event::{CursorId, Event};
@@ -95,7 +101,7 @@ mod tests {
 
     #[test]
     fn semantic_token_overlays_shift_on_insert() {
-        let mut state = EditorState::new(80, 24, LARGE_FILE_THRESHOLD_BYTES as usize);
+        let mut state = EditorState::new(80, 24, LARGE_FILE_THRESHOLD_BYTES as usize, test_fs());
         state.apply(&Event::Insert {
             position: 0,
             text: "fn main() {}".to_string(),

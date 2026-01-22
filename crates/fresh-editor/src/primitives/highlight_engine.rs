@@ -885,6 +885,12 @@ fn merge_adjacent_highlight_spans(spans: &mut Vec<HighlightSpan>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::filesystem::StdFileSystem;
+    use std::sync::Arc;
+
+    fn test_fs() -> Arc<dyn crate::model::filesystem::FileSystem + Send + Sync> {
+        Arc::new(StdFileSystem)
+    }
     use super::*;
     use crate::view::theme;
 
@@ -972,7 +978,7 @@ mod tests {
         let mut engine = HighlightEngine::for_file(Path::new("test.rs"), &registry);
 
         // Create empty buffer
-        let buffer = Buffer::from_str("", 0);
+        let buffer = Buffer::from_str("", 0, test_fs());
         let theme = Theme::load_builtin(theme::THEME_LIGHT).unwrap();
 
         // Test the specific case that triggered the overflow:
@@ -1001,7 +1007,7 @@ mod tests {
         // Line 2: "public" at bytes 8-13 (after "public\r\n" = 8 bytes)
         // Line 3: "public" at bytes 16-21 (after two "public\r\n" = 16 bytes)
         let content = b"public\r\npublic\r\npublic\r\n";
-        let buffer = Buffer::from_bytes(content.to_vec());
+        let buffer = Buffer::from_bytes(content.to_vec(), test_fs());
         let theme = Theme::load_builtin(theme::THEME_LIGHT).unwrap();
 
         if let HighlightEngine::TextMate(ref mut tm) = engine {

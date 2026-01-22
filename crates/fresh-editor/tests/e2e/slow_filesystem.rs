@@ -173,14 +173,12 @@ fn test_metrics_provide_timing_info() {
         .block_on(harness.get_fs_metrics_snapshot())
         .unwrap();
 
-    // The metrics should track total delay time
+    // The metrics should track calls
     // (exact value depends on how many fs operations happened during editor init)
-    if metrics.total_calls() > 0 {
-        assert!(
-            metrics.total_delay_time > Duration::ZERO,
-            "Metrics should track delay time"
-        );
-    }
+    assert!(
+        metrics.total_calls() > 0,
+        "Metrics should track filesystem calls"
+    );
 }
 
 #[test]

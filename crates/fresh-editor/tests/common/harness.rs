@@ -63,7 +63,7 @@ pub mod layout {
 }
 use fresh::config_io::DirectoryContext;
 use fresh::primitives::highlight_engine::HighlightEngine;
-use fresh::services::fs::{BackendMetrics, FsBackend, LocalFsBackend, SlowFsBackend, SlowFsConfig};
+use fresh::services::fs::{SlowFileSystem, SlowFsConfig};
 use fresh::services::time_source::{SharedTimeSource, TestTimeSource};
 use fresh::{app::Editor, config::Config};
 use ratatui::{backend::TestBackend, Terminal};
@@ -561,10 +561,10 @@ impl EditorTestHarness {
         self.fs_metrics.clone()
     }
 
-    /// Get a snapshot of filesystem metrics
-    pub async fn get_fs_metrics_snapshot(&self) -> Option<BackendMetrics> {
+    /// Get total filesystem calls count
+    pub async fn get_fs_total_calls(&self) -> Option<usize> {
         if let Some(ref metrics) = self.fs_metrics {
-            Some(metrics.lock().await.clone())
+            Some(metrics.lock().await.total_calls())
         } else {
             None
         }

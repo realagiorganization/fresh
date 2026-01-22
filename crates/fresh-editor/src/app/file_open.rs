@@ -649,7 +649,7 @@ mod tests {
     }
 
     fn make_entry_with_size(name: &str, size: u64) -> DirEntry {
-        make_entry(name, false).with_metadata(FileMetadata::new(size))
+        make_entry(name, false).with_metadata(crate::model::filesystem::FileMetadata::new(size))
     }
 
     #[test]
