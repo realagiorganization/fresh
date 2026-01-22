@@ -651,7 +651,7 @@ impl Editor {
             terminals_root.join(&terminal.backing_path)
         };
 
-        let _ = std::fs::create_dir_all(
+        let _ = self.filesystem.create_dir_all(
             log_path
                 .parent()
                 .or_else(|| backing_path.parent())
@@ -722,6 +722,7 @@ impl Editor {
             large_file_threshold,
             &self.grammar_registry,
             &self.config.languages,
+            std::sync::Arc::clone(&self.filesystem),
         ) {
             if let Some(state) = self.buffers.get_mut(&buffer_id) {
                 *state = new_state;

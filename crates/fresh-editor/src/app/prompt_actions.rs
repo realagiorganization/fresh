@@ -273,13 +273,13 @@ impl Editor {
                                 t!("prompt.sudo_save_failed", error = e.to_string()).to_string(),
                             );
                             // Clean up temp file on failure
-                            let _ = std::fs::remove_file(&info.temp_path);
+                            let _ = self.filesystem.remove_file(&info.temp_path);
                         }
                     }
                 } else {
                     self.set_status_message(t!("buffer.save_cancelled").to_string());
                     // Clean up temp file
-                    let _ = std::fs::remove_file(&info.temp_path);
+                    let _ = self.filesystem.remove_file(&info.temp_path);
                 }
             }
             PromptType::ConfirmOverwriteFile { path } => {
@@ -456,8 +456,8 @@ impl Editor {
                     self.active_event_log().len()
                 );
 
-                if let Ok(metadata) = std::fs::metadata(&full_path) {
-                    if let Ok(mtime) = metadata.modified() {
+                if let Ok(metadata) = self.filesystem.metadata(&full_path) {
+                    if let Some(mtime) = metadata.modified {
                         self.file_mod_times.insert(full_path.clone(), mtime);
                     }
                 }

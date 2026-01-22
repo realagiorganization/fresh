@@ -10,7 +10,8 @@ use fresh::services::gpm::{gpm_to_crossterm, GpmClient};
 use fresh::services::terminal_modes::{self, KeyboardConfig, TerminalModes};
 use fresh::services::tracing_setup;
 use fresh::{
-    app::Editor, config, config_io::DirectoryContext, services::release_checker,
+    app::Editor, config, config_io::DirectoryContext,
+    model::filesystem::StdFileSystem, services::release_checker,
     services::signal_handler, services::warning_log::WarningLogHandle,
 };
 use ratatui::Terminal;
@@ -754,6 +755,9 @@ fn main() -> AnyhowResult<()> {
         // Detect terminal color capability
         let color_capability = fresh::view::color_support::ColorCapability::detect();
 
+        // Create filesystem implementation for all IO operations
+        let filesystem = std::sync::Arc::new(StdFileSystem);
+
         let mut editor = Editor::with_working_dir(
             config.clone(),
             terminal_width,
@@ -762,6 +766,7 @@ fn main() -> AnyhowResult<()> {
             dir_context.clone(),
             !args.no_plugins,
             color_capability,
+            filesystem,
         )
         .context("Failed to create editor instance")?;
 

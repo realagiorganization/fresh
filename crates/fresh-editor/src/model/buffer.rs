@@ -1,6 +1,6 @@
 /// Text buffer that uses PieceTree with integrated line tracking
 /// Architecture where the tree is the single source of truth for text and line information
-use crate::model::filesystem::{FileMetadata, FileSystem, StdFileSystem};
+use crate::model::filesystem::{FileMetadata, FileSystem};
 use crate::model::piece_tree::{
     BufferData, BufferLocation, Cursor, PieceInfo, PieceRangeIter, PieceTree, Position,
     StringBuffer, TreeStats,
@@ -183,14 +183,9 @@ pub struct TextBuffer {
 }
 
 impl TextBuffer {
-    /// Create a new text buffer with the default StdFileSystem.
+    /// Create a new text buffer with the given filesystem implementation.
     /// Note: large_file_threshold is ignored in the new implementation
-    pub fn new(_large_file_threshold: usize) -> Self {
-        Self::new_with_fs(Arc::new(StdFileSystem))
-    }
-
-    /// Create a new text buffer with a custom filesystem implementation.
-    pub fn new_with_fs(fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
+    pub fn new(_large_file_threshold: usize, fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
         let piece_tree = PieceTree::empty();
         let line_ending = LineEnding::default();
         TextBuffer {
@@ -238,16 +233,8 @@ impl TextBuffer {
         self.bump_version();
     }
 
-    /// Create a text buffer from initial content with the default StdFileSystem.
-    pub fn from_bytes(content: Vec<u8>) -> Self {
-        Self::from_bytes_with_fs(content, Arc::new(StdFileSystem))
-    }
-
-    /// Create a text buffer from initial content with a custom filesystem.
-    pub fn from_bytes_with_fs(
-        content: Vec<u8>,
-        fs: Arc<dyn FileSystem + Send + Sync>,
-    ) -> Self {
+    /// Create a text buffer from initial content with the given filesystem.
+    pub fn from_bytes(content: Vec<u8>, fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
         let bytes = content.len();
 
         // Auto-detect line ending format from content
@@ -283,18 +270,13 @@ impl TextBuffer {
         }
     }
 
-    /// Create a text buffer from a string with the default StdFileSystem.
-    pub fn from_str(s: &str, _large_file_threshold: usize) -> Self {
-        Self::from_bytes(s.as_bytes().to_vec())
+    /// Create a text buffer from a string with the given filesystem.
+    pub fn from_str(s: &str, _large_file_threshold: usize, fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
+        Self::from_bytes(s.as_bytes().to_vec(), fs)
     }
 
-    /// Create an empty text buffer with the default StdFileSystem.
-    pub fn empty() -> Self {
-        Self::empty_with_fs(Arc::new(StdFileSystem))
-    }
-
-    /// Create an empty text buffer with a custom filesystem.
-    pub fn empty_with_fs(fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
+    /// Create an empty text buffer with the given filesystem.
+    pub fn empty(fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
         let piece_tree = PieceTree::empty();
         let saved_root = piece_tree.root();
         let line_ending = LineEnding::default();
@@ -316,16 +298,8 @@ impl TextBuffer {
         }
     }
 
-    /// Load a text buffer from a file using the default StdFileSystem.
+    /// Load a text buffer from a file using the given filesystem.
     pub fn load_from_file<P: AsRef<Path>>(
-        path: P,
-        large_file_threshold: usize,
-    ) -> anyhow::Result<Self> {
-        Self::load_from_file_with_fs(path, large_file_threshold, Arc::new(StdFileSystem))
-    }
-
-    /// Load a text buffer from a file using a custom filesystem.
-    pub fn load_from_file_with_fs<P: AsRef<Path>>(
         path: P,
         large_file_threshold: usize,
         fs: Arc<dyn FileSystem + Send + Sync>,
@@ -345,14 +319,14 @@ impl TextBuffer {
 
         // Choose loading strategy based on file size
         if file_size >= threshold {
-            Self::load_large_file_with_fs(path, file_size, fs)
+            Self::load_large_file(path, file_size, fs)
         } else {
-            Self::load_small_file_with_fs(path, fs)
+            Self::load_small_file(path, fs)
         }
     }
 
     /// Load a small file with full eager loading and line indexing
-    fn load_small_file_with_fs(
+    fn load_small_file(
         path: &Path,
         fs: Arc<dyn FileSystem + Send + Sync>,
     ) -> anyhow::Result<Self> {
@@ -365,7 +339,7 @@ impl TextBuffer {
         let line_ending = Self::detect_line_ending(&contents);
 
         // Keep original line endings - the view layer handles CRLF display
-        let mut buffer = Self::from_bytes_with_fs(contents, fs);
+        let mut buffer = Self::from_bytes(contents, fs);
         buffer.file_path = Some(path.to_path_buf());
         buffer.modified = false;
         buffer.large_file = false;
@@ -376,7 +350,7 @@ impl TextBuffer {
     }
 
     /// Load a large file with unloaded buffer (no line indexing, lazy loading)
-    fn load_large_file_with_fs(
+    fn load_large_file(
         path: &Path,
         file_size: usize,
         fs: Arc<dyn FileSystem + Send + Sync>,

@@ -2116,7 +2116,7 @@ impl Editor {
     /// Save the current theme setting to the user's config file
     fn save_theme_to_config(&mut self) {
         // Create the directory if it doesn't exist
-        if let Err(e) = std::fs::create_dir_all(&self.dir_context.config_dir) {
+        if let Err(e) = self.filesystem.create_dir_all(&self.dir_context.config_dir) {
             tracing::warn!("Failed to create config directory: {}", e);
             return;
         }
@@ -2221,7 +2221,7 @@ impl Editor {
     /// Save the current keybinding map setting to the user's config file
     fn save_keybinding_map_to_config(&mut self) {
         // Create the directory if it doesn't exist
-        if let Err(e) = std::fs::create_dir_all(&self.dir_context.config_dir) {
+        if let Err(e) = self.filesystem.create_dir_all(&self.dir_context.config_dir) {
             tracing::warn!("Failed to create config directory: {}", e);
             return;
         }
@@ -2313,7 +2313,7 @@ impl Editor {
     /// Save the current cursor style setting to the user's config file
     fn save_cursor_style_to_config(&mut self) {
         // Create the directory if it doesn't exist
-        if let Err(e) = std::fs::create_dir_all(&self.dir_context.config_dir) {
+        if let Err(e) = self.filesystem.create_dir_all(&self.dir_context.config_dir) {
             tracing::warn!("Failed to create config directory: {}", e);
             return;
         }
@@ -2424,7 +2424,7 @@ impl Editor {
     /// Save the current locale setting to the user's config file
     fn save_locale_to_config(&mut self) {
         // Create the directory if it doesn't exist
-        if let Err(e) = std::fs::create_dir_all(&self.dir_context.config_dir) {
+        if let Err(e) = self.filesystem.create_dir_all(&self.dir_context.config_dir) {
             tracing::warn!("Failed to create config directory: {}", e);
             return;
         }

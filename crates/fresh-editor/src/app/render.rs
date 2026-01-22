@@ -3590,6 +3590,7 @@ impl Editor {
             self.terminal_width,
             self.terminal_height,
             self.config.editor.large_file_threshold_bytes as usize,
+            std::sync::Arc::clone(&self.filesystem),
         );
         state
             .margins
@@ -3603,6 +3604,7 @@ impl Editor {
             state.buffer = crate::model::buffer::Buffer::from_str(
                 &content,
                 self.config.editor.large_file_threshold_bytes as usize,
+                std::sync::Arc::clone(&self.filesystem),
             );
         }
 
@@ -3663,6 +3665,7 @@ impl Editor {
             self.terminal_width,
             self.terminal_height,
             self.config.editor.large_file_threshold_bytes as usize,
+            std::sync::Arc::clone(&self.filesystem),
         );
         state
             .margins
@@ -3676,6 +3679,7 @@ impl Editor {
             state.buffer = crate::model::buffer::Buffer::from_str(
                 &content,
                 self.config.editor.large_file_threshold_bytes as usize,
+                std::sync::Arc::clone(&self.filesystem),
             );
         }
 
@@ -3799,7 +3803,7 @@ impl Editor {
     /// Called on shutdown to persist history across sessions
     pub fn save_histories(&self) {
         // Ensure data directory exists
-        if let Err(e) = std::fs::create_dir_all(&self.dir_context.data_dir) {
+        if let Err(e) = self.filesystem.create_dir_all(&self.dir_context.data_dir) {
             tracing::warn!("Failed to create data directory: {}", e);
             return;
         }

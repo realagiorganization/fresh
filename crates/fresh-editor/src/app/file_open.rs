@@ -5,7 +5,7 @@
 //! navigation shortcuts, and filtering.
 
 use crate::input::fuzzy::fuzzy_match;
-use crate::model::filesystem::{DirEntry, EntryType, FileMetadata};
+use crate::model::filesystem::{DirEntry, EntryType};
 use rust_i18n::t;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};

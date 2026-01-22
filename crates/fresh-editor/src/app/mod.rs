@@ -86,7 +86,7 @@ use crate::input::keybindings::{Action, KeyContext, KeybindingResolver};
 use crate::input::position_history::PositionHistory;
 use crate::model::event::{Event, EventLog, SplitDirection, SplitId};
 use crate::services::async_bridge::{AsyncBridge, AsyncMessage};
-use crate::model::filesystem::{FileSystem, StdFileSystem};
+use crate::model::filesystem::FileSystem;
 use crate::services::fs::FsManager;
 use crate::services::lsp::manager::{detect_language, LspManager};
 use crate::services::plugins::PluginManager;
@@ -258,6 +258,9 @@ pub struct Editor {
 
     /// Filesystem manager for file explorer
     fs_manager: Arc<FsManager>,
+
+    /// Filesystem implementation for IO operations
+    filesystem: Arc<dyn FileSystem + Send + Sync>,
 
     /// Whether file explorer is visible
     file_explorer_visible: bool,
@@ -652,6 +655,7 @@ impl Editor {
         height: u16,
         dir_context: DirectoryContext,
         color_capability: crate::view::color_support::ColorCapability,
+        filesystem: Arc<dyn FileSystem + Send + Sync>,
     ) -> AnyhowResult<Self> {
         Self::with_working_dir(
             config,
@@ -661,11 +665,13 @@ impl Editor {
             dir_context,
             true,
             color_capability,
+            filesystem,
         )
     }
 
     /// Create a new editor with an explicit working directory
     /// This is useful for testing with isolated temporary directories
+    #[allow(clippy::too_many_arguments)]
     pub fn with_working_dir(
         config: Config,
         width: u16,
@@ -674,13 +680,14 @@ impl Editor {
         dir_context: DirectoryContext,
         plugins_enabled: bool,
         color_capability: crate::view::color_support::ColorCapability,
+        filesystem: Arc<dyn FileSystem + Send + Sync>,
     ) -> AnyhowResult<Self> {
         Self::with_options(
             config,
             width,
             height,
             working_dir,
-            None,
+            filesystem,
             plugins_enabled,
             dir_context,
             None,
@@ -689,7 +696,7 @@ impl Editor {
         )
     }
 
-    /// Create a new editor for testing with optional custom backends
+    /// Create a new editor for testing with custom backends
     /// Uses empty grammar registry for fast initialization
     #[allow(clippy::too_many_arguments)]
     pub fn for_test(
@@ -699,7 +706,7 @@ impl Editor {
         working_dir: Option<PathBuf>,
         dir_context: DirectoryContext,
         color_capability: crate::view::color_support::ColorCapability,
-        fs_backend: Option<Arc<dyn FileSystem>>,
+        filesystem: Arc<dyn FileSystem + Send + Sync>,
         time_source: Option<SharedTimeSource>,
     ) -> AnyhowResult<Self> {
         Self::with_options(
@@ -707,7 +714,7 @@ impl Editor {
             width,
             height,
             working_dir,
-            fs_backend,
+            filesystem,
             true,
             dir_context,
             time_source,
@@ -725,7 +732,7 @@ impl Editor {
         width: u16,
         height: u16,
         working_dir: Option<PathBuf>,
-        fs_backend: Option<Arc<dyn FileSystem>>,
+        filesystem: Arc<dyn FileSystem + Send + Sync>,
         enable_plugins: bool,
         dir_context: DirectoryContext,
         time_source: Option<SharedTimeSource>,
@@ -768,6 +775,7 @@ impl Editor {
             width,
             height,
             config.editor.large_file_threshold_bytes as usize,
+            Arc::clone(&filesystem),
         );
         // Apply line_numbers default from config (fixes #539)
         state.margins.set_line_numbers(config.editor.line_numbers);
@@ -824,9 +832,7 @@ impl Editor {
         split_view_states.insert(initial_split_id, initial_view_state);
 
         // Initialize filesystem manager for file explorer
-        // Use provided filesystem or create default StdFileSystem
-        let filesystem = fs_backend.unwrap_or_else(|| Arc::new(StdFileSystem));
-        let fs_manager = Arc::new(FsManager::new(filesystem));
+        let fs_manager = Arc::new(FsManager::new(Arc::clone(&filesystem)));
 
         // Initialize command registry (always available, used by both plugins and core)
         let command_registry = Arc::new(RwLock::new(CommandRegistry::new()));
@@ -969,6 +975,7 @@ impl Editor {
             scroll_sync_manager: ScrollSyncManager::new(),
             file_explorer: None,
             fs_manager,
+            filesystem,
             file_explorer_visible: false,
             file_explorer_sync_in_progress: false,
             file_explorer_width_percent: file_explorer_width,

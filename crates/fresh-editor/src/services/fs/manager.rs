@@ -21,7 +21,7 @@ type PendingDirRequests =
 /// This wraps a `FileSystem` trait object and provides async methods
 /// using `spawn_blocking` internally.
 pub struct FsManager {
-    fs: Arc<dyn FileSystem>,
+    fs: Arc<dyn FileSystem + Send + Sync>,
     /// Pending directory listing requests
     /// Map of path -> list of channels waiting for the result
     pending_dir_requests: PendingDirRequests,
@@ -38,7 +38,7 @@ impl fmt::Debug for FsManager {
 
 impl FsManager {
     /// Create a new filesystem manager with the given filesystem implementation
-    pub fn new(fs: Arc<dyn FileSystem>) -> Self {
+    pub fn new(fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
         Self {
             fs,
             pending_dir_requests: Arc::new(Mutex::new(HashMap::new())),
@@ -235,7 +235,7 @@ impl FsManager {
     }
 
     /// Get the underlying filesystem implementation
-    pub fn filesystem(&self) -> &Arc<dyn FileSystem> {
+    pub fn filesystem(&self) -> &Arc<dyn FileSystem + Send + Sync> {
         &self.fs
     }
 }

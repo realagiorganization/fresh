@@ -41,7 +41,7 @@ impl Editor {
 
         // Prepare persistent storage paths under the user's data directory
         let terminal_root = self.dir_context.terminal_dir_for(&self.working_dir);
-        let _ = std::fs::create_dir_all(&terminal_root);
+        let _ = self.filesystem.create_dir_all(&terminal_root);
         // Precompute paths using the next terminal ID so we capture from the first byte
         let predicted_terminal_id = self.terminal_manager.next_terminal_id();
         let log_path =
@@ -139,12 +139,12 @@ impl Editor {
             .cloned()
             .unwrap_or_else(|| {
                 let root = self.dir_context.terminal_dir_for(&self.working_dir);
-                let _ = std::fs::create_dir_all(&root);
+                let _ = self.filesystem.create_dir_all(&root);
                 root.join(format!("fresh-terminal-{}.txt", terminal_id.0))
             });
 
         // Ensure the file exists
-        if let Err(e) = std::fs::write(&backing_file, "") {
+        if let Err(e) = self.filesystem.write_file(&backing_file, &[]) {
             tracing::warn!("Failed to create terminal backing file: {}", e);
         }
 
@@ -157,6 +157,7 @@ impl Editor {
             self.terminal_width,
             self.terminal_height,
             large_file_threshold,
+            std::sync::Arc::clone(&self.filesystem),
         );
         state.buffer.set_file_path(backing_file.clone());
         // Terminal buffers should never show line numbers
@@ -203,13 +204,13 @@ impl Editor {
             .cloned()
             .unwrap_or_else(|| {
                 let root = self.dir_context.terminal_dir_for(&self.working_dir);
-                let _ = std::fs::create_dir_all(&root);
+                let _ = self.filesystem.create_dir_all(&root);
                 root.join(format!("fresh-terminal-{}.txt", terminal_id.0))
             });
 
         // Create the file only if it doesn't exist (preserve existing scrollback for restore)
-        if !backing_file.exists() {
-            if let Err(e) = std::fs::write(&backing_file, "") {
+        if !self.filesystem.exists(&backing_file) {
+            if let Err(e) = self.filesystem.write_file(&backing_file, &[]) {
                 tracing::warn!("Failed to create terminal backing file: {}", e);
             }
         }
@@ -219,6 +220,7 @@ impl Editor {
             self.terminal_width,
             self.terminal_height,
             large_file_threshold,
+            std::sync::Arc::clone(&self.filesystem),
         );
         state.buffer.set_file_path(backing_file.clone());
         state.margins.set_line_numbers(false);
@@ -249,12 +251,12 @@ impl Editor {
             // Clean up backing/rendering file
             let backing_file = self.terminal_backing_files.remove(&terminal_id);
             if let Some(ref path) = backing_file {
-                let _ = std::fs::remove_file(path);
+                let _ = self.filesystem.remove_file(path);
             }
             // Clean up raw log file
             if let Some(log_file) = self.terminal_log_files.remove(&terminal_id) {
                 if backing_file.as_ref() != Some(&log_file) {
-                    let _ = std::fs::remove_file(&log_file);
+                    let _ = self.filesystem.remove_file(&log_file);
                 }
             }
 
@@ -447,6 +449,7 @@ impl Editor {
                 large_file_threshold,
                 &self.grammar_registry,
                 &self.config.languages,
+                std::sync::Arc::clone(&self.filesystem),
             ) {
                 // Replace buffer state
                 if let Some(state) = self.buffers.get_mut(&buffer_id) {
