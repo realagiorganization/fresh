@@ -153,18 +153,23 @@ fn test_navigation_with_slow_fs() {
 
 #[test]
 fn test_metrics_provide_timing_info() {
-    // Verify that slow fs metrics track delay time correctly
-    let delay = Duration::from_millis(100);
+    // Verify that slow fs metrics track calls correctly
+    let delay = Duration::from_millis(10);
     let slow_config = SlowFsConfig::uniform(delay);
-    let harness = EditorTestHarness::with_slow_fs(80, 24, slow_config).unwrap();
+    let mut harness = EditorTestHarness::with_slow_fs(80, 24, slow_config).unwrap();
 
-    let metrics = harness.fs_metrics().unwrap();
+    // Reset metrics to start fresh
+    harness.fs_metrics().unwrap().reset();
 
-    // The metrics should track calls
-    // (exact value depends on how many fs operations happened during editor init)
+    // Perform an operation that triggers filesystem access by opening a file
+    let _fixture = harness.load_buffer_from_text("test content").unwrap();
+
+    // The metrics should now track the file read operation
+    let total_calls = harness.fs_metrics().unwrap().total_calls();
     assert!(
-        metrics.total_calls() > 0,
-        "Metrics should track filesystem calls"
+        total_calls > 0,
+        "Metrics should track filesystem calls after opening file, got {}",
+        total_calls
     );
 }
 
