@@ -86,7 +86,8 @@ use crate::input::keybindings::{Action, KeyContext, KeybindingResolver};
 use crate::input::position_history::PositionHistory;
 use crate::model::event::{Event, EventLog, SplitDirection, SplitId};
 use crate::services::async_bridge::{AsyncBridge, AsyncMessage};
-use crate::services::fs::{FsBackend, FsManager, LocalFsBackend};
+use crate::model::filesystem::{FileSystem, StdFileSystem};
+use crate::services::fs::FsManager;
 use crate::services::lsp::manager::{detect_language, LspManager};
 use crate::services::plugins::PluginManager;
 use crate::services::recovery::{RecoveryConfig, RecoveryService};
@@ -698,7 +699,7 @@ impl Editor {
         working_dir: Option<PathBuf>,
         dir_context: DirectoryContext,
         color_capability: crate::view::color_support::ColorCapability,
-        fs_backend: Option<Arc<dyn FsBackend>>,
+        fs_backend: Option<Arc<dyn FileSystem>>,
         time_source: Option<SharedTimeSource>,
     ) -> AnyhowResult<Self> {
         Self::with_options(
@@ -724,7 +725,7 @@ impl Editor {
         width: u16,
         height: u16,
         working_dir: Option<PathBuf>,
-        fs_backend: Option<Arc<dyn FsBackend>>,
+        fs_backend: Option<Arc<dyn FileSystem>>,
         enable_plugins: bool,
         dir_context: DirectoryContext,
         time_source: Option<SharedTimeSource>,
@@ -823,9 +824,9 @@ impl Editor {
         split_view_states.insert(initial_split_id, initial_view_state);
 
         // Initialize filesystem manager for file explorer
-        // Use provided backend or create default LocalFsBackend
-        let fs_backend = fs_backend.unwrap_or_else(|| Arc::new(LocalFsBackend::new()));
-        let fs_manager = Arc::new(FsManager::new(fs_backend));
+        // Use provided filesystem or create default StdFileSystem
+        let filesystem = fs_backend.unwrap_or_else(|| Arc::new(StdFileSystem));
+        let fs_manager = Arc::new(FsManager::new(filesystem));
 
         // Initialize command registry (always available, used by both plugins and core)
         let command_registry = Arc::new(RwLock::new(CommandRegistry::new()));
@@ -2797,7 +2798,7 @@ impl Editor {
     /// Handle file open directory load result
     pub(super) fn handle_file_open_directory_loaded(
         &mut self,
-        result: std::io::Result<Vec<crate::services::fs::FsEntry>>,
+        result: std::io::Result<Vec<crate::services::fs::DirEntry>>,
     ) {
         match result {
             Ok(entries) => {

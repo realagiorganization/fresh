@@ -5,7 +5,7 @@
 //! navigation shortcuts, and filtering.
 
 use crate::input::fuzzy::fuzzy_match;
-use crate::services::fs::{FsEntry, FsEntryType};
+use crate::model::filesystem::{DirEntry, EntryType, FileMetadata};
 use rust_i18n::t;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
@@ -15,7 +15,7 @@ use std::time::SystemTime;
 #[derive(Debug, Clone)]
 pub struct FileOpenEntry {
     /// The filesystem entry
-    pub fs_entry: FsEntry,
+    pub fs_entry: DirEntry,
     /// Whether this entry matches the current filter
     pub matches_filter: bool,
     /// Fuzzy match score (higher is better match, used for sorting when filter is active)
@@ -192,15 +192,15 @@ impl FileOpenState {
     }
 
     /// Set entries from filesystem and apply initial sort
-    pub fn set_entries(&mut self, entries: Vec<FsEntry>) {
+    pub fn set_entries(&mut self, entries: Vec<DirEntry>) {
         let mut result: Vec<FileOpenEntry> = Vec::new();
 
         // Add ".." entry for parent directory navigation (unless at root)
         if let Some(parent) = self.current_dir.parent() {
-            let parent_entry = FsEntry::new(
+            let parent_entry = DirEntry::new(
                 parent.to_path_buf(),
                 "..".to_string(),
-                FsEntryType::Directory,
+                EntryType::Directory,
             );
             result.push(FileOpenEntry {
                 fs_entry: parent_entry,
@@ -351,13 +351,13 @@ impl FileOpenState {
                         .fs_entry
                         .metadata
                         .as_ref()
-                        .and_then(|m| m.size)
+                        .map(|m| m.size)
                         .unwrap_or(0);
                     let b_size = b
                         .fs_entry
                         .metadata
                         .as_ref()
-                        .and_then(|m| m.size)
+                        .map(|m| m.size)
                         .unwrap_or(0);
                     a_size.cmp(&b_size)
                 }
@@ -649,31 +649,20 @@ pub fn format_modified(time: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::fs::{FsEntryType, FsMetadata};
-
-    fn make_entry(name: &str, is_dir: bool) -> FsEntry {
-        FsEntry {
-            path: PathBuf::from(format!("/test/{}", name)),
-            name: name.to_string(),
-            entry_type: if is_dir {
-                FsEntryType::Directory
+    fn make_entry(name: &str, is_dir: bool) -> DirEntry {
+        DirEntry::new(
+            PathBuf::from(format!("/test/{}", name)),
+            name.to_string(),
+            if is_dir {
+                EntryType::Directory
             } else {
-                FsEntryType::File
+                EntryType::File
             },
-            metadata: None,
-            symlink_target_is_dir: false,
-        }
+        )
     }
 
-    fn make_entry_with_size(name: &str, size: u64) -> FsEntry {
-        let mut entry = make_entry(name, false);
-        entry.metadata = Some(FsMetadata {
-            size: Some(size),
-            modified: None,
-            is_hidden: false,
-            is_readonly: false,
-        });
-        entry
+    fn make_entry_with_size(name: &str, size: u64) -> DirEntry {
+        make_entry(name, false).with_metadata(FileMetadata::new(size))
     }
 
     #[test]
