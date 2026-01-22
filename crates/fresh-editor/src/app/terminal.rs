@@ -143,9 +143,12 @@ impl Editor {
                 root.join(format!("fresh-terminal-{}.txt", terminal_id.0))
             });
 
-        // Ensure the file exists
-        if let Err(e) = self.filesystem.write_file(&backing_file, &[]) {
-            tracing::warn!("Failed to create terminal backing file: {}", e);
+        // Ensure the file exists - but DON'T truncate if it already has content
+        // The PTY read loop may have already started writing scrollback
+        if !self.filesystem.exists(&backing_file) {
+            if let Err(e) = self.filesystem.write_file(&backing_file, &[]) {
+                tracing::warn!("Failed to create terminal backing file: {}", e);
+            }
         }
 
         // Store the backing file path
@@ -451,8 +454,7 @@ impl Editor {
                 if let Some(state) = self.buffers.get_mut(&buffer_id) {
                     *state = new_state;
                     // Move cursor to end of buffer
-                    let total = state.buffer.total_bytes();
-                    state.primary_cursor_mut().position = total;
+                    state.primary_cursor_mut().position = state.buffer.total_bytes();
                     // Terminal buffers should never be considered "modified"
                     state.buffer.set_modified(false);
                 }
