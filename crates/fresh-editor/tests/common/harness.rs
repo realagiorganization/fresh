@@ -62,8 +62,9 @@ pub mod layout {
     }
 }
 use fresh::config_io::DirectoryContext;
+use fresh::model::filesystem::{FileSystem, StdFileSystem};
 use fresh::primitives::highlight_engine::HighlightEngine;
-use fresh::services::fs::{SlowFileSystem, SlowFsConfig};
+use fresh::services::fs::{BackendMetrics, SlowFileSystem, SlowFsConfig};
 use fresh::services::time_source::{SharedTimeSource, TestTimeSource};
 use fresh::{app::Editor, config::Config};
 use ratatui::{backend::TestBackend, Terminal};
@@ -264,7 +265,7 @@ pub struct EditorTestHarness {
     _temp_dir: Option<TempDir>,
 
     /// Optional metrics for slow filesystem backend
-    fs_metrics: Option<Arc<tokio::sync::Mutex<BackendMetrics>>>,
+    fs_metrics: Option<Arc<BackendMetrics>>,
 
     /// Tokio runtime for async operations (needed for TypeScript plugins)
     _tokio_runtime: Option<tokio::runtime::Runtime>,
@@ -380,14 +381,14 @@ impl EditorTestHarness {
         config.editor.double_click_time_ms = 10; // Fast double-click for faster tests
 
         // Create filesystem backend (slow or default)
-        let (fs_backend, fs_metrics): (Option<Arc<dyn FsBackend>>, _) =
+        let (filesystem, fs_metrics): (Arc<dyn FileSystem + Send + Sync>, _) =
             if let Some(slow_config) = options.slow_fs_config {
-                let local_backend = Arc::new(LocalFsBackend::new());
-                let slow_backend = SlowFsBackend::new(local_backend, slow_config);
-                let metrics = slow_backend.metrics_arc();
-                (Some(Arc::new(slow_backend)), Some(metrics))
+                let std_fs: Arc<dyn FileSystem + Send + Sync> = Arc::new(StdFileSystem);
+                let slow_fs = SlowFileSystem::new(std_fs, slow_config);
+                let metrics = slow_fs.metrics().clone();
+                (Arc::new(slow_fs), Some(metrics))
             } else {
-                (None, None)
+                (Arc::new(StdFileSystem), None)
             };
 
         // Create terminal
@@ -402,7 +403,7 @@ impl EditorTestHarness {
             Some(working_dir),
             dir_context,
             fresh::view::color_support::ColorCapability::TrueColor,
-            fs_backend,
+            filesystem,
             Some(time_source),
         )?;
 
@@ -557,17 +558,13 @@ impl EditorTestHarness {
     }
 
     /// Get filesystem metrics (if using slow filesystem backend)
-    pub fn fs_metrics(&self) -> Option<Arc<tokio::sync::Mutex<BackendMetrics>>> {
-        self.fs_metrics.clone()
+    pub fn fs_metrics(&self) -> Option<&Arc<BackendMetrics>> {
+        self.fs_metrics.as_ref()
     }
 
     /// Get total filesystem calls count
-    pub async fn get_fs_total_calls(&self) -> Option<usize> {
-        if let Some(ref metrics) = self.fs_metrics {
-            Some(metrics.lock().await.total_calls())
-        } else {
-            None
-        }
+    pub fn get_fs_total_calls(&self) -> Option<usize> {
+        self.fs_metrics.as_ref().map(|m| m.total_calls())
     }
 
     /// Get the path to the temp project directory (if created with with_temp_project)
