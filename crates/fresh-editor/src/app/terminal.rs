@@ -651,9 +651,8 @@ impl Editor {
                 if let Some(handle) = self.terminal_manager.get(terminal_id) {
                     if let Ok(state) = handle.state.lock() {
                         let cursor_pos = state.cursor_position();
-                        // Only show cursor for the active terminal in terminal mode
-                        let cursor_visible =
-                            state.cursor_visible() && is_active && self.terminal_mode;
+                        // Only show cursor if terminal reports it as visible (not hidden by app)
+                        let cursor_visible = state.cursor_visible() && is_active;
                         let (_, rows) = state.size();
 
                         // Collect content
@@ -739,7 +738,7 @@ pub mod render {
                     style = style.add_modifier(Modifier::REVERSED);
                 }
 
-                // Check if this is the cursor position
+                // Render cursor at this position if visible
                 if cursor_visible
                     && row_idx as u16 == cursor_pos.1
                     && col_idx as u16 == cursor_pos.0
