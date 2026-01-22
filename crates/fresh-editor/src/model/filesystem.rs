@@ -416,6 +416,80 @@ pub trait FileSystem: Send + Sync {
 }
 
 // ============================================================================
+// FileSystemExt - Async Extension Trait
+// ============================================================================
+
+/// Async extension trait for FileSystem
+///
+/// This trait provides async versions of FileSystem methods using native
+/// Rust async fn (no async_trait crate needed). Default implementations
+/// simply call the sync methods, which works for local filesystem operations.
+///
+/// For truly async backends (network FS, remote agents), implementations
+/// can override these methods with actual async implementations.
+///
+/// Note: This trait is NOT object-safe due to async fn. Use generics
+/// (`impl FileSystem` or `F: FileSystem`) instead of `dyn FileSystem`
+/// when async methods are needed.
+///
+/// # Example
+///
+/// ```ignore
+/// async fn list_files<F: FileSystem>(fs: &F, path: &Path) -> io::Result<Vec<DirEntry>> {
+///     fs.read_dir_async(path).await
+/// }
+/// ```
+pub trait FileSystemExt: FileSystem {
+    /// Async version of read_file
+    fn read_file_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<Vec<u8>>> + Send {
+        async { self.read_file(path) }
+    }
+
+    /// Async version of read_range
+    fn read_range_async(&self, path: &Path, offset: u64, len: usize) -> impl std::future::Future<Output = io::Result<Vec<u8>>> + Send {
+        async move { self.read_range(path, offset, len) }
+    }
+
+    /// Async version of write_file
+    fn write_file_async(&self, path: &Path, data: &[u8]) -> impl std::future::Future<Output = io::Result<()>> + Send {
+        async { self.write_file(path, data) }
+    }
+
+    /// Async version of metadata
+    fn metadata_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<FileMetadata>> + Send {
+        async { self.metadata(path) }
+    }
+
+    /// Async version of exists
+    fn exists_async(&self, path: &Path) -> impl std::future::Future<Output = bool> + Send {
+        async { self.exists(path) }
+    }
+
+    /// Async version of is_dir
+    fn is_dir_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<bool>> + Send {
+        async { self.is_dir(path) }
+    }
+
+    /// Async version of is_file
+    fn is_file_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<bool>> + Send {
+        async { self.is_file(path) }
+    }
+
+    /// Async version of read_dir
+    fn read_dir_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<Vec<DirEntry>>> + Send {
+        async { self.read_dir(path) }
+    }
+
+    /// Async version of canonicalize
+    fn canonicalize_async(&self, path: &Path) -> impl std::future::Future<Output = io::Result<PathBuf>> + Send {
+        async { self.canonicalize(path) }
+    }
+}
+
+/// Blanket implementation: all FileSystem types automatically get async methods
+impl<T: FileSystem> FileSystemExt for T {}
+
+// ============================================================================
 // StdFileSystem Implementation
 // ============================================================================
 
