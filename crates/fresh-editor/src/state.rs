@@ -1,5 +1,7 @@
 use crate::model::buffer::{Buffer, LineNumber};
 use crate::model::cursor::{Cursor, Cursors};
+use crate::model::filesystem::FileSystem;
+use std::sync::Arc;
 use crate::model::document_model::{
     DocumentCapabilities, DocumentModel, DocumentPosition, ViewportContent, ViewportLine,
 };
@@ -173,6 +175,45 @@ impl EditorState {
         }
     }
 
+    /// Create a new EditorState with a custom filesystem implementation.
+    pub fn new_with_fs(
+        _width: u16,
+        _height: u16,
+        _large_file_threshold: usize,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> Self {
+        Self {
+            buffer: Buffer::new_with_fs(fs),
+            cursors: Cursors::new(),
+            highlighter: HighlightEngine::None,
+            indent_calculator: RefCell::new(IndentCalculator::new()),
+            overlays: OverlayManager::new(),
+            marker_list: MarkerList::new(),
+            virtual_texts: VirtualTextManager::new(),
+            popups: PopupManager::new(),
+            margins: MarginManager::new(),
+            primary_cursor_line_number: LineNumber::Absolute(0),
+            mode: "insert".to_string(),
+            text_properties: TextPropertyManager::new(),
+            show_cursors: true,
+            editing_disabled: false,
+            is_composite_buffer: false,
+            show_whitespace_tabs: true,
+            use_tabs: false,
+            tab_size: 4,
+            reference_highlighter: ReferenceHighlighter::new(),
+            view_mode: ViewMode::Source,
+            debug_highlight_mode: false,
+            compose_width: None,
+            compose_prev_line_numbers: None,
+            compose_column_guides: None,
+            view_transform: None,
+            reference_highlight_overlay: ReferenceHighlightOverlay::new(),
+            semantic_tokens: None,
+            language: "text".to_string(),
+        }
+    }
+
     /// Set the syntax highlighting language based on a filename or extension
     /// This allows virtual buffers to get highlighting even without a real file path
     pub fn set_language_from_name(&mut self, name: &str, registry: &GrammarRegistry) {
@@ -277,6 +318,64 @@ impl EditorState {
         })
     }
 
+    /// Create an editor state from a file with a custom filesystem implementation.
+    pub fn from_file_with_fs(
+        path: &std::path::Path,
+        _width: u16,
+        _height: u16,
+        large_file_threshold: usize,
+        registry: &GrammarRegistry,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let buffer = Buffer::load_from_file_with_fs(path, large_file_threshold, fs)?;
+
+        let highlighter = HighlightEngine::for_file(path, registry);
+        let language = Language::from_path(path);
+        let mut reference_highlighter = ReferenceHighlighter::new();
+        let language_name = if let Some(lang) = &language {
+            reference_highlighter.set_language(lang);
+            lang.to_string()
+        } else {
+            "text".to_string()
+        };
+
+        let mut marker_list = MarkerList::new();
+        if !buffer.is_empty() {
+            marker_list.adjust_for_insert(0, buffer.len());
+        }
+
+        Ok(Self {
+            buffer,
+            cursors: Cursors::new(),
+            highlighter,
+            indent_calculator: RefCell::new(IndentCalculator::new()),
+            overlays: OverlayManager::new(),
+            marker_list,
+            virtual_texts: VirtualTextManager::new(),
+            popups: PopupManager::new(),
+            margins: MarginManager::new(),
+            primary_cursor_line_number: LineNumber::Absolute(0),
+            mode: "insert".to_string(),
+            text_properties: TextPropertyManager::new(),
+            show_cursors: true,
+            editing_disabled: false,
+            is_composite_buffer: false,
+            show_whitespace_tabs: true,
+            use_tabs: false,
+            tab_size: 4,
+            reference_highlighter,
+            view_mode: ViewMode::Source,
+            debug_highlight_mode: false,
+            compose_width: None,
+            compose_prev_line_numbers: None,
+            compose_column_guides: None,
+            view_transform: None,
+            reference_highlight_overlay: ReferenceHighlightOverlay::new(),
+            semantic_tokens: None,
+            language: language_name,
+        })
+    }
+
     /// Create an editor state from a file with language configuration.
     ///
     /// This version uses the provided languages configuration for syntax detection,
@@ -344,6 +443,67 @@ impl EditorState {
             show_whitespace_tabs: true,
             use_tabs: false,
             tab_size: 4, // Default tab size
+            reference_highlighter,
+            view_mode: ViewMode::Source,
+            debug_highlight_mode: false,
+            compose_width: None,
+            compose_prev_line_numbers: None,
+            compose_column_guides: None,
+            view_transform: None,
+            reference_highlight_overlay: ReferenceHighlightOverlay::new(),
+            semantic_tokens: None,
+            language: language_name,
+        })
+    }
+
+    /// Create an editor state from a file with language configuration and custom filesystem.
+    pub fn from_file_with_languages_with_fs(
+        path: &std::path::Path,
+        _width: u16,
+        _height: u16,
+        large_file_threshold: usize,
+        registry: &GrammarRegistry,
+        languages: &std::collections::HashMap<String, crate::config::LanguageConfig>,
+        fs: Arc<dyn FileSystem + Send + Sync>,
+    ) -> anyhow::Result<Self> {
+        let buffer = Buffer::load_from_file_with_fs(path, large_file_threshold, fs)?;
+
+        let highlighter = HighlightEngine::for_file_with_languages(path, registry, languages);
+
+        let language = Language::from_path(path);
+        let mut reference_highlighter = ReferenceHighlighter::new();
+        let language_name = if let Some(lang) = &language {
+            reference_highlighter.set_language(lang);
+            lang.to_string()
+        } else {
+            crate::services::lsp::manager::detect_language(path, languages)
+                .unwrap_or_else(|| "text".to_string())
+        };
+
+        let mut marker_list = MarkerList::new();
+        if !buffer.is_empty() {
+            marker_list.adjust_for_insert(0, buffer.len());
+        }
+
+        Ok(Self {
+            buffer,
+            cursors: Cursors::new(),
+            highlighter,
+            indent_calculator: RefCell::new(IndentCalculator::new()),
+            overlays: OverlayManager::new(),
+            marker_list,
+            virtual_texts: VirtualTextManager::new(),
+            popups: PopupManager::new(),
+            margins: MarginManager::new(),
+            primary_cursor_line_number: LineNumber::Absolute(0),
+            mode: "insert".to_string(),
+            text_properties: TextPropertyManager::new(),
+            show_cursors: true,
+            editing_disabled: false,
+            is_composite_buffer: false,
+            show_whitespace_tabs: true,
+            use_tabs: false,
+            tab_size: 4,
             reference_highlighter,
             view_mode: ViewMode::Source,
             debug_highlight_mode: false,
