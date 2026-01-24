@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::types::{Theme, ThemeFile, BUILTIN_THEMES};
+use super::types::{Theme, ThemeFile, ThemeInfo, BUILTIN_THEMES};
 
 /// Trait for loading theme files from various sources.
 ///
@@ -165,6 +165,23 @@ impl Theme {
         for name in loader.available_themes() {
             if !themes.contains(&name) {
                 themes.push(name);
+            }
+        }
+
+        themes
+    }
+
+    /// Get all available themes with pack information (builtin + from loader).
+    pub fn all_available_with_info(loader: &dyn ThemeLoader) -> Vec<ThemeInfo> {
+        let mut themes: Vec<ThemeInfo> = BUILTIN_THEMES
+            .iter()
+            .map(|t| ThemeInfo::new(t.name, t.pack))
+            .collect();
+
+        // Add user themes (no pack info available for those)
+        for name in loader.available_themes() {
+            if !themes.iter().any(|t| t.name == name) {
+                themes.push(ThemeInfo::new(name, "user"));
             }
         }
 

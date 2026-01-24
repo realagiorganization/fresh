@@ -2030,27 +2030,29 @@ impl Editor {
     /// Start the theme selection prompt with available themes
     fn start_select_theme_prompt(&mut self) {
         let theme_loader = crate::view::theme::LocalThemeLoader::new();
-        let available_themes = crate::view::theme::Theme::all_available(&theme_loader);
+        let available_themes = crate::view::theme::Theme::all_available_with_info(&theme_loader);
         let current_theme_name = &self.theme.name;
 
         // Find the index of the current theme
         let current_index = available_themes
             .iter()
-            .position(|name| name == current_theme_name)
+            .position(|info| info.name == *current_theme_name)
             .unwrap_or(0);
 
         let suggestions: Vec<crate::input::commands::Suggestion> = available_themes
             .iter()
-            .map(|theme_name| {
-                let is_current = theme_name == current_theme_name;
+            .map(|info| {
+                let is_current = info.name == *current_theme_name;
+                let description = match (is_current, info.pack.is_empty()) {
+                    (true, true) => Some("(current)".to_string()),
+                    (true, false) => Some(format!("{} (current)", info.pack)),
+                    (false, true) => None,
+                    (false, false) => Some(info.pack.clone()),
+                };
                 crate::input::commands::Suggestion {
-                    text: theme_name.to_string(),
-                    description: if is_current {
-                        Some("(current)".to_string())
-                    } else {
-                        None
-                    },
-                    value: Some(theme_name.to_string()),
+                    text: info.name.clone(),
+                    description,
+                    value: Some(info.name.clone()),
                     disabled: false,
                     keybinding: None,
                     source: None,
