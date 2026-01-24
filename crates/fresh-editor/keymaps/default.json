@@ -236,7 +236,7 @@
     {
       "key": "Right",
       "modifiers": ["ctrl"],
-      "action": "move_word_right",
+      "action": "move_word_end",
       "args": {},
       "when": "normal"
     },
@@ -329,7 +329,7 @@
     {
       "key": "Right",
       "modifiers": ["ctrl", "shift"],
-      "action": "select_word_right",
+      "action": "select_word_end",
       "args": {},
       "when": "normal"
     },
@@ -434,13 +434,6 @@
       "key": "l",
       "modifiers": ["alt"],
       "action": "to_lower_case",
-      "args": {},
-      "when": "normal"
-    },
-    {
-      "key": "Right",
-      "modifiers": ["ctrl", "shift"],
-      "action": "expand_selection",
       "args": {},
       "when": "normal"
     },

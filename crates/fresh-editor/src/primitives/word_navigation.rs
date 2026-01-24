@@ -279,6 +279,89 @@ pub fn find_word_start_left(buffer: &Buffer, pos: usize) -> usize {
     actual_pos.saturating_sub(delta)
 }
 
+/// Find the end of the word at or after the given position
+///
+/// Ctrl+Right behavior:
+/// - From within a word: jump to the end of the current word
+/// - From whitespace: skip whitespace, then jump to end of next token (word or punctuation)
+/// - From punctuation: consume all punctuation, then stop
+pub fn find_word_end_right(buffer: &Buffer, pos: usize) -> usize {
+    let buf_len = buffer.len();
+    if pos >= buf_len {
+        return buf_len;
+    }
+
+    // Only read a small window around the position for efficiency
+    let start = pos;
+    let end = (pos + 1000).min(buf_len);
+    let bytes = buffer.slice_bytes(start..end);
+    let text = String::from_utf8_lossy(&bytes);
+
+    let mut current_idx = 0;
+    if current_idx >= text.len() {
+        return start;
+    }
+
+    // Look at the grapheme at current position
+    let next_bound = next_grapheme_boundary(&text, current_idx);
+    let start_class = get_grapheme_class(&text[current_idx..next_bound]);
+
+    match start_class {
+        CharClass::Word => {
+            // In a word: jump to end of current word
+            while current_idx < text.len() {
+                let next = next_grapheme_boundary(&text, current_idx);
+                let g = &text[current_idx..next];
+                if get_grapheme_class(g) == CharClass::Word {
+                    current_idx = next;
+                } else {
+                    break;
+                }
+            }
+        }
+        CharClass::Whitespace => {
+            // On whitespace: skip whitespace, then consume next token
+            while current_idx < text.len() {
+                let next = next_grapheme_boundary(&text, current_idx);
+                let g = &text[current_idx..next];
+                if get_grapheme_class(g) == CharClass::Whitespace {
+                    current_idx = next;
+                } else {
+                    break;
+                }
+            }
+            // Consume the token we landed on (word or punctuation)
+            if current_idx < text.len() {
+                let next = next_grapheme_boundary(&text, current_idx);
+                let landed_class = get_grapheme_class(&text[current_idx..next]);
+                while current_idx < text.len() {
+                    let next = next_grapheme_boundary(&text, current_idx);
+                    let g = &text[current_idx..next];
+                    if get_grapheme_class(g) == landed_class {
+                        current_idx = next;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        CharClass::Punctuation => {
+            // On punctuation: consume all punctuation, then stop
+            while current_idx < text.len() {
+                let next = next_grapheme_boundary(&text, current_idx);
+                let g = &text[current_idx..next];
+                if get_grapheme_class(g) == CharClass::Punctuation {
+                    current_idx = next;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    start + current_idx
+}
+
 /// Find the start of the word to the right of the given position
 pub fn find_word_start_right(buffer: &Buffer, pos: usize) -> usize {
     let buf_len = buffer.len();

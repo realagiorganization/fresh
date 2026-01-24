@@ -43,6 +43,7 @@ enum CursorMovement {
     LineEnd,
     WordLeft,
     WordRight,
+    WordEnd, // Move to end of current word
 }
 
 /// Find the previous word boundary position in a line
@@ -80,6 +81,45 @@ fn find_word_boundary_right(line: &str, from_column: usize, line_length: usize) 
     while pos < graphemes.len() && graphemes[pos].chars().all(|c| c.is_whitespace()) {
         pos += 1;
     }
+    pos.min(line_length)
+}
+
+/// Find the end of the current word (or end of next word if on whitespace)
+fn find_word_end_right(line: &str, from_column: usize, line_length: usize) -> usize {
+    let graphemes: Vec<&str> = line.graphemes(true).collect();
+    let mut pos = from_column;
+
+    // If on whitespace, skip it first
+    while pos < graphemes.len() && graphemes[pos].chars().all(|c| c.is_whitespace()) {
+        pos += 1;
+    }
+
+    // If on punctuation, consume it
+    if pos < graphemes.len()
+        && !graphemes[pos]
+            .chars()
+            .any(|c| c.is_alphanumeric() || c == '_')
+        && !graphemes[pos].chars().all(|c| c.is_whitespace())
+    {
+        while pos < graphemes.len()
+            && !graphemes[pos]
+                .chars()
+                .any(|c| c.is_alphanumeric() || c == '_')
+            && !graphemes[pos].chars().all(|c| c.is_whitespace())
+        {
+            pos += 1;
+        }
+    } else {
+        // Skip word chars (alphanumeric + underscore)
+        while pos < graphemes.len()
+            && graphemes[pos]
+                .chars()
+                .any(|c| c.is_alphanumeric() || c == '_')
+        {
+            pos += 1;
+        }
+    }
+
     pos.min(line_length)
 }
 
@@ -548,6 +588,67 @@ impl Editor {
                         }
                     }
                 }
+                CursorMovement::WordEnd => {
+                    let new_col = find_word_end_right(
+                        &line_info.content,
+                        view_state.cursor_column,
+                        line_info.length,
+                    );
+                    if new_col > view_state.cursor_column {
+                        view_state.cursor_column = new_col;
+                        view_state.sticky_column = new_col;
+                        // Update horizontal scroll for ALL panes to keep cursor visible
+                        let visible_width = line_info.pane_width.saturating_sub(4);
+                        let current_left = view_state
+                            .pane_viewports
+                            .get(view_state.focused_pane)
+                            .map(|v| v.left_column)
+                            .unwrap_or(0);
+                        if visible_width > 0
+                            && view_state.cursor_column >= current_left + visible_width
+                        {
+                            let new_left = view_state
+                                .cursor_column
+                                .saturating_sub(visible_width.saturating_sub(1));
+                            for viewport in &mut view_state.pane_viewports {
+                                viewport.left_column = new_left;
+                            }
+                        }
+                    } else if view_state.cursor_row < max_row {
+                        // At end of line, wrap to start of next line - find a row with content
+                        if let Some(composite) = composite {
+                            let focused_pane = view_state.focused_pane;
+                            let mut target_row = view_state.cursor_row + 1;
+                            while target_row < max_row {
+                                if let Some(row) = composite.alignment.get_row(target_row) {
+                                    if row.get_pane_line(focused_pane).is_some() {
+                                        break;
+                                    }
+                                }
+                                target_row += 1;
+                            }
+                            // Only wrap if target row has content
+                            if let Some(row) = composite.alignment.get_row(target_row) {
+                                if row.get_pane_line(focused_pane).is_some() {
+                                    view_state.cursor_row = target_row;
+                                    view_state.cursor_column = 0;
+                                    view_state.sticky_column = 0;
+                                    if view_state.cursor_row
+                                        >= view_state.scroll_row + viewport_height
+                                    {
+                                        view_state.scroll_row = view_state
+                                            .cursor_row
+                                            .saturating_sub(viewport_height - 1);
+                                    }
+                                    // Reset horizontal scroll for ALL panes
+                                    for viewport in &mut view_state.pane_viewports {
+                                        viewport.left_column = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -714,6 +815,12 @@ impl Editor {
                 CursorMovement::WordRight,
                 false,
             ),
+            Action::MoveWordEnd => self.handle_cursor_movement_action(
+                split_id,
+                buffer_id,
+                CursorMovement::WordEnd,
+                false,
+            ),
 
             // Cursor movement with selection
             Action::SelectDown => {
@@ -750,6 +857,12 @@ impl Editor {
                 split_id,
                 buffer_id,
                 CursorMovement::WordRight,
+                true,
+            ),
+            Action::SelectWordEnd => self.handle_cursor_movement_action(
+                split_id,
+                buffer_id,
+                CursorMovement::WordEnd,
                 true,
             ),
 

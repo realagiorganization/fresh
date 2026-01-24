@@ -6,7 +6,8 @@ use crate::model::cursor::{Position2D, SelectionMode};
 use crate::model::event::{CursorId, Event};
 use crate::primitives::display_width::{byte_offset_at_visual_column, str_width};
 use crate::primitives::word_navigation::{
-    find_word_end, find_word_start, find_word_start_left, find_word_start_right,
+    find_word_end, find_word_end_right, find_word_start, find_word_start_left,
+    find_word_start_right,
 };
 use crate::state::EditorState;
 use std::ops::Range;
@@ -1238,6 +1239,27 @@ pub fn action_to_events(
             }
         }
 
+        Action::MoveWordEnd => {
+            for (cursor_id, cursor) in state.cursors.iter() {
+                let new_pos = find_word_end_right(&state.buffer, cursor.position);
+                // Preserve anchor if deselect_on_move is false (Emacs mark mode)
+                let new_anchor = if cursor.deselect_on_move {
+                    None
+                } else {
+                    cursor.anchor
+                };
+                events.push(Event::MoveCursor {
+                    cursor_id,
+                    old_position: cursor.position,
+                    new_position: new_pos,
+                    old_anchor: cursor.anchor,
+                    new_anchor,
+                    old_sticky_column: cursor.sticky_column,
+                    new_sticky_column: 0, // Reset sticky column
+                });
+            }
+        }
+
         Action::MoveDocumentStart => {
             for (cursor_id, cursor) in state.cursors.iter() {
                 // Preserve anchor if deselect_on_move is false (Emacs mark mode)
@@ -1546,6 +1568,22 @@ pub fn action_to_events(
         Action::SelectWordRight => {
             for (cursor_id, cursor) in state.cursors.iter() {
                 let new_pos = find_word_start_right(&state.buffer, cursor.position);
+                let anchor = cursor.anchor.unwrap_or(cursor.position);
+                events.push(Event::MoveCursor {
+                    cursor_id,
+                    old_position: cursor.position,
+                    new_position: new_pos,
+                    old_anchor: cursor.anchor,
+                    new_anchor: Some(anchor),
+                    old_sticky_column: cursor.sticky_column,
+                    new_sticky_column: 0, // Reset sticky column
+                });
+            }
+        }
+
+        Action::SelectWordEnd => {
+            for (cursor_id, cursor) in state.cursors.iter() {
+                let new_pos = find_word_end_right(&state.buffer, cursor.position);
                 let anchor = cursor.anchor.unwrap_or(cursor.position);
                 events.push(Event::MoveCursor {
                     cursor_id,
