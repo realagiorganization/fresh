@@ -1,0 +1,14 @@
+{
+  "name": "fresh-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "build": "bash scripts/build-site.sh"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

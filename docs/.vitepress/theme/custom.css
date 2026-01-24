@@ -1,0 +1,160 @@
+:root {
+    /* Fresh Design System Colors */
+    --vp-c-brand-1: #00d9a3;
+    --vp-c-brand-2: #00b88c;
+    --vp-c-brand-3: #009970;
+    --vp-c-brand-soft: rgba(0, 217, 163, 0.15);
+
+    /* Typography - Monospace */
+    --vp-font-family-base: "SF Mono", "Cascadia Code", "Fira Code", "JetBrains Mono", "Liberation Mono", monospace;
+    --vp-font-family-mono: "SF Mono", "Cascadia Code", "Fira Code", "JetBrains Mono", "Liberation Mono", monospace;
+}
+
+.dark {
+    /* Background colors */
+    --vp-c-bg: #0a0a0a;
+    --vp-c-bg-alt: #111111;
+    --vp-c-bg-elv: #202020;
+    --vp-c-bg-soft: #111111;
+
+    --vp-local-search-bg: #171717;
+
+    /* Text colors */
+    --vp-c-text-1: #d4d4d4;
+    --vp-c-text-2: #808080;
+    --vp-c-text-3: #4d4d4d;
+
+    /* Border */
+    --vp-c-border: #2d2d2d;
+    --vp-c-divider: #2d2d2d;
+    --vp-c-gutter: #2d2d2d;
+
+    /* Code blocks */
+    --vp-code-block-bg: #111111;
+    --vp-code-line-highlight-color: rgba(0, 217, 163, 0.1);
+
+    /* Sidebar */
+    --vp-sidebar-bg-color: #0a0a0a;
+
+    /* Nav */
+    --vp-nav-bg-color: #0a0a0a;
+
+    /* Button colors */
+    --vp-button-brand-bg: #00d9a3;
+    --vp-button-brand-text: #000000;
+    --vp-button-brand-hover-bg: #00b88c;
+    --vp-button-brand-hover-text: #000000;
+    --vp-button-brand-active-bg: #009970;
+    --vp-button-brand-active-text: #000000;
+}
+
+/* Link colors */
+.vp-doc a {
+    color: #00d9a3;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.vp-doc a:hover {
+    color: #00b88c;
+    text-decoration: underline;
+}
+
+/* Code inline styling */
+.vp-doc :not(pre) > code {
+    color: #00d9a3;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.9em;
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", "JetBrains Mono", "Liberation Mono", monospace;
+}
+
+/* Code block styling */
+.vp-doc pre {
+    background-color: #0a0a0a;
+    border: 1px solid #2d2d2d;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.vp-doc pre code {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+    color: #d4d4d4;
+}
+
+/* Table styling */
+.vp-doc table {
+    border: 1px solid #2d2d2d;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.vp-doc table th,
+.vp-doc table td {
+    border-bottom: 1px solid #2d2d2d;
+    border-right: 1px solid #2d2d2d;
+    padding: 12px 16px;
+}
+
+.vp-doc table th {
+    background-color: #111111;
+    color: #d4d4d4;
+    font-weight: 600;
+}
+
+.vp-doc table td {
+    background-color: #0a0a0a;
+}
+
+/* Card hover effects */
+.vp-doc .vp-card {
+    border: 1px solid #2d2d2d;
+    background-color: #0a0a0a;
+    transition: all 0.2s ease;
+}
+
+.vp-doc .vp-card:hover {
+    border-color: #00d9a3;
+    box-shadow: 0 4px 12px rgba(0, 217, 163, 0.2);
+    transform: translateY(-2px);
+}
+
+/* List styling */
+.vp-doc ul li::marker {
+    color: #00d9a3;
+}
+
+.vp-doc ol li::marker {
+    color: #00d9a3;
+}
+
+/* Quote blocks */
+.vp-doc blockquote {
+    border-left: 4px solid #00d9a3;
+    background-color: rgba(0, 217, 163, 0.05);
+    padding: 16px 24px;
+    margin: 24px 0;
+    border-radius: 0 8px 8px 0;
+    color: #d4d4d4;
+}
+
+/* Custom scrollbar for code blocks */
+.vp-doc pre::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.vp-doc pre::-webkit-scrollbar-track {
+    background: #0a0a0a;
+}
+
+.vp-doc pre::-webkit-scrollbar-thumb {
+    background: #2d2d2d;
+    border-radius: 4px;
+}
+
+.vp-doc pre::-webkit-scrollbar-thumb:hover {
+    background: #404040;
+}
