@@ -2397,4 +2397,50 @@ mod tests {
             "Ctrl+Shift+H should NOT map to Ctrl+Shift+Backspace"
         );
     }
+
+    #[test]
+    fn test_no_duplicate_keybindings_in_keymaps() {
+        // Load all keymaps and check for duplicate bindings within the same context
+        // A duplicate is when the same key+modifiers+context is defined more than once
+        use std::collections::HashMap;
+
+        let keymaps: &[(&str, &str)] = &[
+            ("default", include_str!("../../keymaps/default.json")),
+            ("macos", include_str!("../../keymaps/macos.json")),
+        ];
+
+        for (keymap_name, json_content) in keymaps {
+            let keymap: crate::config::KeymapConfig = serde_json::from_str(json_content)
+                .unwrap_or_else(|e| panic!("Failed to parse keymap '{}': {}", keymap_name, e));
+
+            // Track seen bindings per context: (key, modifiers, context) -> action
+            let mut seen: HashMap<(String, Vec<String>, String), String> = HashMap::new();
+            let mut duplicates: Vec<String> = Vec::new();
+
+            for binding in &keymap.bindings {
+                let when = binding.when.clone().unwrap_or_default();
+                let key_id = (binding.key.clone(), binding.modifiers.clone(), when.clone());
+
+                if let Some(existing_action) = seen.get(&key_id) {
+                    duplicates.push(format!(
+                        "Duplicate in '{}': key='{}', modifiers={:?}, when='{}' -> '{}' vs '{}'",
+                        keymap_name,
+                        binding.key,
+                        binding.modifiers,
+                        when,
+                        existing_action,
+                        binding.action
+                    ));
+                } else {
+                    seen.insert(key_id, binding.action.clone());
+                }
+            }
+
+            assert!(
+                duplicates.is_empty(),
+                "Found duplicate keybindings:\n{}",
+                duplicates.join("\n")
+            );
+        }
+    }
 }
