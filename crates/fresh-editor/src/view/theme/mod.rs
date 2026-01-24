@@ -22,7 +22,11 @@
 
 mod loader;
 mod types;
+#[cfg(feature = "runtime")]
+mod validate;
 
 // Re-export all public items for backward compatibility
 pub use loader::*;
 pub use types::*;
+#[cfg(feature = "runtime")]
+pub use validate::*;

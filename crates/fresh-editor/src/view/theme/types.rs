@@ -347,6 +347,9 @@ pub struct UiColors {
     /// Popup selected item background
     #[serde(default = "default_popup_selection_bg")]
     pub popup_selection_bg: ColorDef,
+    /// Popup selected item text color
+    #[serde(default = "default_popup_selection_fg")]
+    pub popup_selection_fg: ColorDef,
     /// Popup window text color
     #[serde(default = "default_popup_text_fg")]
     pub popup_text_fg: ColorDef,
@@ -543,6 +546,9 @@ fn default_popup_bg() -> ColorDef {
 }
 fn default_popup_selection_bg() -> ColorDef {
     ColorDef::Rgb(58, 79, 120)
+}
+fn default_popup_selection_fg() -> ColorDef {
+    ColorDef::Rgb(255, 255, 255) // White text on selected popup item
 }
 fn default_popup_text_fg() -> ColorDef {
     ColorDef::Named("White".to_string())
@@ -837,6 +843,7 @@ pub struct Theme {
     pub popup_border_fg: Color,
     pub popup_bg: Color,
     pub popup_selection_bg: Color,
+    pub popup_selection_fg: Color,
     pub popup_text_fg: Color,
 
     pub suggestion_bg: Color,
@@ -963,6 +970,7 @@ impl From<ThemeFile> for Theme {
             popup_border_fg: file.ui.popup_border_fg.into(),
             popup_bg: file.ui.popup_bg.into(),
             popup_selection_bg: file.ui.popup_selection_bg.into(),
+            popup_selection_fg: file.ui.popup_selection_fg.into(),
             popup_text_fg: file.ui.popup_text_fg.into(),
             suggestion_bg: file.ui.suggestion_bg.into(),
             suggestion_selected_bg: file.ui.suggestion_selected_bg.into(),
@@ -1065,6 +1073,7 @@ impl From<Theme> for ThemeFile {
                 popup_border_fg: theme.popup_border_fg.into(),
                 popup_bg: theme.popup_bg.into(),
                 popup_selection_bg: theme.popup_selection_bg.into(),
+                popup_selection_fg: theme.popup_selection_fg.into(),
                 popup_text_fg: theme.popup_text_fg.into(),
                 suggestion_bg: theme.suggestion_bg.into(),
                 suggestion_selected_bg: theme.suggestion_selected_bg.into(),

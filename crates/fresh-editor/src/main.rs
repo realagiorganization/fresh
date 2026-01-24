@@ -73,6 +73,10 @@ struct Args {
     /// Check a plugin by bundling it and printing the output (for debugging)
     #[arg(long, value_name = "PLUGIN_PATH")]
     check_plugin: Option<PathBuf>,
+
+    /// Validate a theme file against the strict schema (rejects unknown fields)
+    #[arg(long, value_name = "PATH")]
+    validate_theme: Option<PathBuf>,
 }
 
 /// Parsed file location from CLI argument in file:line:col format
@@ -665,6 +669,43 @@ fn check_plugin_bundle(plugin_path: &std::path::Path) -> AnyhowResult<()> {
     Ok(())
 }
 
+/// Validate a theme file and print results
+fn validate_theme_command(theme_path: &std::path::Path) -> AnyhowResult<()> {
+    use fresh::view::theme::{validate_theme_file, ValidationErrorKind};
+
+    eprintln!("Validating theme: {}", theme_path.display());
+
+    match validate_theme_file(theme_path) {
+        Ok(result) => {
+            if result.is_valid {
+                let theme_name = theme_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("theme");
+                println!("Theme '{}' is valid.", theme_name);
+                Ok(())
+            } else {
+                eprintln!("\nValidation errors:");
+                for error in &result.errors {
+                    let kind_str = match error.kind {
+                        ValidationErrorKind::UnknownField => "[unknown field]",
+                        ValidationErrorKind::TypeMismatch => "[type mismatch]",
+                        ValidationErrorKind::MissingField => "[missing field]",
+                        ValidationErrorKind::Other => "[error]",
+                    };
+                    eprintln!("  {} {}: {}", kind_str, error.path, error.message);
+                }
+                eprintln!("\nFound {} error(s).", result.errors.len());
+                std::process::exit(1);
+            }
+        }
+        Err(e) => {
+            eprintln!("Error reading theme file: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() -> AnyhowResult<()> {
     // Parse command-line arguments
     let args = Args::parse();
@@ -716,6 +757,11 @@ fn main() -> AnyhowResult<()> {
     #[cfg(feature = "plugins")]
     if let Some(plugin_path) = &args.check_plugin {
         return check_plugin_bundle(plugin_path);
+    }
+
+    // Handle --validate-theme early (no terminal setup needed)
+    if let Some(theme_path) = &args.validate_theme {
+        return validate_theme_command(theme_path);
     }
 
     let SetupState {
