@@ -2122,3 +2122,110 @@ fn test_select_at_file_boundaries() {
     // Just verify we can get selected text without panicking
     // The test validates that boundary operations don't crash
 }
+
+// =============================================================================
+// Ctrl+D (Add Cursor at Next Match) Tests
+// =============================================================================
+
+/// Test that Ctrl+D selects the entire current word when cursor is in the middle
+/// This matches behavior in other editors like VSCode
+#[test]
+fn test_ctrl_d_selects_entire_word_from_middle() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    // Text with repeated word "hello"
+    harness.type_text("hello world hello").unwrap();
+    harness.send_key(KeyCode::Home, KeyModifiers::NONE).unwrap();
+
+    // Move cursor to middle of "hello" (position 2, on 'l')
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    harness
+        .send_key(KeyCode::Right, KeyModifiers::NONE)
+        .unwrap();
+    assert_eq!(harness.cursor_position(), 2);
+
+    // Press Ctrl+D - should select the ENTIRE word "hello", not just "llo"
+    harness
+        .send_key(KeyCode::Char('d'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    let selected = harness.get_selected_text();
+    assert_eq!(
+        selected, "hello",
+        "Ctrl+D from middle of word should select entire word 'hello', not just from cursor"
+    );
+}
+
+/// Test that Ctrl+D finds next match after selecting current word
+#[test]
+fn test_ctrl_d_finds_next_match() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    harness.type_text("foo bar foo baz foo").unwrap();
+    harness.send_key(KeyCode::Home, KeyModifiers::NONE).unwrap();
+
+    // First Ctrl+D should select "foo"
+    harness
+        .send_key(KeyCode::Char('d'), KeyModifiers::CONTROL)
+        .unwrap();
+    let selected = harness.get_selected_text();
+    assert_eq!(selected, "foo", "First Ctrl+D should select 'foo'");
+
+    // Second Ctrl+D should add cursor at next "foo" (position 8)
+    harness
+        .send_key(KeyCode::Char('d'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    // Should now have 2 cursors, both selecting "foo"
+    let cursor_count = harness.cursor_count();
+    assert_eq!(cursor_count, 2, "Should have 2 cursors after second Ctrl+D");
+}
+
+/// Test that Ctrl+D works correctly when cursor is at word start
+#[test]
+fn test_ctrl_d_at_word_start() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    harness.type_text("test word test").unwrap();
+    harness.send_key(KeyCode::Home, KeyModifiers::NONE).unwrap();
+
+    // Cursor is at start of "test" (position 0)
+    assert_eq!(harness.cursor_position(), 0);
+
+    // Ctrl+D should select entire word "test"
+    harness
+        .send_key(KeyCode::Char('d'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    let selected = harness.get_selected_text();
+    assert_eq!(
+        selected, "test",
+        "Ctrl+D at word start should select 'test'"
+    );
+}
+
+/// Test that Ctrl+D works correctly when cursor is at word end
+#[test]
+fn test_ctrl_d_at_word_end() {
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    harness.type_text("word test word").unwrap();
+    harness.send_key(KeyCode::Home, KeyModifiers::NONE).unwrap();
+
+    // Move to end of "word" (position 4)
+    for _ in 0..4 {
+        harness
+            .send_key(KeyCode::Right, KeyModifiers::NONE)
+            .unwrap();
+    }
+    assert_eq!(harness.cursor_position(), 4);
+
+    // Ctrl+D should select entire word "word" (going backward to include the whole word)
+    harness
+        .send_key(KeyCode::Char('d'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    let selected = harness.get_selected_text();
+    assert_eq!(
+        selected, "word",
+        "Ctrl+D at word end should select entire 'word'"
+    );
+}

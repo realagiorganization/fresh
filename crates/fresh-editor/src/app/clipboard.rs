@@ -509,7 +509,7 @@ impl Editor {
     }
 
     /// Add a cursor at the next occurrence of the selected text
-    /// If no selection, does nothing
+    /// If no selection, first selects the entire word at cursor position
     pub fn add_cursor_at_next_match(&mut self) {
         let state = self.active_state_mut();
         match add_cursor_at_next_match(state) {
@@ -531,6 +531,27 @@ impl Editor {
 
                 self.status_message =
                     Some(t!("clipboard.added_cursor_match", count = total_cursors).to_string());
+            }
+            AddCursorResult::WordSelected {
+                word_start,
+                word_end,
+            } => {
+                // Select the word by updating the primary cursor
+                let primary_id = self.active_state().cursors.primary_id();
+                let primary = self.active_state().cursors.primary();
+                let event = Event::MoveCursor {
+                    cursor_id: primary_id,
+                    old_position: primary.position,
+                    new_position: word_end,
+                    old_anchor: primary.anchor,
+                    new_anchor: Some(word_start),
+                    old_sticky_column: primary.sticky_column,
+                    new_sticky_column: 0,
+                };
+
+                // Log and apply the event
+                self.active_event_log_mut().append(event.clone());
+                self.apply_event_to_active_buffer(&event);
             }
             AddCursorResult::Failed { message } => {
                 self.status_message = Some(message);
@@ -564,6 +585,7 @@ impl Editor {
             AddCursorResult::Failed { message } => {
                 self.status_message = Some(message);
             }
+            AddCursorResult::WordSelected { .. } => unreachable!(),
         }
     }
 
@@ -593,6 +615,7 @@ impl Editor {
             AddCursorResult::Failed { message } => {
                 self.status_message = Some(message);
             }
+            AddCursorResult::WordSelected { .. } => unreachable!(),
         }
     }
 

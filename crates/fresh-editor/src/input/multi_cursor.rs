@@ -1,6 +1,7 @@
 //! Multi-cursor operations for adding cursors at various positions
 
 use crate::model::cursor::Cursor;
+use crate::primitives::word_navigation::{find_word_end, find_word_start};
 use crate::state::EditorState;
 
 /// Result of attempting to add a cursor
@@ -10,6 +11,9 @@ pub enum AddCursorResult {
         cursor: Cursor,
         total_cursors: usize,
     },
+    /// Word was selected (no new cursor added, but primary cursor selection changed)
+    /// This happens when Ctrl+D is pressed with no selection - it selects the current word
+    WordSelected { word_start: usize, word_end: usize },
     /// Operation failed with a message
     Failed { message: String },
 }
@@ -60,16 +64,59 @@ fn adjust_position_for_newline(state: &mut EditorState, position: usize) -> usiz
 }
 
 /// Add a cursor at the next occurrence of the selected text
-/// If no selection, returns Failed
+/// If no selection, selects the entire word at cursor position first
 pub fn add_cursor_at_next_match(state: &mut EditorState) -> AddCursorResult {
     // Get the selected text from the primary cursor
     let primary = state.cursors.primary();
     let selection_range = match primary.selection_range() {
         Some(range) => range,
         None => {
-            return AddCursorResult::Failed {
-                message: "No selection to match".to_string(),
+            // No selection - select the entire word at cursor position
+            let cursor_pos = primary.position;
+            let word_start = find_word_start(&state.buffer, cursor_pos);
+
+            // Determine word_end: if we're just past a word (at a non-word char but
+            // word_start < cursor_pos), use cursor_pos as the end. This handles the
+            // case where cursor is at the space right after a word.
+            let word_end = if word_start < cursor_pos {
+                // Check if we're at a word character
+                let at_word_char = if cursor_pos < state.buffer.len() {
+                    if let Ok(bytes) = state.buffer.get_text_range_mut(cursor_pos, 1) {
+                        bytes
+                            .first()
+                            .map(|&b| crate::primitives::word_navigation::is_word_char(b))
+                            .unwrap_or(false)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if at_word_char {
+                    // We're in the middle of a word, find the actual end
+                    find_word_end(&state.buffer, cursor_pos)
+                } else {
+                    // We're just past a word, use cursor position as end
+                    cursor_pos
+                }
+            } else {
+                // word_start == cursor_pos, find the end normally
+                find_word_end(&state.buffer, cursor_pos)
+            };
+
+            // If cursor is on whitespace or punctuation (word_start == word_end), fail
+            if word_start == word_end {
+                return AddCursorResult::Failed {
+                    message: "No word at cursor position".to_string(),
+                };
             }
+
+            // Return WordSelected so caller can update the cursor's selection
+            return AddCursorResult::WordSelected {
+                word_start,
+                word_end,
+            };
         }
     };
 
