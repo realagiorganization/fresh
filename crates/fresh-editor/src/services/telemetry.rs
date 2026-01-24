@@ -139,9 +139,13 @@ fn send(event: Event) {
     };
 
     thread::spawn(move || {
-        let _ = ureq::post(TELEMETRY_URL)
-            .set("Content-Type", "application/json")
-            .timeout(Duration::from_secs(5))
-            .send_bytes(body.as_bytes());
+        let agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .build()
+            .new_agent();
+        let _ = agent
+            .post(TELEMETRY_URL)
+            .header("Content-Type", "application/json")
+            .send(body.as_bytes());
     });
 }

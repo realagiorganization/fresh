@@ -126,7 +126,7 @@ ignore = { version = "0.4", default-features = false, optional = true }
 regex = { version = "1.12" }
 libc = { version = "0.2", optional = true }
 libloading = { version = "0.9", optional = true }
-nix = { version = "0.30", features = ["signal", "pthread", "resource", "poll", "fs"], optional = true }
+nix = { version = "0.31", features = ["signal", "pthread", "resource", "poll", "fs"], optional = true }
 
 # Plugin API proc macros for type-safe bindings
 fresh-plugin-api-macros = { workspace = true, optional = true }
@@ -143,8 +143,8 @@ arboard = { version = "3.6", default-features = false, features = ["wayland-data
 # syntect with default-features=false so we can choose regex engine per build target
 # runtime uses onig (faster), wasm uses fancy-regex (pure Rust, WASM-compatible)
 syntect = { version = "5.3", default-features = false, optional = true }
-jsonschema = { version = "0.29", optional = true }
-ureq = { version = "2.12", default-features = false, features = ["tls"], optional = true }
+jsonschema = { version = "0.40", optional = true }
+ureq = { version = "3.1.4", default-features = false, features = ["rustls"], optional = true }
 # Unicode handling - always needed for primitives
 unicode-width = { version = "0.2" }
 unicode-segmentation = { version = "1.12" }
@@ -163,7 +163,7 @@ open = { version = "5", optional = true }
 proptest = "1.9"
 tempfile = "3.24.0"
 insta = { version = "1.46", features = ["yaml"] }
-vt100 = "0.15"  # Virtual terminal emulator for testing real ANSI output
+vt100 = "0.16"  # Virtual terminal emulator for testing real ANSI output
 ctor = "0.6.3"
 tiny_http = "0.12"  # Lightweight HTTP server for testing release checker
 unicode-segmentation = "1.12"  # For grapheme cluster testing

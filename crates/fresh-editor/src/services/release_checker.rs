@@ -311,10 +311,14 @@ pub fn start_update_check(
 /// Fetches release information from the provided URL.
 pub fn fetch_latest_version(url: &str) -> Result<String, String> {
     tracing::debug!("Fetching latest version from {}", url);
-    let response = ureq::get(url)
-        .set("User-Agent", "fresh-editor-update-checker")
-        .set("Accept", "application/vnd.github.v3+json")
-        .timeout(Duration::from_secs(5))
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(5)))
+        .build()
+        .new_agent();
+    let response = agent
+        .get(url)
+        .header("User-Agent", "fresh-editor-update-checker")
+        .header("Accept", "application/vnd.github.v3+json")
         .call()
         .map_err(|e| {
             tracing::debug!("HTTP request failed: {}", e);
@@ -322,7 +326,8 @@ pub fn fetch_latest_version(url: &str) -> Result<String, String> {
         })?;
 
     let body = response
-        .into_string()
+        .into_body()
+        .read_to_string()
         .map_err(|e| format!("Failed to read response body: {}", e))?;
 
     let version = parse_version_from_json(&body)?;

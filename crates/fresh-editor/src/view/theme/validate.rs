@@ -121,7 +121,7 @@ fn classify_error(error: &jsonschema::ValidationError) -> ValidationErrorKind {
 
 /// Format the JSON path from a validation error.
 fn format_path(error: &jsonschema::ValidationError) -> String {
-    let path = error.instance_path.to_string();
+    let path = error.instance_path().to_string();
     if path.is_empty() || path == "/" {
         "(root)".to_string()
     } else {
