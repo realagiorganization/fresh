@@ -2,22 +2,22 @@
 //!
 //! This module is split into:
 //! - `types`: Pure data types (WASM-compatible, no filesystem access)
-//! - `loader`: I/O operations with `ThemeLoader` trait abstraction
+//! - `loader`: ThemeLoader creates ThemeRegistry from embedded + user themes
 //!
 //! # Example
 //!
 //! ```ignore
-//! use crate::view::theme::{Theme, ThemeLoader, LocalThemeLoader};
+//! use crate::view::theme::{Theme, ThemeLoader, ThemeRegistry};
 //!
-//! // Load builtin theme (no I/O)
-//! let dark = Theme::load_builtin("dark").unwrap();
+//! // Load all themes once at startup
+//! let loader = ThemeLoader::new();
+//! let registry = loader.load_all();
 //!
-//! // Load theme with loader (for user themes)
-//! let loader = LocalThemeLoader::new();
-//! let theme = Theme::load("dark", &loader).unwrap();
+//! // Get theme by name (no I/O, just lookup)
+//! let dark = registry.get("dark").unwrap();
 //!
 //! // List all available themes
-//! let themes = Theme::all_available(&loader);
+//! let themes = registry.list();
 //! ```
 
 mod loader;

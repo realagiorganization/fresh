@@ -182,6 +182,9 @@ pub struct Editor {
     /// Active theme
     theme: crate::view::theme::Theme,
 
+    /// All loaded themes (embedded + user)
+    theme_registry: crate::view::theme::ThemeRegistry,
+
     /// Optional ANSI background image
     ansi_background: Option<crate::primitives::ansi_background::AnsiBackground>,
 
@@ -755,10 +758,14 @@ impl Editor {
         // This ensures consistent path comparisons throughout the editor
         let working_dir = working_dir.canonicalize().unwrap_or(working_dir);
 
-        // Load theme from config
-        let theme_loader = crate::view::theme::LocalThemeLoader::new();
-        let theme = crate::view::theme::Theme::load(&config.theme, &theme_loader)
-            .ok_or_else(|| anyhow::anyhow!("Theme '{:?}' not found", config.theme))?;
+        // Load all themes into registry
+        let theme_loader = crate::view::theme::ThemeLoader::new();
+        let theme_registry = theme_loader.load_all();
+
+        // Get active theme from registry
+        let theme = theme_registry
+            .get_cloned(&config.theme)
+            .ok_or_else(|| anyhow::anyhow!("Theme '{}' not found", config.theme.0))?;
 
         // Set terminal cursor color to match theme
         theme.set_terminal_cursor_color();
@@ -955,6 +962,7 @@ impl Editor {
             dir_context: dir_context.clone(),
             grammar_registry,
             theme,
+            theme_registry,
             ansi_background: None,
             ansi_background_path: None,
             background_fade: crate::primitives::ansi_background::DEFAULT_BACKGROUND_FADE,

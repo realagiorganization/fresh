@@ -1,50 +1,79 @@
-//! Theme loading with I/O abstraction.
+//! Theme loading and registry.
 //!
-//! This module provides the `ThemeLoader` trait for loading themes from various sources,
-//! and `LocalThemeLoader` as the default filesystem-based implementation.
+//! This module provides:
+//! - `ThemeRegistry`: A pure data structure holding all loaded themes
+//! - `ThemeLoader`: Scans and loads themes into a registry
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::types::{Theme, ThemeFile, ThemeInfo, BUILTIN_THEMES};
 
-/// Trait for loading theme files from various sources.
+/// A registry holding all loaded themes.
 ///
-/// This abstraction allows:
-/// - Testing with mock implementations
-/// - WASM builds with fetch-based loaders
-/// - Custom theme sources (network, embedded, etc.)
-pub trait ThemeLoader: Send + Sync {
-    /// Load theme JSON content by name.
-    /// Returns None if theme doesn't exist.
-    fn load_theme(&self, name: &str) -> Option<String>;
+/// This is a pure data structure - no I/O operations.
+/// Use `ThemeLoader` to create and populate a registry.
+#[derive(Debug, Clone)]
+pub struct ThemeRegistry {
+    /// All loaded themes, keyed by name
+    themes: HashMap<String, Theme>,
+    /// Theme metadata for listing
+    theme_list: Vec<ThemeInfo>,
+}
 
-    /// List all available theme names from this loader.
-    fn available_themes(&self) -> Vec<String>;
+impl ThemeRegistry {
+    /// Get a theme by name.
+    pub fn get(&self, name: &str) -> Option<&Theme> {
+        let normalized = name.to_lowercase().replace('_', "-");
+        self.themes.get(&normalized)
+    }
 
-    /// Check if a theme exists by name.
-    fn theme_exists(&self, name: &str) -> bool {
-        self.load_theme(name).is_some()
+    /// Get a cloned theme by name.
+    pub fn get_cloned(&self, name: &str) -> Option<Theme> {
+        self.get(name).cloned()
+    }
+
+    /// List all available themes with metadata.
+    pub fn list(&self) -> &[ThemeInfo] {
+        &self.theme_list
+    }
+
+    /// Get all theme names.
+    pub fn names(&self) -> Vec<String> {
+        self.theme_list.iter().map(|t| t.name.clone()).collect()
+    }
+
+    /// Check if a theme exists.
+    pub fn contains(&self, name: &str) -> bool {
+        let normalized = name.to_lowercase().replace('_', "-");
+        self.themes.contains_key(&normalized)
+    }
+
+    /// Number of themes in the registry.
+    pub fn len(&self) -> usize {
+        self.themes.len()
+    }
+
+    /// Check if registry is empty.
+    pub fn is_empty(&self) -> bool {
+        self.themes.is_empty()
     }
 }
 
-/// Default implementation using local filesystem.
-///
-/// Searches for themes in:
-/// 1. User themes directory (~/.config/fresh/themes/)
-/// 2. Built-in themes directory (themes/ relative paths)
-pub struct LocalThemeLoader {
+/// Loads themes and creates a ThemeRegistry.
+pub struct ThemeLoader {
     user_themes_dir: Option<PathBuf>,
 }
 
-impl LocalThemeLoader {
-    /// Create a new LocalThemeLoader with default directories.
+impl ThemeLoader {
+    /// Create a new ThemeLoader with default user themes directory.
     pub fn new() -> Self {
         Self {
             user_themes_dir: dirs::config_dir().map(|p| p.join("fresh").join("themes")),
         }
     }
 
-    /// Create a LocalThemeLoader with a custom user themes directory.
+    /// Create a ThemeLoader with a custom user themes directory.
     pub fn with_user_dir(user_themes_dir: Option<PathBuf>) -> Self {
         Self { user_themes_dir }
     }
@@ -54,140 +83,76 @@ impl LocalThemeLoader {
         self.user_themes_dir.as_deref()
     }
 
-    /// Try to load a theme from a specific file path.
-    fn load_from_path(path: &Path) -> Option<String> {
-        std::fs::read_to_string(path).ok()
-    }
+    /// Load all themes (embedded + user) into a registry.
+    pub fn load_all(&self) -> ThemeRegistry {
+        let mut themes = HashMap::new();
+        let mut theme_list = Vec::new();
 
-    /// Get paths to search for a theme by name.
-    fn theme_paths(&self, name: &str) -> Vec<PathBuf> {
-        let mut paths = Vec::new();
-
-        // User themes directory (highest priority)
-        if let Some(ref user_dir) = self.user_themes_dir {
-            paths.push(user_dir.join(format!("{}.json", name)));
-        }
-
-        // Built-in themes directory (various relative paths for development)
-        paths.extend([
-            PathBuf::from(format!("themes/{}.json", name)),
-            PathBuf::from(format!("../themes/{}.json", name)),
-            PathBuf::from(format!("../../themes/{}.json", name)),
-        ]);
-
-        paths
-    }
-}
-
-impl Default for LocalThemeLoader {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ThemeLoader for LocalThemeLoader {
-    fn load_theme(&self, name: &str) -> Option<String> {
-        for path in self.theme_paths(name) {
-            if let Some(content) = Self::load_from_path(&path) {
-                return Some(content);
+        // Load all embedded themes
+        for builtin in BUILTIN_THEMES {
+            if let Ok(theme_file) = serde_json::from_str::<ThemeFile>(builtin.json) {
+                let theme: Theme = theme_file.into();
+                themes.insert(builtin.name.to_string(), theme);
+                theme_list.push(ThemeInfo::new(builtin.name, builtin.pack));
             }
         }
-        None
+
+        // Load user themes from ~/.config/fresh/themes/ (recursively)
+        if let Some(ref user_dir) = self.user_themes_dir {
+            self.scan_directory(user_dir, "user", &mut themes, &mut theme_list);
+        }
+
+        ThemeRegistry { themes, theme_list }
     }
 
-    fn available_themes(&self) -> Vec<String> {
-        let mut themes = Vec::new();
+    /// Recursively scan a directory for theme files.
+    fn scan_directory(
+        &self,
+        dir: &Path,
+        pack: &str,
+        themes: &mut HashMap<String, Theme>,
+        theme_list: &mut Vec<ThemeInfo>,
+    ) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
 
-        // Scan built-in themes directory
-        if let Ok(entries) = std::fs::read_dir("themes") {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "json") {
-                    if let Some(stem) = path.file_stem() {
-                        themes.push(stem.to_string_lossy().to_string());
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            if path.is_dir() {
+                // Recurse into subdirectory with updated pack name
+                let subdir_name = path.file_name().unwrap().to_string_lossy();
+                let new_pack = if pack == "user" {
+                    format!("user/{}", subdir_name)
+                } else {
+                    format!("{}/{}", pack, subdir_name)
+                };
+                self.scan_directory(&path, &new_pack, themes, theme_list);
+            } else if path.extension().is_some_and(|ext| ext == "json") {
+                // Load theme file
+                let name = path.file_stem().unwrap().to_string_lossy().to_string();
+
+                // Skip if already loaded (embedded themes take priority)
+                if themes.contains_key(&name) {
+                    continue;
+                }
+
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(theme_file) = serde_json::from_str::<ThemeFile>(&content) {
+                        let theme: Theme = theme_file.into();
+                        themes.insert(name.clone(), theme);
+                        theme_list.push(ThemeInfo::new(name, pack));
                     }
                 }
             }
         }
-
-        // Scan user themes directory
-        if let Some(ref user_dir) = self.user_themes_dir {
-            if let Ok(entries) = std::fs::read_dir(user_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|ext| ext == "json") {
-                        if let Some(stem) = path.file_stem() {
-                            let name = stem.to_string_lossy().to_string();
-                            if !themes.contains(&name) {
-                                themes.push(name);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        themes
     }
 }
 
-// Extension methods on Theme that use ThemeLoader
+// Cursor color methods on Theme (no I/O for theme loading)
 impl Theme {
-    /// Load a theme from a JSON file path.
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read theme file: {}", e))?;
-        let theme_file: ThemeFile = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse theme file: {}", e))?;
-        Ok(theme_file.into())
-    }
-
-    /// Load theme by name using a ThemeLoader.
-    /// First checks builtin themes (embedded), then uses loader for filesystem themes.
-    pub fn load(name: &str, loader: &dyn ThemeLoader) -> Option<Self> {
-        let normalized = name.to_lowercase().replace('_', "-");
-
-        // Try builtin first (no I/O)
-        if let Some(theme) = Self::load_builtin(&normalized) {
-            return Some(theme);
-        }
-
-        // Try loader
-        loader
-            .load_theme(&normalized)
-            .and_then(|json| Self::from_json(&json).ok())
-    }
-
-    /// Get all available themes (builtin + from loader).
-    pub fn all_available(loader: &dyn ThemeLoader) -> Vec<String> {
-        let mut themes: Vec<String> = BUILTIN_THEMES.iter().map(|t| t.name.to_string()).collect();
-
-        for name in loader.available_themes() {
-            if !themes.contains(&name) {
-                themes.push(name);
-            }
-        }
-
-        themes
-    }
-
-    /// Get all available themes with pack information (builtin + from loader).
-    pub fn all_available_with_info(loader: &dyn ThemeLoader) -> Vec<ThemeInfo> {
-        let mut themes: Vec<ThemeInfo> = BUILTIN_THEMES
-            .iter()
-            .map(|t| ThemeInfo::new(t.name, t.pack))
-            .collect();
-
-        // Add user themes (no pack info available for those)
-        for name in loader.available_themes() {
-            if !themes.iter().any(|t| t.name == name) {
-                themes.push(ThemeInfo::new(name, "user"));
-            }
-        }
-
-        themes
-    }
-
     /// Set the terminal cursor color using OSC 12 escape sequence.
     /// This makes the hardware cursor visible on any background.
     pub fn set_terminal_cursor_color(&self) {
@@ -218,94 +183,59 @@ impl Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
-    /// Mock theme loader for testing
-    struct MockThemeLoader {
-        themes: HashMap<String, String>,
-    }
+    #[test]
+    fn test_theme_registry_get() {
+        let loader = ThemeLoader::new();
+        let registry = loader.load_all();
 
-    impl MockThemeLoader {
-        fn new() -> Self {
-            Self {
-                themes: HashMap::new(),
-            }
-        }
+        // Should find builtin themes
+        assert!(registry.get("dark").is_some());
+        assert!(registry.get("light").is_some());
+        assert!(registry.get("high-contrast").is_some());
 
-        fn with_theme(mut self, name: &str, json: &str) -> Self {
-            self.themes.insert(name.to_string(), json.to_string());
-            self
-        }
-    }
+        // Name normalization
+        assert!(registry.get("Dark").is_some());
+        assert!(registry.get("DARK").is_some());
+        assert!(registry.get("high_contrast").is_some());
 
-    impl ThemeLoader for MockThemeLoader {
-        fn load_theme(&self, name: &str) -> Option<String> {
-            self.themes.get(name).cloned()
-        }
-
-        fn available_themes(&self) -> Vec<String> {
-            self.themes.keys().cloned().collect()
-        }
+        // Non-existent
+        assert!(registry.get("nonexistent-theme").is_none());
     }
 
     #[test]
-    fn test_mock_theme_loader() {
-        let loader = MockThemeLoader::new().with_theme(
-            "custom",
-            r#"{"name":"custom","editor":{},"ui":{},"search":{},"diagnostic":{},"syntax":{}}"#,
-        );
+    fn test_theme_registry_list() {
+        let loader = ThemeLoader::new();
+        let registry = loader.load_all();
 
-        assert!(loader.theme_exists("custom"));
-        assert!(!loader.theme_exists("nonexistent"));
+        let list = registry.list();
+        assert!(list.len() >= 7); // At least the builtin themes
 
-        let themes = loader.available_themes();
-        assert!(themes.contains(&"custom".to_string()));
+        // Check some expected themes
+        assert!(list.iter().any(|t| t.name == "dark"));
+        assert!(list.iter().any(|t| t.name == "light"));
     }
 
     #[test]
-    fn test_theme_load_with_mock() {
-        let loader = MockThemeLoader::new().with_theme(
-            "test-theme",
-            r#"{"name":"test-theme","editor":{},"ui":{},"search":{},"diagnostic":{},"syntax":{}}"#,
-        );
+    fn test_theme_registry_contains() {
+        let loader = ThemeLoader::new();
+        let registry = loader.load_all();
 
-        let theme = Theme::load("test-theme", &loader);
-        assert!(theme.is_some());
-        assert_eq!(theme.unwrap().name, "test-theme");
+        assert!(registry.contains("dark"));
+        assert!(registry.contains("Dark")); // normalized
+        assert!(!registry.contains("nonexistent"));
     }
 
     #[test]
-    fn test_theme_load_builtin_priority() {
-        // Builtin themes should be loaded even if loader doesn't have them
-        let loader = MockThemeLoader::new();
+    fn test_theme_loader_load_all() {
+        let loader = ThemeLoader::new();
+        let registry = loader.load_all();
 
-        let theme = Theme::load("dark", &loader);
-        assert!(theme.is_some());
-        assert_eq!(theme.unwrap().name, "dark");
-    }
+        // Should have loaded all embedded themes
+        assert!(registry.len() >= 17); // 7 root + 10 xscriptor
 
-    #[test]
-    fn test_load_with_loader() {
-        // load should work for builtin themes with any loader
-        let loader = LocalThemeLoader::new();
-        let theme = Theme::load("dark", &loader);
-        assert!(theme.is_some());
-        assert_eq!(theme.unwrap().name, "dark");
-
-        let theme = Theme::load("light", &loader);
-        assert!(theme.is_some());
-        assert_eq!(theme.unwrap().name, "light");
-    }
-
-    #[test]
-    fn test_all_available_themes() {
-        let loader = LocalThemeLoader::new();
-        let themes = Theme::all_available(&loader);
-        // Should have at least the builtin themes
-        assert!(themes.len() >= 4);
-        assert!(themes.contains(&"dark".to_string()));
-        assert!(themes.contains(&"light".to_string()));
-        assert!(themes.contains(&"high-contrast".to_string()));
-        assert!(themes.contains(&"nostalgia".to_string()));
+        // Verify theme content is correct
+        let dark = registry.get("dark").unwrap();
+        assert_eq!(dark.name, "dark");
     }
 }

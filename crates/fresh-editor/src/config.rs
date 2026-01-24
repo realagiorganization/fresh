@@ -1225,14 +1225,16 @@ pub fn generate_dynamic_items(source: &str) -> Vec<MenuItem> {
     match source {
         "copy_with_theme" => {
             // Generate theme options from available themes
-            let theme_loader = crate::view::theme::LocalThemeLoader::new();
-            crate::view::theme::Theme::all_available(&theme_loader)
-                .into_iter()
-                .map(|theme_name| {
+            let loader = crate::view::theme::ThemeLoader::new();
+            let registry = loader.load_all();
+            registry
+                .list()
+                .iter()
+                .map(|info| {
                     let mut args = HashMap::new();
-                    args.insert("theme".to_string(), serde_json::json!(theme_name));
+                    args.insert("theme".to_string(), serde_json::json!(info.name));
                     MenuItem::Action {
-                        label: theme_name.to_string(),
+                        label: info.name.clone(),
                         action: "copy_with_theme".to_string(),
                         args,
                         when: Some(context_keys::HAS_SELECTION.to_string()),
@@ -3085,12 +3087,12 @@ mod tests {
             MenuItem::Submenu { label, items } => {
                 assert_eq!(label, "Test");
                 // Should have items for each available theme
-                let theme_loader = crate::view::theme::LocalThemeLoader::new();
-                let themes = crate::view::theme::Theme::all_available(&theme_loader);
-                assert_eq!(items.len(), themes.len());
+                let loader = crate::view::theme::ThemeLoader::new();
+                let registry = loader.load_all();
+                assert_eq!(items.len(), registry.len());
 
                 // Each item should be an Action with copy_with_theme
-                for (item, theme_name) in items.iter().zip(themes.iter()) {
+                for (item, theme_info) in items.iter().zip(registry.list().iter()) {
                     match item {
                         MenuItem::Action {
                             label,
@@ -3098,11 +3100,11 @@ mod tests {
                             args,
                             ..
                         } => {
-                            assert_eq!(label, theme_name);
+                            assert_eq!(label, &theme_info.name);
                             assert_eq!(action, "copy_with_theme");
                             assert_eq!(
                                 args.get("theme").and_then(|v| v.as_str()),
-                                Some(theme_name.as_str())
+                                Some(theme_info.name.as_str())
                             );
                         }
                         _ => panic!("Expected Action item"),

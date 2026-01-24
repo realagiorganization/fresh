@@ -2029,8 +2029,7 @@ impl Editor {
 
     /// Start the theme selection prompt with available themes
     fn start_select_theme_prompt(&mut self) {
-        let theme_loader = crate::view::theme::LocalThemeLoader::new();
-        let available_themes = crate::view::theme::Theme::all_available_with_info(&theme_loader);
+        let available_themes = self.theme_registry.list();
         let current_theme_name = &self.theme.name;
 
         // Find the index of the current theme
@@ -2081,8 +2080,7 @@ impl Editor {
     /// Apply a theme by name and persist it to config
     pub(super) fn apply_theme(&mut self, theme_name: &str) {
         if !theme_name.is_empty() {
-            let theme_loader = crate::view::theme::LocalThemeLoader::new();
-            if let Some(theme) = crate::view::theme::Theme::load(theme_name, &theme_loader) {
+            if let Some(theme) = self.theme_registry.get_cloned(theme_name) {
                 self.theme = theme;
 
                 // Set terminal cursor color to match theme
@@ -2107,8 +2105,7 @@ impl Editor {
     /// Used for live preview when navigating theme selection
     pub(super) fn preview_theme(&mut self, theme_name: &str) {
         if !theme_name.is_empty() && theme_name != self.theme.name {
-            let theme_loader = crate::view::theme::LocalThemeLoader::new();
-            if let Some(theme) = crate::view::theme::Theme::load(theme_name, &theme_loader) {
+            if let Some(theme) = self.theme_registry.get_cloned(theme_name) {
                 self.theme = theme;
                 self.theme.set_terminal_cursor_color();
             }
