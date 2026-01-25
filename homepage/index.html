@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -119,6 +118,10 @@
         .btn-github:hover {
             background: #1a1a1a;
             border-color: #333;
+        }
+
+        .btn-github img {
+            filter: invert(1);
         }
 
         /* Hero Section */
@@ -340,6 +343,7 @@
         .screenshot-wrapper img {
             width: 100%;
             display: block;
+            cursor: zoom-in;
         }
 
         .screenshot-glow {
@@ -502,6 +506,7 @@
         .feature-visual img {
             width: 100%;
             display: block;
+            cursor: zoom-in;
         }
 
         .feature-code {
@@ -753,7 +758,7 @@
                 gap: 16px;
             }
 
-            .nav-links > a:not(.btn-github) {
+            .nav-links > a[href^="#"] {
                 display: none;
             }
 
@@ -885,17 +890,16 @@
     <!-- Navigation -->
     <nav>
         <div class="nav-container">
-            <a href="/fresh/" class="nav-logo">
+            <a href="#" class="nav-logo">
                 >_ Fresh <span id="version-badge"></span>
             </a>
             <div class="nav-links">
-                <a href="/fresh/docs">Docs</a>
                 <a href="#features">Features</a>
                 <a href="#install">Install</a>
+                <a href="https://radiorambo.github.io/fresh/docs" target="_blank">Docs</a>
+                <a href="https://github.com/sinelaw/fresh/blob/master/CHANGELOG.md" target="_blank">Changelog</a>
                 <a href="https://github.com/sinelaw/fresh" target="_blank" class="btn-github">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
+                    <img src="public/github-icon.svg" alt="GitHub" width="16" height="16">
                     GitHub
                 </a>
             </div>
@@ -913,6 +917,7 @@
                 <span class="hero-feature">Easy to learn</span>
                 <span class="hero-feature">Blazing fast</span>
                 <span class="hero-feature">IDE features</span>
+                <span class="hero-feature">Built-in terminal</span>
             </div>
 
             <div class="download-section">
@@ -922,7 +927,7 @@
                         <div class="copyable quick-install-cmd" onclick="copyQuickInstall()">
                             <code id="install-cmd-display">curl .../install.sh | sh</code>
                             <button class="copy-btn" onclick="event.stopPropagation(); copyQuickInstall()">
-                                <img src="assets/copy-icon.svg" alt="Copy">
+                                <img src="public/copy-icon.svg" alt="Copy">
                             </button>
                             <span class="copied-popup" id="copied-popup">Copied!</span>
                         </div>
@@ -939,7 +944,7 @@
                         <span></span><span></span><span></span>
                     </div>
                 </div>
-                <img src="assets/hero.png" alt="Fresh terminal text editor showing file explorer, syntax-highlighted code, and integrated terminal">
+                <a href="public/assets/hero.png" target="_blank"><img src="public/assets/hero.png" alt="Fresh terminal text editor showing file explorer, syntax-highlighted code, and integrated terminal"></a>
                 <div class="screenshot-glow"></div>
             </div>
         </div>
@@ -950,19 +955,19 @@
         <div class="feature-section">
             <div class="feature-content">
                 <h2>Intuitive by Design</h2>
-                <p>Fresh is built for discovery. Unlike traditional terminal editors, Fresh uses familiar keybindings that work the way you expect. Full mouse support, menus, and a command palette make it easy to get started.</p>
+                <p>Fresh is built for discovery. Unlike traditional terminal editors, Fresh uses familiar keybindings that work the way you expect. Full mouse support, menus, and a graphical settings editor make it easy to get started.</p>
                 <ul class="feature-list">
                     <li>Standard keybindings (Ctrl+S, Ctrl+Z, Ctrl+F)</li>
                     <li>Full mouse support with selections</li>
                     <li>Menu bar and command palette</li>
-                    <li>Built-in file explorer and terminal</li>
+                    <li>Graphical settings UI (no config files needed)</li>
                 </ul>
             </div>
             <div class="feature-visual">
                 <div class="feature-visual-dots">
                     <span></span><span></span><span></span>
                 </div>
-                <img src="assets/palette.png" alt="Command palette showing available commands">
+                <a href="public/assets/palette.png" target="_blank"><img src="public/assets/palette.png" alt="Command palette showing available commands"></a>
             </div>
         </div>
 
@@ -981,33 +986,34 @@
                 <div class="feature-visual-dots">
                     <span></span><span></span><span></span>
                 </div>
-                <img src="assets/multicursor.png" alt="Multi-cursor editing in action">
+                <a href="public/assets/multicursor.png" target="_blank"><img src="public/assets/multicursor.png" alt="Multi-cursor editing in action"></a>
             </div>
         </div>
 
         <div class="feature-section">
             <div class="feature-content">
                 <h2>Language Server Protocol</h2>
-                <p>LSP support brings IDE-like features to the terminal. Get go to definition, real-time diagnostics, and hover documentation.</p>
+                <p>LSP support brings IDE-like features to the terminal. Get go to definition, real-time diagnostics, hover documentation, and more.</p>
                 <ul class="feature-list">
                     <li>Go to definition / references</li>
                     <li>Inline diagnostics and quick fixes</li>
                     <li>Hover documentation</li>
-                    <li>More coming soon</li>
+                    <li>Semantic highlighting</li>
+                    <li>Format on save with default formatters</li>
                 </ul>
             </div>
             <div class="feature-visual">
                 <div class="feature-visual-dots">
                     <span></span><span></span><span></span>
                 </div>
-                <img src="assets/search.png" alt="Find in files with live preview">
+                <a href="public/assets/fresh-lsp-hover.png" target="_blank"><img src="public/assets/fresh-lsp-hover.png" alt="LSP hover showing function documentation"></a>
             </div>
         </div>
 
         <div class="feature-section">
             <div class="feature-content">
                 <h2>TypeScript Extensibility</h2>
-                <p>Extend Fresh easily using modern tools. Plugins are written in TypeScript and run securely in a sandboxed Deno environment, providing access to a modern JavaScript ecosystem without compromising stability.</p>
+                <p>Extend Fresh easily using modern tools. Plugins are written in TypeScript and run in a sandboxed QuickJS environment with OXC for fast TypeScript compilation, providing a lightweight and secure plugin system.</p>
                 <ul class="feature-list">
                     <li>Manipulate buffers, splits, and text</li>
                     <li>Spawn processes and access filesystem</li>
@@ -1019,7 +1025,26 @@
                 <div class="feature-visual-dots">
                     <span></span><span></span><span></span>
                 </div>
-                <img src="assets/gitlog.png" alt="Git log plugin showing commit history">
+                <a href="public/assets/gitlog.png" target="_blank"><img src="public/assets/gitlog.png" alt="Git log plugin showing commit history"></a>
+            </div>
+        </div>
+
+        <div class="feature-section">
+            <div class="feature-content">
+                <h2>Themes & Internationalization</h2>
+                <p>Make Fresh yours with customizable themes and interface translations. Choose from built-in themes or create your own with the visual theme editor. The interface is available in 11+ languages.</p>
+                <ul class="feature-list">
+                    <li>High contrast default, plus dark, light, and more</li>
+                    <li>Built-in theme editor for customization</li>
+                    <li>11+ languages including CJK support</li>
+                    <li>Plugin translations supported</li>
+                </ul>
+            </div>
+            <div class="feature-visual">
+                <div class="feature-visual-dots">
+                    <span></span><span></span><span></span>
+                </div>
+                <a href="public/assets/fresh-i18nlight.png" target="_blank"><img src="public/assets/fresh-i18nlight.png" alt="Fresh with Japanese interface and light theme"></a>
             </div>
         </div>
     </section>
@@ -1034,7 +1059,7 @@
                     <div class="copyable">
                         <code id="cmd-brew">brew tap sinelaw/fresh && brew install fresh-editor</code>
                         <button class="copy-btn" onclick="copyCode('cmd-brew', this)">
-                            <img src="assets/copy-icon.svg" alt="Copy">
+                            <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
                 </div>
@@ -1044,7 +1069,7 @@
                     <div class="copyable">
                         <code id="cmd-aur">yay -S fresh-editor</code>
                         <button class="copy-btn" onclick="copyCode('cmd-aur', this)">
-                            <img src="assets/copy-icon.svg" alt="Copy">
+                            <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
                     <p class="install-card-note">
@@ -1057,7 +1082,7 @@
                     <div class="copyable">
                         <code id="cmd-npm">npm install -g @fresh-editor/fresh-editor</code>
                         <button class="copy-btn" onclick="copyCode('cmd-npm', this)">
-                            <img src="assets/copy-icon.svg" alt="Copy">
+                            <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
                     <p class="install-card-note">
@@ -1070,7 +1095,7 @@
                     <div class="copyable">
                         <code id="cmd-cargo">cargo install fresh-editor</code>
                         <button class="copy-btn" onclick="copyCode('cmd-cargo', this)">
-                            <img src="assets/copy-icon.svg" alt="Copy">
+                            <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
                 </div>
@@ -1083,7 +1108,7 @@
                     <div class="copyable">
                         <code id="cmd-deb">sudo dpkg -i fresh-editor_*.deb</code>
                         <button class="copy-btn" onclick="copyCode('cmd-deb', this)">
-                            <img src="assets/copy-icon.svg" alt="Copy">
+                            <img src="public/copy-icon.svg" alt="Copy">
                         </button>
                     </div>
                 </div>
@@ -1105,7 +1130,7 @@
         <div class="features-grid">
             <div class="feature-card">
                 <h3>File Management</h3>
-                <p>Open, save, new, close files. Built-in file explorer, tabs, auto-revert, and fuzzy file finder with git integration.</p>
+                <p>Open, save, new, close files. Built-in file explorer with git status indicators, tabs, auto-revert, and fuzzy file finder.</p>
             </div>
             <div class="feature-card">
                 <h3>Editing</h3>
@@ -1113,7 +1138,7 @@
             </div>
             <div class="feature-card">
                 <h3>Search & Replace</h3>
-                <p>Incremental search, find in selection, query replace with regex support, and project-wide search via git grep.</p>
+                <p>Incremental search, find in selection, query replace with regex support, and live grep with ripgrep integration.</p>
             </div>
             <div class="feature-card">
                 <h3>Navigation</h3>
@@ -1121,11 +1146,35 @@
             </div>
             <div class="feature-card">
                 <h3>Views & Layout</h3>
-                <p>Split panes, line numbers, word wrap, custom backgrounds, built-in markdown preview, and embedded terminal.</p>
+                <p>Split panes, line numbers, word wrap, custom backgrounds, built-in markdown preview, and side-by-side diff view.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Integrated Terminal</h3>
+                <p>Full terminal emulator with keyboard capture mode, scrollback history, and session persistence across restarts.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Vi Mode</h3>
+                <p>Vim-style modal editing with normal/insert/visual modes, operators, motions, text objects, and colon commands.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Themes & i18n</h3>
+                <p>Built-in theme editor for customization, multiple built-in themes, and interface translations in 11+ languages.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Session & Recovery</h3>
+                <p>Auto-saves open files, splits, and cursor positions. Recovers unsaved changes from crashes automatically.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Git Integration</h3>
+                <p>Git gutter showing added/modified/deleted lines, git log viewer, git grep search, and file status indicators.</p>
+            </div>
+            <div class="feature-card">
+                <h3>Settings UI</h3>
+                <p>Graphical settings editor with search, keyboard navigation, and mouse support. No config file editing required.</p>
             </div>
             <div class="feature-card">
                 <h3>Productivity</h3>
-                <p>Command palette, menu bar, keyboard macros, git log viewer, and diagnostics panel.</p>
+                <p>Command palette, menu bar, keyboard macros, diagnostics panel, and copy with syntax highlighting.</p>
             </div>
         </div>
     </section>
@@ -1159,8 +1208,9 @@
     <footer>
         <div class="footer-links">
             <a href="https://github.com/sinelaw/fresh" target="_blank">GitHub</a>
-            <a href="/fresh/docs/" target="_blank">Documentation</a>
+            <a href="https://radiorambo.github.io/fresh/docs" target="_blank">Documentation</a>
             <a href="https://github.com/sinelaw/fresh/releases" target="_blank">Releases</a>
+            <a href="https://github.com/sinelaw/fresh/blob/master/CHANGELOG.md" target="_blank">Changelog</a>
             <a href="https://github.com/sinelaw/fresh/issues" target="_blank">Issues</a>
             <a href="https://github.com/sinelaw/fresh/discussions" target="_blank">Discussions</a>
         </div>
@@ -1253,7 +1303,9 @@
             });
     </script>
 
-    <!-- Cloudflare Web Analytics -->
+    <!-- Cloudflare Web Analytics (sinelaw.github.io/fresh) -->
     <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "0858f4857c744e418bce27f9577ea9d2"}'></script>
+    <!-- Cloudflare Web Analytics (getfresh.dev) -->
+    <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "f624a28f02c14086b6963415fb57c550"}'></script>
 </body>
 </html>
