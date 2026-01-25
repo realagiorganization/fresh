@@ -96,7 +96,7 @@ The following methods need to be added to `JsEditorApi` in `quickjs_backend.rs`:
 - `clearViewTransform(buffer_id, split_id)`
 
 **Priority 4 - Composite Buffers:**
-- `createCompositeBuffer(options)` → Promise<number>
+- `createCompositeBuffer(options)` → `Promise<number>`
 - `updateCompositeAlignment(buffer_id, hunks)`
 - `closeCompositeBuffer(buffer_id)`
 
@@ -106,7 +106,7 @@ The following methods need to be added to `JsEditorApi` in `quickjs_backend.rs`:
 - `removeScrollSyncGroup(group_id)`
 
 **Priority 6 - Split Operations:**
-- `createVirtualBufferInExistingSplit(options)` → Promise<number>
+- `createVirtualBufferInExistingSplit(options)` → `Promise<number>`
 - `setSplitScroll(split_id, top_byte)`
 - `setSplitRatio(split_id, ratio)`
 - `distributeSplitsEvenly()`
@@ -118,17 +118,17 @@ The following methods need to be added to `JsEditorApi` in `quickjs_backend.rs`:
 
 **Priority 8 - Diagnostics/LSP:**
 - `getAllDiagnostics()` → TsDiagnostic[]
-- `getHighlights(buffer_id, start, end)` → Promise<TsHighlightSpan[]>
+- `getHighlights(buffer_id, start, end)` → `Promise<TsHighlightSpan[]>`
 - `disableLspForLanguage(language)`
 
 **Priority 9 - Process Management:**
 - `isProcessRunning(process_id)` → boolean
-- `spawnProcessWait(process_id)` → Promise<SpawnResult>
-- `killProcess(process_id)` → Promise<boolean>
+- `spawnProcessWait(process_id)` → `Promise<SpawnResult>`
+- `killProcess(process_id)` → `Promise<boolean>`
 
 **Priority 10 - UI:**
-- `showActionPopup(options)` → Promise<ActionPopupResult>
-- `deleteTheme(name)` → Promise<void>
+- `showActionPopup(options)` → `Promise<ActionPopupResult>`
+- `deleteTheme(name)` → `Promise<void>`
 
 **Priority 11 - Misc:**
 - `executeActions(actions)` → boolean (batch execution)

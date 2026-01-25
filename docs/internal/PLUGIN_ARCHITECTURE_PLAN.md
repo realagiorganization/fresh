@@ -261,5 +261,5 @@ The key insight is: **Let the editor own the UI.** Plugins should provide data a
 ### Key Architecture Features Implemented:
 - **Provider Pattern**: ResultsProvider interface with provideResults() and onDidChangeResults event
 - **Bidirectional Cursor Sync**: syncWithEditor option auto-syncs panel selection with source cursor
-- **Event System**: EventEmitter<T> for typed events, Disposable for cleanup
+- **Event System**: `EventEmitter<T>` for typed events, Disposable for cleanup
 - **Static Provider Helper**: createStaticProvider() for one-shot data like Find References
