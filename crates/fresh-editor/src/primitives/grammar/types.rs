@@ -451,8 +451,9 @@ impl GrammarRegistry {
 
     /// Load a grammar file from disk
     ///
-    /// Supports both TextMate (.tmLanguage.json, .tmLanguage) and
-    /// Sublime Text (.sublime-syntax) formats.
+    /// Only Sublime Text (.sublime-syntax) format is supported.
+    /// TextMate (.tmLanguage) grammars use a completely different format
+    /// and cannot be loaded by syntect's yaml-load feature.
     fn load_grammar_file(path: &Path) -> Result<SyntaxDefinition, String> {
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
@@ -467,74 +468,10 @@ impl GrammarRegistry {
                 )
                 .map_err(|e| format!("Failed to parse sublime-syntax: {}", e))
             }
-            "json" | "tmLanguage" => {
-                // For JSON-based TextMate grammars, we need to convert to plist first
-                // syntect expects plist format for TextMate grammars
-                let content = std::fs::read_to_string(path)
-                    .map_err(|e| format!("Failed to read file: {}", e))?;
-
-                // Try to parse as JSON and convert to plist
-                let json: serde_json::Value = serde_json::from_str(&content)
-                    .map_err(|e| format!("Failed to parse JSON: {}", e))?;
-
-                // Convert JSON to plist format for syntect
-                let plist_str = json_to_plist_string(&json)
-                    .map_err(|e| format!("Failed to convert to plist: {}", e))?;
-
-                SyntaxDefinition::load_from_str(
-                    &plist_str,
-                    true,
-                    path.file_stem().and_then(|s| s.to_str()),
-                )
-                .map_err(|e| format!("Failed to parse grammar: {}", e))
-            }
-            _ => Err(format!("Unsupported grammar format: .{}", ext)),
-        }
-    }
-}
-
-/// Convert a serde_json::Value to a plist-compatible string format
-///
-/// TextMate grammars are historically plist format, but many modern grammars
-/// are distributed as JSON. syntect's load_from_str expects plist format,
-/// so we convert JSON to a plist string representation.
-fn json_to_plist_string(value: &serde_json::Value) -> Result<String, String> {
-    // Convert JSON to plist Value first
-    let plist_value = json_to_plist_value(value)?;
-
-    // Serialize to XML plist string
-    let mut buf = Vec::new();
-    plist::to_writer_xml(&mut buf, &plist_value)
-        .map_err(|e| format!("Failed to serialize plist: {}", e))?;
-
-    String::from_utf8(buf).map_err(|e| format!("Invalid UTF-8 in plist: {}", e))
-}
-
-/// Recursively convert a serde_json::Value to a plist::Value
-fn json_to_plist_value(value: &serde_json::Value) -> Result<plist::Value, String> {
-    match value {
-        serde_json::Value::Null => Ok(plist::Value::String(String::new())),
-        serde_json::Value::Bool(b) => Ok(plist::Value::Boolean(*b)),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(plist::Value::Integer(i.into()))
-            } else if let Some(f) = n.as_f64() {
-                Ok(plist::Value::Real(f))
-            } else {
-                Err("Invalid number".to_string())
-            }
-        }
-        serde_json::Value::String(s) => Ok(plist::Value::String(s.clone())),
-        serde_json::Value::Array(arr) => {
-            let values: Result<Vec<_>, _> = arr.iter().map(json_to_plist_value).collect();
-            Ok(plist::Value::Array(values?))
-        }
-        serde_json::Value::Object(obj) => {
-            let mut dict = plist::Dictionary::new();
-            for (k, v) in obj {
-                dict.insert(k.clone(), json_to_plist_value(v)?);
-            }
-            Ok(plist::Value::Dictionary(dict))
+            _ => Err(format!(
+                "Unsupported grammar format: .{}. Only .sublime-syntax is supported.",
+                ext
+            )),
         }
     }
 }
