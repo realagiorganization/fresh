@@ -1328,9 +1328,34 @@ impl Editor {
             Some(new_registry) => {
                 self.grammar_registry = std::sync::Arc::new(new_registry);
 
-                // Invalidate highlight caches for all buffers
-                for state in self.buffers.values_mut() {
-                    state.highlighter.invalidate_all();
+                // Re-detect syntax for all buffers that might now have highlighting
+                // Collect buffer IDs and paths first to avoid borrow issues
+                let buffers_to_update: Vec<_> = self
+                    .buffer_metadata
+                    .iter()
+                    .filter_map(|(id, meta)| meta.file_path().map(|p| (*id, p.to_path_buf())))
+                    .collect();
+
+                for (buf_id, path) in buffers_to_update {
+                    if let Some(state) = self.buffers.get_mut(&buf_id) {
+                        // Re-create the highlight engine with the new grammar registry
+                        let new_engine =
+                            crate::primitives::highlight_engine::HighlightEngine::for_file_with_languages(
+                                &path,
+                                &self.grammar_registry,
+                                &self.config.languages,
+                            );
+
+                        // Only update if the new engine has highlighting capability
+                        // or if the current one doesn't (don't downgrade)
+                        if new_engine.has_highlighting() || !state.highlighter.has_highlighting() {
+                            state.highlighter = new_engine;
+                            tracing::debug!(
+                                "Updated syntax highlighting for {:?}",
+                                path.file_name()
+                            );
+                        }
+                    }
                 }
 
                 // Emit event for plugins that might want to react
