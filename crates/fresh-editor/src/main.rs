@@ -74,10 +74,6 @@ struct Args {
     #[arg(long, value_name = "PLUGIN_PATH")]
     check_plugin: Option<PathBuf>,
 
-    /// Validate a theme file against the strict schema (rejects unknown fields)
-    #[arg(long, value_name = "PATH")]
-    validate_theme: Option<PathBuf>,
-
     /// Initialize a new package (plugin, theme, or language pack)
     #[arg(long, value_name = "TYPE")]
     init: Option<Option<String>>,
@@ -674,43 +670,6 @@ fn check_plugin_bundle(plugin_path: &std::path::Path) -> AnyhowResult<()> {
     Ok(())
 }
 
-/// Validate a theme file and print results
-fn validate_theme_command(theme_path: &std::path::Path) -> AnyhowResult<()> {
-    use fresh::view::theme::{validate_theme_file, ValidationErrorKind};
-
-    eprintln!("Validating theme: {}", theme_path.display());
-
-    match validate_theme_file(theme_path) {
-        Ok(result) => {
-            if result.is_valid {
-                let theme_name = theme_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("theme");
-                println!("Theme '{}' is valid.", theme_name);
-                Ok(())
-            } else {
-                eprintln!("\nValidation errors:");
-                for error in &result.errors {
-                    let kind_str = match error.kind {
-                        ValidationErrorKind::UnknownField => "[unknown field]",
-                        ValidationErrorKind::TypeMismatch => "[type mismatch]",
-                        ValidationErrorKind::MissingField => "[missing field]",
-                        ValidationErrorKind::Other => "[error]",
-                    };
-                    eprintln!("  {} {}: {}", kind_str, error.path, error.message);
-                }
-                eprintln!("\nFound {} error(s).", result.errors.len());
-                std::process::exit(1);
-            }
-        }
-        Err(e) => {
-            eprintln!("Error reading theme file: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
 /// Initialize a new Fresh package (plugin, theme, or language pack)
 fn init_package_command(package_type: Option<String>) -> AnyhowResult<()> {
     use std::io::{BufRead, Write};
@@ -821,8 +780,7 @@ fn init_package_command(package_type: Option<String>) -> AnyhowResult<()> {
         }
         "theme" => {
             println!("  2. Edit theme.json to customize colors");
-            println!("  3. Validate theme: fresh --validate-theme theme.json");
-            println!("  4. Validate manifest: ./validate.sh");
+            println!("  3. Validate theme: ./validate.sh (requires: pip install jsonschema)");
         }
         "language" => {
             println!("  2. Add your grammar file to grammars/");
@@ -854,15 +812,53 @@ fn write_validate_script(dir: &PathBuf) -> AnyhowResult<()> {
 # Prerequisite: pip install jsonschema
 curl -sSL https://raw.githubusercontent.com/sinelaw/fresh/main/scripts/validate-package.sh | bash
 "#;
-    std::fs::write(dir.join("validate.sh"), validate_sh)?;
+    write_script_file(dir, "validate.sh", validate_sh)
+}
+
+/// Write a validation script for themes (validates both package.json and theme.json)
+fn write_theme_validate_script(dir: &PathBuf) -> AnyhowResult<()> {
+    let validate_sh = r#"#!/bin/bash
+# Validate Fresh theme package
+#
+# Prerequisite: pip install jsonschema
+set -e
+
+echo "Validating package.json..."
+curl -sSL https://raw.githubusercontent.com/sinelaw/fresh/main/scripts/validate-package.sh | bash
+
+echo "Validating theme.json..."
+python3 -c "
+import json, jsonschema, urllib.request, sys
+
+with open('theme.json') as f:
+    data = json.load(f)
+
+schema_url = 'https://raw.githubusercontent.com/sinelaw/fresh/main/crates/fresh-editor/plugins/schemas/theme.schema.json'
+try:
+    with urllib.request.urlopen(schema_url, timeout=5) as resp:
+        schema = json.load(resp)
+    jsonschema.validate(data, schema)
+    print('✓ theme.json is valid')
+except urllib.error.URLError:
+    print('⚠ Could not fetch schema (URL may not exist yet)')
+except jsonschema.ValidationError as e:
+    print(f'✗ Validation error: {e.message}')
+    sys.exit(1)
+"
+"#;
+    write_script_file(dir, "validate.sh", validate_sh)
+}
+
+fn write_script_file(dir: &PathBuf, name: &str, content: &str) -> AnyhowResult<()> {
+    std::fs::write(dir.join(name), content)?;
 
     // Make executable on Unix
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(dir.join("validate.sh"))?.permissions();
+        let mut perms = std::fs::metadata(dir.join(name))?.permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(dir.join("validate.sh"), perms)?;
+        std::fs::set_permissions(dir.join(name), perms)?;
     }
 
     Ok(())
@@ -1000,8 +996,8 @@ fn create_theme_package(
     );
     std::fs::write(dir.join("package.json"), package_json)?;
 
-    // validate.sh
-    write_validate_script(dir)?;
+    // validate.sh - validates both package.json and theme.json
+    write_theme_validate_script(dir)?;
 
     // theme.json - minimal theme with essential colors
     let theme_json = r##"{
@@ -1283,11 +1279,6 @@ fn main() -> AnyhowResult<()> {
     #[cfg(feature = "plugins")]
     if let Some(plugin_path) = &args.check_plugin {
         return check_plugin_bundle(plugin_path);
-    }
-
-    // Handle --validate-theme early (no terminal setup needed)
-    if let Some(theme_path) = &args.validate_theme {
-        return validate_theme_command(theme_path);
     }
 
     // Handle --init early (no terminal setup needed)

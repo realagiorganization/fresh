@@ -31,9 +31,9 @@ pub mod input;
 #[cfg(feature = "runtime")]
 pub mod services;
 
-// View module - available for both runtime and WASM
-// Most submodules are runtime-only, but theme types are WASM-compatible
-#[cfg(any(feature = "runtime", feature = "wasm"))]
+// View module - available for runtime, WASM, and dev-bins (schema generation)
+// Most submodules are runtime-only, but theme types are always available
+#[cfg(any(feature = "runtime", feature = "wasm", feature = "dev-bins"))]
 pub mod view;
 
 // WASM-specific modules
