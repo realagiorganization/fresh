@@ -41,6 +41,7 @@ const PACKAGES_DIR = editor.pathJoin(CONFIG_DIR, "plugins", "packages");
 const THEMES_PACKAGES_DIR = editor.pathJoin(CONFIG_DIR, "themes", "packages");
 const LANGUAGES_PACKAGES_DIR = editor.pathJoin(CONFIG_DIR, "languages", "packages");
 const INDEX_DIR = editor.pathJoin(PACKAGES_DIR, ".index");
+const CACHE_DIR = editor.pathJoin(PACKAGES_DIR, ".cache");
 const LOCKFILE_PATH = editor.pathJoin(CONFIG_DIR, "fresh.lock");
 
 // Default registry source
@@ -346,6 +347,11 @@ async function syncRegistry(): Promise<void> {
     }
   }
 
+  // Cache registry data locally for faster startup next time
+  if (synced > 0) {
+    await cacheRegistry();
+  }
+
   if (errors.length > 0) {
     editor.setStatus(`Registry: ${synced}/${sources.length} synced. Errors: ${errors.join("; ")}`);
   } else {
@@ -354,7 +360,7 @@ async function syncRegistry(): Promise<void> {
 }
 
 /**
- * Load merged registry data
+ * Load merged registry data from git index or cache
  */
 function loadRegistry(type: "plugins" | "themes" | "languages"): RegistryData {
   editor.debug(`[pkg] loadRegistry called for ${type}`);
@@ -367,9 +373,20 @@ function loadRegistry(type: "plugins" | "themes" | "languages"): RegistryData {
   };
 
   for (const source of sources) {
+    // Try git index first
     const indexPath = editor.pathJoin(INDEX_DIR, hashString(source), `${type}.json`);
     editor.debug(`[pkg] checking index path: ${indexPath}`);
-    const data = readJsonFile<RegistryData>(indexPath);
+    let data = readJsonFile<RegistryData>(indexPath);
+
+    // Fall back to cache if index not available
+    if (!data?.packages) {
+      const cachePath = editor.pathJoin(CACHE_DIR, `${hashString(source)}_${type}.json`);
+      data = readJsonFile<RegistryData>(cachePath);
+      if (data?.packages) {
+        editor.debug(`[pkg] using cached data for ${type}`);
+      }
+    }
+
     editor.debug(`[pkg] data loaded: ${data ? 'yes' : 'no'}, packages: ${data?.packages ? Object.keys(data.packages).length : 0}`);
     if (data?.packages) {
       Object.assign(merged.packages, data.packages);
@@ -381,13 +398,40 @@ function loadRegistry(type: "plugins" | "themes" | "languages"): RegistryData {
 }
 
 /**
- * Check if registry has been synced (index directory exists)
+ * Cache registry data locally for offline/fast access
+ */
+async function cacheRegistry(): Promise<void> {
+  await ensureDir(CACHE_DIR);
+  const sources = getRegistrySources();
+
+  for (const source of sources) {
+    const sourceHash = hashString(source);
+    for (const type of ["plugins", "themes", "languages"] as const) {
+      const indexPath = editor.pathJoin(INDEX_DIR, sourceHash, `${type}.json`);
+      const cachePath = editor.pathJoin(CACHE_DIR, `${sourceHash}_${type}.json`);
+
+      const data = readJsonFile<RegistryData>(indexPath);
+      if (data?.packages && Object.keys(data.packages).length > 0) {
+        await writeJsonFile(cachePath, data);
+      }
+    }
+  }
+}
+
+/**
+ * Check if registry data is available (from index or cache)
  */
 function isRegistrySynced(): boolean {
   const sources = getRegistrySources();
   for (const source of sources) {
+    // Check git index
     const indexPath = editor.pathJoin(INDEX_DIR, hashString(source));
     if (editor.fileExists(indexPath)) {
+      return true;
+    }
+    // Check cache
+    const cachePath = editor.pathJoin(CACHE_DIR, `${hashString(source)}_plugins.json`);
+    if (editor.fileExists(cachePath)) {
       return true;
     }
   }
@@ -1889,9 +1933,13 @@ async function openPackageManager(): Promise<void> {
   pkgState.searchQuery = "";
   pkgState.selectedIndex = 0;
   pkgState.focus = { type: "list" };
-  pkgState.isLoading = true;
 
-  // Build initial entries (loading state)
+  // Build package list immediately with installed packages and cached registry
+  // This allows viewing/managing installed packages without waiting for network
+  pkgState.items = buildPackageList();
+  pkgState.isLoading = false;
+
+  // Build initial entries
   const entries = buildListViewEntries();
 
   // Create virtual buffer
@@ -1909,13 +1957,17 @@ async function openPackageManager(): Promise<void> {
   pkgState.bufferId = result.bufferId;
   pkgState.isOpen = true;
 
-  // Auto-sync registry in background, then load package data
-  await syncRegistry();
-  pkgState.items = buildPackageList();
-  pkgState.isLoading = false;
+  // Apply initial highlighting
+  applyPkgManagerHighlighting();
 
-  // Update view
-  updatePkgManagerView();
+  // Sync registry in background and update view when done
+  // User can still interact with installed packages during sync
+  syncRegistry().then(() => {
+    if (pkgState.isOpen) {
+      pkgState.items = buildPackageList();
+      updatePkgManagerView();
+    }
+  });
 }
 
 /**
