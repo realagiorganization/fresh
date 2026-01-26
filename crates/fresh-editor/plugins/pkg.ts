@@ -39,6 +39,7 @@ const editor = getEditor();
 const CONFIG_DIR = editor.getConfigDir();
 const PACKAGES_DIR = editor.pathJoin(CONFIG_DIR, "plugins", "packages");
 const THEMES_PACKAGES_DIR = editor.pathJoin(CONFIG_DIR, "themes", "packages");
+const LANGUAGES_PACKAGES_DIR = editor.pathJoin(CONFIG_DIR, "languages", "packages");
 const INDEX_DIR = editor.pathJoin(PACKAGES_DIR, ".index");
 const LOCKFILE_PATH = editor.pathJoin(CONFIG_DIR, "fresh.lock");
 
@@ -49,11 +50,18 @@ const DEFAULT_REGISTRY = "https://github.com/sinelaw/fresh-plugins-registry";
 // Types
 // =============================================================================
 
+// TODO: Generate PackageManifest from the JSON schema (or vice versa) to ensure
+// pkg.ts types stay in sync with package.schema.json. Consider using json-schema-to-typescript
+// or ts-json-schema-generator to automate this.
+// Related files:
+//   - docs/internal/package-index-template/schemas/package.schema.json
+//   - crates/fresh-editor/plugins/schemas/package.schema.json
+
 interface PackageManifest {
   name: string;
   version: string;
   description: string;
-  type: "plugin" | "theme" | "theme-pack";
+  type: "plugin" | "theme" | "theme-pack" | "language";
   author?: string;
   license?: string;
   repository?: string;
@@ -66,6 +74,34 @@ interface PackageManifest {
       variant?: "dark" | "light";
     }>;
     config_schema?: Record<string, unknown>;
+
+    // Language pack fields
+    grammar?: {
+      /** Path to grammar file relative to package */
+      file: string;
+      /** File extensions (e.g., ["rs", "rust"]) */
+      extensions?: string[];
+      /** Shebang pattern for detection */
+      firstLine?: string;
+    };
+    language?: {
+      commentPrefix?: string;
+      blockCommentStart?: string;
+      blockCommentEnd?: string;
+      useTabs?: boolean;
+      tabSize?: number;
+      autoIndent?: boolean;
+      formatter?: {
+        command: string;
+        args?: string[];
+      };
+    };
+    lsp?: {
+      command: string;
+      args?: string[];
+      autoStart?: boolean;
+      initializationOptions?: Record<string, unknown>;
+    };
   };
   keywords?: string[];
 }
@@ -92,7 +128,7 @@ interface RegistryData {
 interface InstalledPackage {
   name: string;
   path: string;
-  type: "plugin" | "theme";
+  type: "plugin" | "theme" | "language";
   source: string;
   version: string;
   commit?: string;
@@ -320,7 +356,7 @@ async function syncRegistry(): Promise<void> {
 /**
  * Load merged registry data
  */
-function loadRegistry(type: "plugins" | "themes"): RegistryData {
+function loadRegistry(type: "plugins" | "themes" | "languages"): RegistryData {
   editor.debug(`[pkg] loadRegistry called for ${type}`);
   const sources = getRegistrySources();
   editor.debug(`[pkg] sources: ${JSON.stringify(sources)}`);
@@ -365,8 +401,10 @@ function isRegistrySynced(): boolean {
 /**
  * Get list of installed packages
  */
-function getInstalledPackages(type: "plugin" | "theme"): InstalledPackage[] {
-  const packagesDir = type === "plugin" ? PACKAGES_DIR : THEMES_PACKAGES_DIR;
+function getInstalledPackages(type: "plugin" | "theme" | "language"): InstalledPackage[] {
+  const packagesDir = type === "plugin" ? PACKAGES_DIR
+                    : type === "theme" ? THEMES_PACKAGES_DIR
+                    : LANGUAGES_PACKAGES_DIR;
   const packages: InstalledPackage[] = [];
 
   if (!editor.fileExists(packagesDir)) {
@@ -460,14 +498,14 @@ function validatePackage(packageDir: string, packageName: string): ValidationRes
   if (!manifest.type) {
     return {
       valid: false,
-      error: "Invalid package.json - missing 'type' field (should be 'plugin' or 'theme')"
+      error: "Invalid package.json - missing 'type' field (should be 'plugin', 'theme', or 'language')"
     };
   }
 
-  if (manifest.type !== "plugin" && manifest.type !== "theme") {
+  if (manifest.type !== "plugin" && manifest.type !== "theme" && manifest.type !== "language") {
     return {
       valid: false,
-      error: `Invalid package.json - 'type' must be 'plugin' or 'theme', got '${manifest.type}'`
+      error: `Invalid package.json - 'type' must be 'plugin', 'theme', or 'language', got '${manifest.type}'`
     };
   }
 
@@ -492,6 +530,29 @@ function validatePackage(packageDir: string, packageName: string): ValidationRes
     return { valid: true, manifest, entryPath };
   }
 
+  // For language packs, validate at least one component is defined
+  if (manifest.type === "language") {
+    if (!manifest.fresh?.grammar && !manifest.fresh?.language && !manifest.fresh?.lsp) {
+      return {
+        valid: false,
+        error: "Language package must define at least one of: grammar, language, or lsp"
+      };
+    }
+
+    // Validate grammar file exists if specified
+    if (manifest.fresh?.grammar?.file) {
+      const grammarPath = editor.pathJoin(packageDir, manifest.fresh.grammar.file);
+      if (!editor.fileExists(grammarPath)) {
+        return {
+          valid: false,
+          error: `Grammar file not found: ${manifest.fresh.grammar.file}`
+        };
+      }
+    }
+
+    return { valid: true, manifest };
+  }
+
   // Themes don't need entry file validation
   return { valid: true, manifest };
 }
@@ -507,12 +568,14 @@ function validatePackage(packageDir: string, packageName: string): ValidationRes
 async function installPackage(
   url: string,
   name?: string,
-  type: "plugin" | "theme" = "plugin",
+  type: "plugin" | "theme" | "language" = "plugin",
   version?: string
 ): Promise<boolean> {
   const parsed = parsePackageUrl(url);
   const packageName = name || parsed.name;
-  const packagesDir = type === "plugin" ? PACKAGES_DIR : THEMES_PACKAGES_DIR;
+  const packagesDir = type === "plugin" ? PACKAGES_DIR
+                    : type === "theme" ? THEMES_PACKAGES_DIR
+                    : LANGUAGES_PACKAGES_DIR;
   const targetDir = editor.pathJoin(packagesDir, packageName);
 
   if (editor.fileExists(targetDir)) {
@@ -581,13 +644,16 @@ async function installFromRepo(
 
   const manifest = validation.manifest;
 
-  // Dynamically load plugins or reload themes
+  // Dynamically load plugins, reload themes, or load language packs
   if (manifest?.type === "plugin" && validation.entryPath) {
     await editor.loadPlugin(validation.entryPath);
     editor.setStatus(`Installed and activated ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
   } else if (manifest?.type === "theme") {
     editor.reloadThemes();
     editor.setStatus(`Installed theme ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
+  } else if (manifest?.type === "language") {
+    await loadLanguagePack(targetDir, manifest);
+    editor.setStatus(`Installed language pack ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
   } else {
     editor.setStatus(`Installed ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
   }
@@ -675,13 +741,16 @@ async function installFromMonorepo(
 
     const manifest = validation.manifest;
 
-    // Dynamically load plugins or reload themes
+    // Dynamically load plugins, reload themes, or load language packs
     if (manifest?.type === "plugin" && validation.entryPath) {
       await editor.loadPlugin(validation.entryPath);
       editor.setStatus(`Installed and activated ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
     } else if (manifest?.type === "theme") {
       editor.reloadThemes();
       editor.setStatus(`Installed theme ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
+    } else if (manifest?.type === "language") {
+      await loadLanguagePack(targetDir, manifest);
+      editor.setStatus(`Installed language pack ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
     } else {
       editor.setStatus(`Installed ${packageName}${manifest ? ` v${manifest.version}` : ""}`);
     }
@@ -690,6 +759,51 @@ async function installFromMonorepo(
     // Cleanup temp directory
     await editor.spawnProcess("rm", ["-rf", tempDir]);
   }
+}
+
+/**
+ * Load a language pack (register grammar, language config, and LSP server)
+ */
+async function loadLanguagePack(packageDir: string, manifest: PackageManifest): Promise<void> {
+  const langId = manifest.name;
+
+  // Register grammar if present
+  if (manifest.fresh?.grammar) {
+    const grammarPath = editor.pathJoin(packageDir, manifest.fresh.grammar.file);
+    const extensions = manifest.fresh.grammar.extensions || [];
+    editor.registerGrammar(langId, grammarPath, extensions);
+  }
+
+  // Register language config if present
+  if (manifest.fresh?.language) {
+    const lang = manifest.fresh.language;
+    editor.registerLanguageConfig(langId, {
+      commentPrefix: lang.commentPrefix ?? null,
+      blockCommentStart: lang.blockCommentStart ?? null,
+      blockCommentEnd: lang.blockCommentEnd ?? null,
+      useTabs: lang.useTabs ?? null,
+      tabSize: lang.tabSize ?? null,
+      autoIndent: lang.autoIndent ?? null,
+      formatter: lang.formatter ? {
+        command: lang.formatter.command,
+        args: lang.formatter.args ?? [],
+      } : null,
+    });
+  }
+
+  // Register LSP server if present
+  if (manifest.fresh?.lsp) {
+    const lsp = manifest.fresh.lsp;
+    editor.registerLspServer(langId, {
+      command: lsp.command,
+      args: lsp.args ?? [],
+      autoStart: lsp.autoStart ?? null,
+      initializationOptions: lsp.initializationOptions ?? null,
+    });
+  }
+
+  // Apply changes
+  editor.reloadGrammars();
 }
 
 /**
@@ -966,7 +1080,7 @@ interface PackageListItem {
   stars?: number;
   downloads?: number;
   keywords?: string[];
-  packageType: "plugin" | "theme";
+  packageType: "plugin" | "theme" | "language";
   // For installed packages
   installedPackage?: InstalledPackage;
   // For available packages
@@ -975,7 +1089,7 @@ interface PackageListItem {
 
 // Focus target types for Tab navigation
 type FocusTarget =
-  | { type: "filter"; index: number }  // 0=All, 1=Installed, 2=Plugins, 3=Themes
+  | { type: "filter"; index: number }  // 0=All, 1=Installed, 2=Plugins, 3=Themes, 4=Languages
   | { type: "sync" }
   | { type: "search" }
   | { type: "list" }  // Package list (use arrows to navigate)
@@ -986,7 +1100,7 @@ interface PkgManagerState {
   bufferId: number | null;
   splitId: number | null;
   sourceBufferId: number | null;
-  filter: "all" | "installed" | "plugins" | "themes";
+  filter: "all" | "installed" | "plugins" | "themes" | "languages";
   searchQuery: string;
   items: PackageListItem[];
   selectedIndex: number;
@@ -1116,9 +1230,10 @@ function buildPackageList(): PackageListItem[] {
   // Get installed packages
   const installedPlugins = getInstalledPackages("plugin");
   const installedThemes = getInstalledPackages("theme");
+  const installedLanguages = getInstalledPackages("language");
   const installedMap = new Map<string, InstalledPackage>();
 
-  for (const pkg of [...installedPlugins, ...installedThemes]) {
+  for (const pkg of [...installedPlugins, ...installedThemes, ...installedLanguages]) {
     installedMap.set(pkg.name, pkg);
     items.push({
       type: "installed",
@@ -1183,6 +1298,30 @@ function buildPackageList(): PackageListItem[] {
         });
       }
     }
+
+    // Add language packages from registry
+    const languageRegistry = loadRegistry("languages");
+    for (const [name, entry] of Object.entries(languageRegistry.packages)) {
+      if (!installedMap.has(name)) {
+        items.push({
+          type: "available",
+          name,
+          description: entry.description || "No description",
+          version: entry.latest_version || "latest",
+          installed: false,
+          updateAvailable: false,
+          latestVersion: entry.latest_version,
+          author: entry.author,
+          license: entry.license,
+          repository: entry.repository,
+          stars: entry.stars,
+          downloads: entry.downloads,
+          keywords: entry.keywords,
+          packageType: "language",
+          registryEntry: entry,
+        });
+      }
+    }
   }
 
   return items;
@@ -1204,6 +1343,9 @@ function getFilteredItems(): PackageListItem[] {
       break;
     case "themes":
       items = items.filter(i => i.packageType === "theme");
+      break;
+    case "languages":
+      items = items.filter(i => i.packageType === "language");
       break;
   }
 
@@ -1330,6 +1472,7 @@ function buildListViewEntries(): TextPropertyEntry[] {
     { id: "installed", label: "Installed" },
     { id: "plugins", label: "Plugins" },
     { id: "themes", label: "Themes" },
+    { id: "languages", label: "Languages" },
   ];
 
   // Build filter buttons with position tracking
@@ -1411,7 +1554,7 @@ function buildListViewEntries(): TextPropertyEntry[] {
       const isSelected = idx === pkgState.selectedIndex;
       const listFocused = pkgState.focus.type === "list";
       const prefix = isSelected && listFocused ? "▸" : " ";
-      const typeTag = item.packageType === "theme" ? "T" : "P";
+      const typeTag = item.packageType === "theme" ? "T" : item.packageType === "language" ? "L" : "P";
       const name = item.name.length > 22 ? item.name.slice(0, 21) + "…" : item.name;
       const line = `${prefix} ${name.padEnd(22)} [${typeTag}]`;
       leftLines.push({ text: line, type: "package-row", selected: isSelected, installed: false });
@@ -1804,10 +1947,11 @@ function closePackageManager(): void {
 function getFocusOrder(): FocusTarget[] {
   const order: FocusTarget[] = [
     { type: "search" },
-    { type: "filter", index: 0 },
-    { type: "filter", index: 1 },
-    { type: "filter", index: 2 },
-    { type: "filter", index: 3 },
+    { type: "filter", index: 0 },  // All
+    { type: "filter", index: 1 },  // Installed
+    { type: "filter", index: 2 },  // Plugins
+    { type: "filter", index: 3 },  // Themes
+    { type: "filter", index: 4 },  // Languages
     { type: "sync" },
     { type: "list" },
   ];
@@ -1891,7 +2035,7 @@ globalThis.pkg_activate = async function(): Promise<void> {
 
   // Handle filter button activation
   if (focus.type === "filter") {
-    const filters = ["all", "installed", "plugins", "themes"] as const;
+    const filters = ["all", "installed", "plugins", "themes", "languages"] as const;
     pkgState.filter = filters[focus.index];
     pkgState.selectedIndex = 0;
     pkgState.items = buildPackageList();
@@ -2297,5 +2441,22 @@ editor.registerCommand("%cmd.install_url", "%cmd.install_url_desc", "pkg_install
 
 // Note: Other commands (install_plugin, install_theme, update, remove, sync, etc.)
 // are available via the package manager UI and don't need global command palette entries.
+
+// =============================================================================
+// Startup: Load installed language packs
+// =============================================================================
+
+(async function loadInstalledLanguagePacks() {
+  const languages = getInstalledPackages("language");
+  for (const pkg of languages) {
+    if (pkg.manifest) {
+      editor.debug(`[pkg] Loading language pack: ${pkg.name}`);
+      await loadLanguagePack(pkg.path, pkg.manifest);
+    }
+  }
+  if (languages.length > 0) {
+    editor.debug(`[pkg] Loaded ${languages.length} language pack(s)`);
+  }
+})();
 
 editor.debug("Package Manager plugin loaded");
