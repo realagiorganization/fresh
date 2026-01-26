@@ -1,5 +1,42 @@
 # Release Notes
 
+## 0.1.89
+
+### Features
+
+* **Quick Open**: Unified prompt (Ctrl+P) for navigating files, commands, buffers, and lines. Use prefix characters to switch modes:
+  - No prefix: fuzzy file finder
+  - `>` prefix: command palette
+  - `#` prefix: switch open buffers by name
+  - `:` prefix: go to line number
+
+  Includes hints line showing available prefixes, toggle behavior, and Tab completion.
+
+* **Plugin Package Manager**: New UI for browsing, installing, and uninstalling plugins and themes. Features search, package validation, and automatic theme reloading after install.
+
+* **Status Message Log**: Click status bar messages to view full message history.
+
+* **Theme Validation**: Strict JSON validation for theme files with a CLI command.
+
+### Bug Fixes
+
+* **Bracket Expansion**: Pressing Enter between matching brackets now expands them with proper indentation (#629).
+* **Ctrl+D Word Selection**: Ctrl+D now selects the entire word when no selection exists.
+* **Ctrl+Right Word Jump**: Fixed Ctrl+Right to jump to word end, matching Ctrl+Shift+Right behavior.
+* **Alt+N/P Search**: Search is now invalidated when cursor moves manually, preventing stale matches.
+* **Package Uninstall**: Fixed plugin cleanup and command unregistration when uninstalling packages.
+* **Theme Fallback**: Editor now falls back to default theme when configured theme is not found.
+* **Cross-Platform Theme Paths**: Fixed theme path handling for Windows compatibility.
+
+### Internal
+
+* Moved calculator, color-highlighter, todo-highlighter plugins to external repository (installable via package manager).
+* Moved catppuccin and xscriptor themes to external repository (installable via package manager).
+* Added WASM feature flag for shared editor core modules.
+* Italian translation update (#839).
+
+---
+
 ## 0.1.88
 
 ### Features
