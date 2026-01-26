@@ -390,6 +390,153 @@ impl GrammarRegistry {
     pub fn filename_scopes(&self) -> &HashMap<String, String> {
         &self.filename_scopes
     }
+
+    /// Create a new registry with additional grammar files
+    ///
+    /// This builds a new GrammarRegistry that includes all grammars from
+    /// the base registry plus the additional grammars specified.
+    ///
+    /// # Arguments
+    /// * `base` - The base registry to extend
+    /// * `additional` - List of (language, path, extensions) tuples for new grammars
+    ///
+    /// # Returns
+    /// A new GrammarRegistry with the additional grammars, or None if rebuilding fails
+    pub fn with_additional_grammars(
+        base: &GrammarRegistry,
+        additional: &[(String, PathBuf, Vec<String>)],
+    ) -> Option<Self> {
+        // Start with defaults and embedded grammars (same as Default impl)
+        let defaults = SyntaxSet::load_defaults_newlines();
+        let mut builder = defaults.into_builder();
+        Self::add_embedded_grammars(&mut builder);
+
+        // Clone the base user extensions
+        let mut user_extensions = base.user_extensions.clone();
+
+        // Add each new grammar
+        for (language, path, extensions) in additional {
+            match Self::load_grammar_file(path) {
+                Ok(syntax) => {
+                    let scope = syntax.scope.to_string();
+                    builder.add(syntax);
+                    tracing::info!(
+                        "Loaded grammar for '{}' from {:?} with extensions {:?}",
+                        language,
+                        path,
+                        extensions
+                    );
+                    // Register extensions for this grammar
+                    for ext in extensions {
+                        user_extensions.insert(ext.clone(), scope.clone());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to load grammar for '{}' from {:?}: {}",
+                        language,
+                        path,
+                        e
+                    );
+                }
+            }
+        }
+
+        Some(Self::new(
+            builder.build(),
+            user_extensions,
+            base.filename_scopes.clone(),
+        ))
+    }
+
+    /// Load a grammar file from disk
+    ///
+    /// Supports both TextMate (.tmLanguage.json, .tmLanguage) and
+    /// Sublime Text (.sublime-syntax) formats.
+    fn load_grammar_file(path: &Path) -> Result<SyntaxDefinition, String> {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        match ext {
+            "sublime-syntax" => {
+                let content = std::fs::read_to_string(path)
+                    .map_err(|e| format!("Failed to read file: {}", e))?;
+                SyntaxDefinition::load_from_str(
+                    &content,
+                    true,
+                    path.file_stem().and_then(|s| s.to_str()),
+                )
+                .map_err(|e| format!("Failed to parse sublime-syntax: {}", e))
+            }
+            "json" | "tmLanguage" => {
+                // For JSON-based TextMate grammars, we need to convert to plist first
+                // syntect expects plist format for TextMate grammars
+                let content = std::fs::read_to_string(path)
+                    .map_err(|e| format!("Failed to read file: {}", e))?;
+
+                // Try to parse as JSON and convert to plist
+                let json: serde_json::Value = serde_json::from_str(&content)
+                    .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+                // Convert JSON to plist format for syntect
+                let plist_str = json_to_plist_string(&json)
+                    .map_err(|e| format!("Failed to convert to plist: {}", e))?;
+
+                SyntaxDefinition::load_from_str(
+                    &plist_str,
+                    true,
+                    path.file_stem().and_then(|s| s.to_str()),
+                )
+                .map_err(|e| format!("Failed to parse grammar: {}", e))
+            }
+            _ => Err(format!("Unsupported grammar format: .{}", ext)),
+        }
+    }
+}
+
+/// Convert a serde_json::Value to a plist-compatible string format
+///
+/// TextMate grammars are historically plist format, but many modern grammars
+/// are distributed as JSON. syntect's load_from_str expects plist format,
+/// so we convert JSON to a plist string representation.
+fn json_to_plist_string(value: &serde_json::Value) -> Result<String, String> {
+    // Convert JSON to plist Value first
+    let plist_value = json_to_plist_value(value)?;
+
+    // Serialize to XML plist string
+    let mut buf = Vec::new();
+    plist::to_writer_xml(&mut buf, &plist_value)
+        .map_err(|e| format!("Failed to serialize plist: {}", e))?;
+
+    String::from_utf8(buf).map_err(|e| format!("Invalid UTF-8 in plist: {}", e))
+}
+
+/// Recursively convert a serde_json::Value to a plist::Value
+fn json_to_plist_value(value: &serde_json::Value) -> Result<plist::Value, String> {
+    match value {
+        serde_json::Value::Null => Ok(plist::Value::String(String::new())),
+        serde_json::Value::Bool(b) => Ok(plist::Value::Boolean(*b)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(plist::Value::Integer(i.into()))
+            } else if let Some(f) = n.as_f64() {
+                Ok(plist::Value::Real(f))
+            } else {
+                Err("Invalid number".to_string())
+            }
+        }
+        serde_json::Value::String(s) => Ok(plist::Value::String(s.clone())),
+        serde_json::Value::Array(arr) => {
+            let values: Result<Vec<_>, _> = arr.iter().map(json_to_plist_value).collect();
+            Ok(plist::Value::Array(values?))
+        }
+        serde_json::Value::Object(obj) => {
+            let mut dict = plist::Dictionary::new();
+            for (k, v) in obj {
+                dict.insert(k.clone(), json_to_plist_value(v)?);
+            }
+            Ok(plist::Value::Dictionary(dict))
+        }
+    }
 }
 
 impl Default for GrammarRegistry {

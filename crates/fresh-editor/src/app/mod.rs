@@ -138,6 +138,17 @@ fn uri_to_path(uri: &lsp_types::Uri) -> Result<PathBuf, String> {
         .map_err(|_| "URI is not a file path".to_string())
 }
 
+/// A pending grammar registration waiting for reload_grammars() to apply
+#[derive(Clone, Debug)]
+pub struct PendingGrammar {
+    /// Language identifier (e.g., "elixir")
+    pub language: String,
+    /// Path to the grammar file (.tmLanguage.json or .sublime-syntax)
+    pub grammar_path: String,
+    /// File extensions to associate with this grammar
+    pub extensions: Vec<String>,
+}
+
 /// Track an in-flight semantic token range request.
 #[derive(Clone, Debug)]
 struct SemanticTokenRangeRequest {
@@ -183,6 +194,9 @@ pub struct Editor {
 
     /// Grammar registry for TextMate syntax highlighting
     grammar_registry: std::sync::Arc<crate::primitives::grammar::GrammarRegistry>,
+
+    /// Pending grammars registered by plugins, waiting for reload_grammars() to apply
+    pending_grammars: Vec<PendingGrammar>,
 
     /// Active theme
     theme: crate::view::theme::Theme,
@@ -1022,6 +1036,7 @@ impl Editor {
             config,
             dir_context: dir_context.clone(),
             grammar_registry,
+            pending_grammars: Vec::new(),
             theme,
             theme_registry,
             ansi_background: None,
@@ -4404,6 +4419,22 @@ impl Editor {
             }
             PluginCommand::ReloadThemes => {
                 self.reload_themes();
+            }
+            PluginCommand::RegisterGrammar {
+                language,
+                grammar_path,
+                extensions,
+            } => {
+                self.handle_register_grammar(language, grammar_path, extensions);
+            }
+            PluginCommand::RegisterLanguageConfig { language, config } => {
+                self.handle_register_language_config(language, config);
+            }
+            PluginCommand::RegisterLspServer { language, config } => {
+                self.handle_register_lsp_server(language, config);
+            }
+            PluginCommand::ReloadGrammars => {
+                self.handle_reload_grammars();
             }
             PluginCommand::StartPrompt { label, prompt_type } => {
                 self.handle_start_prompt(label, prompt_type);

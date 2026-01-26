@@ -19,9 +19,10 @@ use fresh_core::api::{
     BufferSavedDiff, CompositeHunk, CompositeLayoutConfig, CompositePaneStyle,
     CompositeSourceConfig, CreateCompositeBufferOptions, CreateVirtualBufferInExistingSplitOptions,
     CreateVirtualBufferInSplitOptions, CreateVirtualBufferOptions, CursorInfo, DirEntry,
-    JsDiagnostic, JsPosition, JsRange, JsTextPropertyEntry, LayoutHints, SpawnResult,
-    TextPropertiesAtCursor, TsHighlightSpan, ViewTokenStyle, ViewTokenWire, ViewTokenWireKind,
-    ViewportInfo, VirtualBufferResult,
+    FormatterPackConfig, JsDiagnostic, JsPosition, JsRange, JsTextPropertyEntry,
+    LanguagePackConfig, LayoutHints, LspServerPackConfig, SpawnResult, TextPropertiesAtCursor,
+    TsHighlightSpan, ViewTokenStyle, ViewTokenWire, ViewTokenWireKind, ViewportInfo,
+    VirtualBufferResult,
 };
 use fresh_core::command::Suggestion;
 use fresh_core::file_explorer::FileExplorerDecoration;
@@ -87,6 +88,11 @@ fn get_type_decl(type_name: &str) -> Option<String> {
         "JsRange" => Some(JsRange::decl()),
         "JsPosition" => Some(JsPosition::decl()),
 
+        // Language pack types
+        "LanguagePackConfig" => Some(LanguagePackConfig::decl()),
+        "LspServerPackConfig" => Some(LspServerPackConfig::decl()),
+        "FormatterPackConfig" => Some(FormatterPackConfig::decl()),
+
         _ => None,
     }
 }
@@ -116,6 +122,7 @@ const DEPENDENCY_TYPES: &[&str] = &[
     "TsActionPopupAction",            // Used by ActionPopupOptions.actions
     "ActionPopupOptions",             // Used by showActionPopup
     "FileExplorerDecoration",         // Used by setFileExplorerDecorations
+    "FormatterPackConfig",            // Used by LanguagePackConfig.formatter
 ];
 
 /// Collect TypeScript type declarations based on referenced types from proc macro

@@ -1379,6 +1379,115 @@ pub enum PluginCommand {
     /// Reload the theme registry from disk
     /// Call this after installing a theme package or saving a new theme
     ReloadThemes,
+
+    /// Register a TextMate grammar file for a language
+    /// The grammar will be added to pending_grammars until ReloadGrammars is called
+    RegisterGrammar {
+        /// Language identifier (e.g., "elixir", "zig")
+        language: String,
+        /// Path to the grammar file (.tmLanguage.json or .sublime-syntax)
+        grammar_path: String,
+        /// File extensions to associate with this grammar (e.g., ["ex", "exs"])
+        extensions: Vec<String>,
+    },
+
+    /// Register language configuration (comment prefix, indentation, formatter)
+    /// This is applied immediately to the runtime config
+    RegisterLanguageConfig {
+        /// Language identifier (e.g., "elixir")
+        language: String,
+        /// Language configuration
+        config: LanguagePackConfig,
+    },
+
+    /// Register an LSP server for a language
+    /// This is applied immediately to the LSP manager and runtime config
+    RegisterLspServer {
+        /// Language identifier (e.g., "elixir")
+        language: String,
+        /// LSP server configuration
+        config: LspServerPackConfig,
+    },
+
+    /// Reload the grammar registry to apply registered grammars
+    /// Call this after registering one or more grammars to rebuild the syntax set
+    ReloadGrammars,
+}
+
+// =============================================================================
+// Language Pack Configuration Types
+// =============================================================================
+
+/// Language configuration for language packs
+///
+/// This is a simplified version of the full LanguageConfig, containing only
+/// the fields that can be set via the plugin API.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LanguagePackConfig {
+    /// Comment prefix for line comments (e.g., "//" or "#")
+    #[serde(default)]
+    pub comment_prefix: Option<String>,
+
+    /// Block comment start marker (e.g., slash-star)
+    #[serde(default)]
+    pub block_comment_start: Option<String>,
+
+    /// Block comment end marker (e.g., star-slash)
+    #[serde(default)]
+    pub block_comment_end: Option<String>,
+
+    /// Whether to use tabs instead of spaces for indentation
+    #[serde(default)]
+    pub use_tabs: Option<bool>,
+
+    /// Tab size (number of spaces per tab level)
+    #[serde(default)]
+    pub tab_size: Option<usize>,
+
+    /// Whether auto-indent is enabled
+    #[serde(default)]
+    pub auto_indent: Option<bool>,
+
+    /// Formatter configuration
+    #[serde(default)]
+    pub formatter: Option<FormatterPackConfig>,
+}
+
+/// Formatter configuration for language packs
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct FormatterPackConfig {
+    /// Command to run (e.g., "prettier", "rustfmt")
+    pub command: String,
+
+    /// Arguments to pass to the formatter
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+/// LSP server configuration for language packs
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct LspServerPackConfig {
+    /// Command to start the LSP server
+    pub command: String,
+
+    /// Arguments to pass to the command
+    #[serde(default)]
+    pub args: Vec<String>,
+
+    /// Whether to auto-start the server when a matching file is opened
+    #[serde(default)]
+    pub auto_start: Option<bool>,
+
+    /// LSP initialization options
+    #[serde(default)]
+    #[ts(type = "Record<string, unknown> | null")]
+    pub initialization_options: Option<JsonValue>,
 }
 
 /// Hunk status for Review Diff
@@ -1800,6 +1909,26 @@ mod fromjs_impls {
             rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
                 from: "object",
                 to: "CompositeHunk",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for LanguagePackConfig {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "LanguagePackConfig",
+                message: Some(e.to_string()),
+            })
+        }
+    }
+
+    impl<'js> FromJs<'js> for LspServerPackConfig {
+        fn from_js(_ctx: &Ctx<'js>, value: Value<'js>) -> rquickjs::Result<Self> {
+            rquickjs_serde::from_value(value).map_err(|e| rquickjs::Error::FromJs {
+                from: "object",
+                to: "LspServerPackConfig",
                 message: Some(e.to_string()),
             })
         }

@@ -12,7 +12,9 @@ package-index/
 ├── blocklist.json      # Known malicious packages
 └── schemas/
     ├── registry.schema.json    # JSON Schema for registry files
-    └── package.schema.json     # JSON Schema for package manifests
+    └── blocklist.schema.json   # JSON Schema for blocklist
+
+Package manifest schema: https://raw.githubusercontent.com/sinelaw/fresh/main/crates/fresh-editor/plugins/schemas/package.schema.json
 ```
 
 ## Adding a Package

@@ -67,6 +67,7 @@ runtime = [
     "syntect/yaml-load",  # Needed for SyntaxDefinition::load_from_str
     "syntect/default-syntaxes",
     "syntect/default-themes",
+    "dep:plist",  # For loading TextMate grammar files (JSON → plist conversion)
     "dep:ureq",
     "dep:alacritty_terminal",
     "dep:portable-pty",
@@ -89,6 +90,7 @@ wasm = [
     "syntect/yaml-load",  # yaml-rust is pure Rust, WASM-compatible
     "syntect/default-syntaxes",
     "syntect/default-themes",
+    "dep:plist",  # plist is pure Rust, WASM-compatible
 ]
 
 [dependencies]
@@ -143,6 +145,8 @@ arboard = { version = "3.6", default-features = false, features = ["wayland-data
 # syntect with default-features=false so we can choose regex engine per build target
 # runtime uses onig (faster), wasm uses fancy-regex (pure Rust, WASM-compatible)
 syntect = { version = "5.3", default-features = false, optional = true }
+# plist for parsing/generating TextMate grammar files
+plist = { version = "1.7", optional = true }
 jsonschema = { version = "0.40", optional = true }
 ureq = { version = "3.1.4", default-features = false, features = ["rustls"], optional = true }
 # Unicode handling - always needed for primitives

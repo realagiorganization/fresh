@@ -1210,4 +1210,140 @@ impl Editor {
     pub(super) fn handle_set_clipboard(&mut self, text: String) {
         self.clipboard.copy(text);
     }
+
+    // ==================== Language Pack Commands ====================
+
+    /// Handle RegisterGrammar command
+    /// Adds a grammar to the pending list until reload_grammars() is called
+    pub(super) fn handle_register_grammar(
+        &mut self,
+        language: String,
+        grammar_path: String,
+        extensions: Vec<String>,
+    ) {
+        use super::PendingGrammar;
+        self.pending_grammars.push(PendingGrammar {
+            language: language.clone(),
+            grammar_path,
+            extensions,
+        });
+        tracing::info!(
+            "Grammar registered for '{}' (call reload_grammars to apply)",
+            language
+        );
+    }
+
+    /// Handle RegisterLanguageConfig command
+    /// Applies language configuration immediately to runtime config
+    pub(super) fn handle_register_language_config(
+        &mut self,
+        language: String,
+        config: fresh_core::api::LanguagePackConfig,
+    ) {
+        // Convert LanguagePackConfig to the internal LanguageConfig format
+        let lang_config = crate::config::LanguageConfig {
+            comment_prefix: config.comment_prefix,
+            auto_indent: config.auto_indent.unwrap_or(true),
+            use_tabs: config.use_tabs.unwrap_or(false),
+            tab_size: config.tab_size,
+            formatter: config.formatter.map(|f| crate::config::FormatterConfig {
+                command: f.command,
+                args: f.args,
+                stdin: true,       // Default: read from stdin
+                timeout_ms: 10000, // Default: 10 second timeout
+            }),
+            ..Default::default()
+        };
+        self.config.languages.insert(language.clone(), lang_config);
+        tracing::info!("Language config registered for '{}'", language);
+    }
+
+    /// Handle RegisterLspServer command
+    /// Applies LSP server configuration immediately
+    pub(super) fn handle_register_lsp_server(
+        &mut self,
+        language: String,
+        config: fresh_core::api::LspServerPackConfig,
+    ) {
+        // Convert LspServerPackConfig to the internal LspServerConfig format
+        let lsp_config = crate::types::LspServerConfig {
+            command: config.command,
+            args: config.args,
+            auto_start: config.auto_start.unwrap_or(true),
+            initialization_options: config.initialization_options,
+            ..Default::default()
+        };
+        // Update LSP manager if available
+        if let Some(ref mut lsp) = self.lsp {
+            lsp.set_language_config(language.clone(), lsp_config.clone());
+        }
+        // Also update runtime config
+        self.config.lsp.insert(language.clone(), lsp_config);
+        tracing::info!("LSP server registered for '{}'", language);
+    }
+
+    /// Handle ReloadGrammars command
+    /// Rebuilds the grammar registry with pending grammars and invalidates highlight caches
+    pub(super) fn handle_reload_grammars(&mut self) {
+        use crate::primitives::grammar::GrammarRegistry;
+        use std::path::PathBuf;
+
+        if self.pending_grammars.is_empty() {
+            tracing::debug!("ReloadGrammars called but no pending grammars");
+            return;
+        }
+
+        // Collect pending grammars
+        let additional: Vec<_> = self
+            .pending_grammars
+            .drain(..)
+            .map(|g| {
+                (
+                    g.language.clone(),
+                    PathBuf::from(g.grammar_path),
+                    g.extensions.clone(),
+                )
+            })
+            .collect();
+
+        let grammar_count = additional.len();
+
+        // Update config.languages with the extensions so detect_language() works
+        for (language, _path, extensions) in &additional {
+            let lang_config = self
+                .config
+                .languages
+                .entry(language.clone())
+                .or_insert_with(Default::default);
+            // Add extensions that aren't already present
+            for ext in extensions {
+                if !lang_config.extensions.contains(ext) {
+                    lang_config.extensions.push(ext.clone());
+                }
+            }
+        }
+
+        // Rebuild registry with pending grammars
+        match GrammarRegistry::with_additional_grammars(&self.grammar_registry, &additional) {
+            Some(new_registry) => {
+                self.grammar_registry = std::sync::Arc::new(new_registry);
+
+                // Invalidate highlight caches for all buffers
+                for state in self.buffers.values_mut() {
+                    state.highlighter.invalidate_all();
+                }
+
+                // Emit event for plugins that might want to react
+                self.emit_event(
+                    "grammars_changed",
+                    serde_json::json!({ "count": grammar_count }),
+                );
+
+                tracing::info!("Grammars reloaded ({} new grammars)", grammar_count);
+            }
+            None => {
+                tracing::error!("Failed to rebuild grammar registry");
+            }
+        }
+    }
 }

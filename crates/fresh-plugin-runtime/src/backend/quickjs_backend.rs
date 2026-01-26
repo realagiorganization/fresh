@@ -2,11 +2,95 @@
 //!
 //! This module provides a JavaScript runtime using QuickJS for executing
 //! TypeScript plugins. TypeScript is transpiled to JavaScript using oxc.
+//!
+//! # Adding New API Methods
+//!
+//! When adding a new method to `JsEditorApi`, follow these steps for full type safety:
+//!
+//! ## 1. Define Types in `fresh-core/src/api.rs`
+//!
+//! If your method needs custom types (parameters or return values), define them with:
+//! ```rust,ignore
+//! #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+//! #[serde(rename_all = "camelCase")]  // Match JS naming conventions
+//! #[ts(export)]  // Generates TypeScript type definition
+//! pub struct MyConfig {
+//!     pub field: String,
+//! }
+//! ```
+//!
+//! ## 2. Add PluginCommand Variant
+//!
+//! In `fresh-core/src/api.rs`, add the command variant using typed structs:
+//! ```rust,ignore
+//! pub enum PluginCommand {
+//!     MyCommand {
+//!         language: String,
+//!         config: MyConfig,  // Use typed struct, not JsonValue
+//!     },
+//! }
+//! ```
+//!
+//! ## 3. Implement the API Method
+//!
+//! In `JsEditorApi`, use typed parameters for automatic deserialization:
+//! ```rust,ignore
+//! /// Description of what this method does
+//! pub fn my_method(&self, language: String, config: MyConfig) -> bool {
+//!     self.command_sender
+//!         .send(PluginCommand::MyCommand { language, config })
+//!         .is_ok()
+//! }
+//! ```
+//!
+//! For methods returning complex types, use `#[plugin_api(ts_return = "Type")]`:
+//! ```rust,ignore
+//! #[plugin_api(ts_return = "MyResult | null")]
+//! pub fn get_data<'js>(&self, ctx: rquickjs::Ctx<'js>) -> rquickjs::Result<Value<'js>> {
+//!     // Serialize result to JS value
+//! }
+//! ```
+//!
+//! For async methods:
+//! ```rust,ignore
+//! #[plugin_api(async_promise, js_name = "myAsyncMethod", ts_return = "MyResult")]
+//! #[qjs(rename = "_myAsyncMethodStart")]
+//! pub fn my_async_method_start(&self, param: String) -> u64 {
+//!     // Return callback ID, actual result sent via PluginResponse
+//! }
+//! ```
+//!
+//! ## 4. Register Types for Export
+//!
+//! In `ts_export.rs`, add your types to `get_type_decl()`:
+//! ```rust,ignore
+//! "MyConfig" => Some(MyConfig::decl()),
+//! ```
+//!
+//! And import them at the top of the file.
+//!
+//! ## 5. Handle the Command
+//!
+//! In `fresh-editor/src/app/plugin_commands.rs`, add the handler:
+//! ```rust,ignore
+//! pub(super) fn handle_my_command(&mut self, language: String, config: MyConfig) {
+//!     // Process the command
+//! }
+//! ```
+//!
+//! And dispatch it in `fresh-editor/src/app/mod.rs`.
+//!
+//! ## 6. Regenerate TypeScript Definitions
+//!
+//! Run: `cargo test -p fresh-plugin-runtime write_fresh_dts_file -- --ignored`
+//!
+//! This validates TypeScript syntax and writes `plugins/lib/fresh.d.ts`.
 
 use anyhow::{anyhow, Result};
 use fresh_core::api::{
     ActionSpec, BufferInfo, CompositeHunk, CreateCompositeBufferOptions, EditorStateSnapshot,
-    JsCallbackId, OverlayOptions, PluginCommand, PluginResponse,
+    JsCallbackId, LanguagePackConfig, LspServerPackConfig, OverlayOptions, PluginCommand,
+    PluginResponse,
 };
 use fresh_core::command::Command;
 use fresh_core::overlay::OverlayNamespace;
@@ -1051,6 +1135,43 @@ impl JsEditorApi {
     /// Call this after installing theme packages or saving new themes
     pub fn reload_themes(&self) {
         let _ = self.command_sender.send(PluginCommand::ReloadThemes);
+    }
+
+    /// Register a TextMate grammar file for a language
+    /// The grammar will be pending until reload_grammars() is called
+    pub fn register_grammar(
+        &self,
+        language: String,
+        grammar_path: String,
+        extensions: Vec<String>,
+    ) -> bool {
+        self.command_sender
+            .send(PluginCommand::RegisterGrammar {
+                language,
+                grammar_path,
+                extensions,
+            })
+            .is_ok()
+    }
+
+    /// Register language configuration (comment prefix, indentation, formatter)
+    pub fn register_language_config(&self, language: String, config: LanguagePackConfig) -> bool {
+        self.command_sender
+            .send(PluginCommand::RegisterLanguageConfig { language, config })
+            .is_ok()
+    }
+
+    /// Register an LSP server for a language
+    pub fn register_lsp_server(&self, language: String, config: LspServerPackConfig) -> bool {
+        self.command_sender
+            .send(PluginCommand::RegisterLspServer { language, config })
+            .is_ok()
+    }
+
+    /// Reload the grammar registry to apply registered grammars
+    /// Call this after registering one or more grammars
+    pub fn reload_grammars(&self) {
+        let _ = self.command_sender.send(PluginCommand::ReloadGrammars);
     }
 
     /// Get config directory path
