@@ -39,8 +39,8 @@ Fresh includes command-line tools for package development:
 # Create a new plugin, theme, or language pack project
 fresh --init
 
-# Validate a theme file for errors
-fresh --validate-theme path/to/theme.json
+# Validate a theme file (requires: pip install jsonschema)
+./scripts/validate-theme.sh path/to/theme.json
 ```
 
 ### Core Concepts

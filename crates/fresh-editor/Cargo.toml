@@ -36,7 +36,8 @@ plugins = ["dep:fresh-plugin-runtime", "dep:fresh-parser-js", "dep:fresh-plugin-
 # Embed plugins into the binary as a fallback when no disk plugins are found
 embed-plugins = ["plugins", "dep:include_dir", "dep:trash"]
 # Feature for optional development binaries (generate_schema, event_debug)
-dev-bins = []
+# Includes ratatui for theme type definitions needed by schema generation
+dev-bins = ["dep:ratatui"]
 # Runtime feature includes all heavy dependencies needed for the actual editor
 runtime = [
     "dep:crossterm",
@@ -73,7 +74,7 @@ runtime = [
     "dep:portable-pty",
     "dep:trash",
     "dep:open",
-    "dep:jsonschema",
+
 ]
 # Schema-only feature for minimal builds (just schema generation)
 schema-only = []
@@ -147,7 +148,6 @@ arboard = { version = "3.6", default-features = false, features = ["wayland-data
 syntect = { version = "5.3", default-features = false, optional = true }
 # plist for parsing/generating TextMate grammar files
 plist = { version = "1.7", optional = true }
-jsonschema = { version = "0.40", optional = true }
 ureq = { version = "3.1.4", default-features = false, features = ["rustls"], optional = true }
 # Unicode handling - always needed for primitives
 unicode-width = { version = "0.2" }

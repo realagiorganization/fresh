@@ -21,7 +21,7 @@
 
 * **Package Scaffolding (`--init`)**: Create new plugin, theme, or language pack projects with `fresh --init`. Interactive wizard generates package.json, entry files, and proper directory structure.
 
-* **Theme Validation (`--validate-theme`)**: Strict JSON validation for theme files. Run `fresh --validate-theme <path>` to check for unknown fields and type errors.
+* **Theme Schema**: JSON Schema for theme validation. Use `scripts/validate-theme.sh` or any JSON Schema validator.
 
 ### Bug Fixes
 
