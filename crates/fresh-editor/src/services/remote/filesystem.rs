@@ -7,8 +7,8 @@ use crate::model::filesystem::{
 };
 use crate::services::remote::channel::{AgentChannel, ChannelError};
 use crate::services::remote::protocol::{
-    decode_base64, ls_params, read_params, stat_params, write_params, RemoteDirEntry,
-    RemoteMetadata,
+    decode_base64, ls_params, read_params, stat_params, sudo_write_params, write_params,
+    RemoteDirEntry, RemoteMetadata,
 };
 use std::io::{self, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -387,6 +387,24 @@ impl FileSystem for RemoteFileSystem {
 
     fn remote_connection_info(&self) -> Option<&str> {
         Some(&self.connection_string)
+    }
+
+    fn sudo_write(
+        &self,
+        path: &Path,
+        data: &[u8],
+        mode: u32,
+        uid: u32,
+        gid: u32,
+    ) -> io::Result<()> {
+        let path_str = path.to_string_lossy();
+        self.channel
+            .request_blocking(
+                "sudo_write",
+                sudo_write_params(&path_str, data, mode, uid, gid),
+            )
+            .map_err(Self::to_io_error)?;
+        Ok(())
     }
 }
 

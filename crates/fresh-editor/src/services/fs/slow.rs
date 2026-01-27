@@ -291,6 +291,19 @@ impl FileSystem for SlowFileSystem {
     fn current_uid(&self) -> u32 {
         self.inner.current_uid()
     }
+
+    fn sudo_write(
+        &self,
+        path: &Path,
+        data: &[u8],
+        mode: u32,
+        uid: u32,
+        gid: u32,
+    ) -> io::Result<()> {
+        self.add_delay(self.config.write_file_delay);
+        self.metrics.write_file_calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.sudo_write(path, data, mode, uid, gid)
+    }
 }
 
 #[cfg(test)]

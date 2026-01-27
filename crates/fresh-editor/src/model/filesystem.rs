@@ -445,6 +445,19 @@ pub trait FileSystem: Send + Sync {
     fn remote_connection_info(&self) -> Option<&str> {
         None
     }
+
+    /// Write file using sudo (for root-owned files).
+    ///
+    /// This writes the file with elevated privileges, preserving the specified
+    /// permissions and ownership. Used when normal write fails due to permissions.
+    ///
+    /// - `path`: Destination file path
+    /// - `data`: File contents to write
+    /// - `mode`: File permissions (e.g., 0o644)
+    /// - `uid`: Owner user ID
+    /// - `gid`: Owner group ID
+    fn sudo_write(&self, path: &Path, data: &[u8], mode: u32, uid: u32, gid: u32)
+        -> io::Result<()>;
 }
 
 // ============================================================================
@@ -752,6 +765,64 @@ impl FileSystem for StdFileSystem {
             0
         }
     }
+
+    fn sudo_write(
+        &self,
+        path: &Path,
+        data: &[u8],
+        mode: u32,
+        uid: u32,
+        gid: u32,
+    ) -> io::Result<()> {
+        use std::process::{Command, Stdio};
+
+        // Write data via sudo tee
+        let mut child = Command::new("sudo")
+            .args(["tee", &path.to_string_lossy()])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("failed to spawn sudo: {}", e))
+            })?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(data)?;
+        }
+
+        let output = child.wait_with_output()?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("sudo tee failed: {}", stderr.trim()),
+            ));
+        }
+
+        // Set permissions via sudo chmod
+        let status = Command::new("sudo")
+            .args(["chmod", &format!("{:o}", mode), &path.to_string_lossy()])
+            .status()?;
+        if !status.success() {
+            return Err(io::Error::new(io::ErrorKind::Other, "sudo chmod failed"));
+        }
+
+        // Set ownership via sudo chown
+        let status = Command::new("sudo")
+            .args([
+                "chown",
+                &format!("{}:{}", uid, gid),
+                &path.to_string_lossy(),
+            ])
+            .status()?;
+        if !status.success() {
+            return Err(io::Error::new(io::ErrorKind::Other, "sudo chown failed"));
+        }
+
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -861,6 +932,17 @@ impl FileSystem for NoopFileSystem {
 
     fn current_uid(&self) -> u32 {
         0
+    }
+
+    fn sudo_write(
+        &self,
+        _path: &Path,
+        _data: &[u8],
+        _mode: u32,
+        _uid: u32,
+        _gid: u32,
+    ) -> io::Result<()> {
+        Self::unsupported()
     }
 }
 

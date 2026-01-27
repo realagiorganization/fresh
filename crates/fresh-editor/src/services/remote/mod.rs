@@ -16,8 +16,8 @@ pub use connection::spawn_local_agent;
 pub use connection::{ConnectionParams, SshConnection};
 pub use filesystem::RemoteFileSystem;
 pub use protocol::{
-    decode_base64, encode_base64, ls_params, read_params, stat_params, write_params, AgentRequest,
-    AgentResponse,
+    decode_base64, encode_base64, ls_params, read_params, stat_params, sudo_write_params,
+    write_params, AgentRequest, AgentResponse,
 };
 pub use spawner::{
     LocalProcessSpawner, ProcessSpawner, RemoteProcessSpawner, SpawnError, SpawnResult,

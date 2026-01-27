@@ -239,32 +239,35 @@ impl Editor {
                     // Hide prompt before starting blocking command to clear the line
                     self.cancel_prompt();
 
-                    // Build the sudo command
-                    // sh -c "cp '{temp}' '{dest}' && chmod {mode} '{dest}' && chown {uid}:{gid} '{dest}' && rm '{temp}'"
-                    let cmd = format!(
-                        "sudo sh -c \"cp '{}' '{}' && chmod {:o} '{}' && chown {}:{} '{}' && rm '{}'\"",
-                        info.temp_path.display(),
-                        info.dest_path.display(),
-                        info.mode,
-                        info.dest_path.display(),
-                        info.uid,
-                        info.gid,
-                        info.dest_path.display(),
-                        info.temp_path.display()
-                    );
+                    // Read temp file and write via sudo (works for both local and remote)
+                    let result = (|| -> anyhow::Result<()> {
+                        let data = self.filesystem.read_file(&info.temp_path)?;
+                        self.filesystem.sudo_write(
+                            &info.dest_path,
+                            &data,
+                            info.mode,
+                            info.uid,
+                            info.gid,
+                        )?;
+                        // Clean up temp file on success
+                        let _ = self.filesystem.remove_file(&info.temp_path);
+                        Ok(())
+                    })();
 
-                    match self.run_shell_command_blocking(&cmd) {
+                    match result {
                         Ok(_) => {
                             if let Err(e) = self
                                 .active_state_mut()
                                 .buffer
                                 .finalize_external_save(info.dest_path.clone())
                             {
+                                tracing::warn!("Failed to finalize sudo save: {}", e);
                                 self.set_status_message(
                                     t!("prompt.sudo_save_failed", error = e.to_string())
                                         .to_string(),
                                 );
                             } else if let Err(e) = self.finalize_save(Some(info.dest_path)) {
+                                tracing::warn!("Failed to finalize save after sudo: {}", e);
                                 self.set_status_message(
                                     t!("prompt.sudo_save_failed", error = e.to_string())
                                         .to_string(),
@@ -272,6 +275,7 @@ impl Editor {
                             }
                         }
                         Err(e) => {
+                            tracing::warn!("Sudo save failed: {}", e);
                             self.set_status_message(
                                 t!("prompt.sudo_save_failed", error = e.to_string()).to_string(),
                             );

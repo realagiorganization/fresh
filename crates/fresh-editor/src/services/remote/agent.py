@@ -105,6 +105,42 @@ def cmd_write(id, p):
     send(id, r={"size": len(data)})
 
 
+def cmd_sudo_write(id, p):
+    """Write file contents using sudo (for root-owned files).
+
+    Uses sudo tee to write the file. Preserves original permissions and ownership.
+    """
+    path = validate_path(p["path"])
+    data = unb64(p["data"])
+
+    # Get original metadata to preserve permissions
+    mode = p.get("mode")
+    uid = p.get("uid")
+    gid = p.get("gid")
+
+    # Use sudo tee to write the file
+    proc = subprocess.Popen(
+        ["sudo", "tee", path],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    _, stderr = proc.communicate(data)
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"sudo tee failed: {stderr.decode().strip()}")
+
+    # Restore permissions and ownership if provided
+    if mode is not None:
+        subprocess.run(["sudo", "chmod", f"{mode:o}", path], check=True,
+                       capture_output=True)
+    if uid is not None and gid is not None:
+        subprocess.run(["sudo", "chown", f"{uid}:{gid}", path], check=True,
+                       capture_output=True)
+
+    send(id, r={"size": len(data)})
+
+
 def cmd_stat(id, p):
     """Get file/directory metadata."""
     path = validate_path(p["path"])
@@ -327,6 +363,7 @@ def cmd_cancel(id, p):
 METHODS = {
     "read": cmd_read,
     "write": cmd_write,
+    "sudo_write": cmd_sudo_write,
     "stat": cmd_stat,
     "ls": cmd_ls,
     "rm": cmd_rm,

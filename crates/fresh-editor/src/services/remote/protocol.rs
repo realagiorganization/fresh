@@ -157,6 +157,23 @@ pub fn write_params(path: &str, data: &[u8]) -> serde_json::Value {
     })
 }
 
+/// Build params for sudo_write request (write file as root)
+pub fn sudo_write_params(
+    path: &str,
+    data: &[u8],
+    mode: u32,
+    uid: u32,
+    gid: u32,
+) -> serde_json::Value {
+    serde_json::json!({
+        "path": path,
+        "data": encode_base64(data),
+        "mode": mode,
+        "uid": uid,
+        "gid": gid
+    })
+}
+
 /// Build params for stat request
 pub fn stat_params(path: &str, follow_symlinks: bool) -> serde_json::Value {
     serde_json::json!({
