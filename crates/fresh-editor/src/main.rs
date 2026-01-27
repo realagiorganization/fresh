@@ -32,7 +32,8 @@ use std::{
 #[command(about = "A terminal text editor with multi-cursor support", long_about = None)]
 #[command(version)]
 struct Args {
-    /// Files to open. Supports line:col syntax (e.g., file.txt:10:5). Use "-" for stdin.
+    /// Files to open. Supports line:col syntax (e.g., file.txt:10:5), remote paths
+    /// (user@host:path), and "-" for stdin.
     #[arg(value_name = "FILES")]
     files: Vec<String>,
 
