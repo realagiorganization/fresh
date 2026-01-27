@@ -169,6 +169,20 @@ pub struct FilePermissions {
 }
 
 impl FilePermissions {
+    /// Create from raw Unix mode bits
+    #[cfg(unix)]
+    pub fn from_mode(mode: u32) -> Self {
+        Self { mode }
+    }
+
+    /// Create from raw mode (non-Unix: treated as readonly if no write bits)
+    #[cfg(not(unix))]
+    pub fn from_mode(mode: u32) -> Self {
+        Self {
+            readonly: mode & 0o222 == 0,
+        }
+    }
+
     /// Create from std::fs::Permissions
     #[cfg(unix)]
     pub fn from_std(perms: std::fs::Permissions) -> Self {
