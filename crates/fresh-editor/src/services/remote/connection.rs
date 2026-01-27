@@ -89,10 +89,10 @@ impl SshConnection {
     pub async fn connect(params: ConnectionParams) -> Result<Self, SshError> {
         let mut cmd = Command::new("ssh");
 
-        // Use BatchMode to prevent password prompts (require key auth)
-        cmd.arg("-o").arg("BatchMode=yes");
         // Don't check host key strictly for ease of use
         cmd.arg("-o").arg("StrictHostKeyChecking=accept-new");
+        // Allow password prompts - SSH will use the terminal for this
+        // Note: We inherit stderr so SSH can prompt for password if needed
 
         if let Some(port) = params.port {
             cmd.arg("-p").arg(port.to_string());
@@ -121,7 +121,8 @@ impl SshConnection {
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        // Inherit stderr so SSH can prompt for password on the terminal
+        cmd.stderr(Stdio::inherit());
 
         let mut child = cmd.spawn()?;
 
@@ -134,7 +135,7 @@ impl SshConnection {
             .stdout
             .take()
             .ok_or_else(|| SshError::AgentStartFailed("failed to get stdout".to_string()))?;
-        let stderr = child.stderr.take();
+        // Note: stderr is inherited so SSH can prompt for password on the terminal
 
         // Send the agent code (exact byte count)
         stdin.write_all(AGENT_SOURCE.as_bytes()).await?;
@@ -143,29 +144,26 @@ impl SshConnection {
         // Create buffered reader for stdout
         let mut reader = BufReader::new(stdout);
 
-        // Wait for ready message with timeout
+        // Wait for ready message with timeout (longer timeout to allow for password entry)
         let mut ready_line = String::new();
         let read_result = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_secs(60),
             reader.read_line(&mut ready_line),
         )
         .await;
 
-        // If read failed or timed out, try to get stderr for debugging
+        // If read failed or timed out, connection failed
+        // Error details were printed to stderr (inherited) by SSH
         let ready_line = match read_result {
-            Ok(Ok(0)) | Err(_) => {
-                // EOF or timeout - check stderr for error message
-                let mut stderr_msg = String::new();
-                if let Some(mut stderr) = stderr {
-                    let mut stderr_reader = BufReader::new(&mut stderr);
-                    let _ = stderr_reader.read_line(&mut stderr_msg).await;
-                }
-                let err_detail = if stderr_msg.is_empty() {
-                    "no output from agent".to_string()
-                } else {
-                    stderr_msg.trim().to_string()
-                };
-                return Err(SshError::AgentStartFailed(err_detail));
+            Ok(Ok(0)) => {
+                return Err(SshError::AgentStartFailed(
+                    "connection closed (check terminal for SSH errors)".to_string(),
+                ));
+            }
+            Err(_) => {
+                return Err(SshError::AgentStartFailed(
+                    "connection timed out waiting for agent".to_string(),
+                ));
             }
             Ok(Ok(_)) => ready_line,
             Ok(Err(e)) => return Err(SshError::AgentStartFailed(format!("read error: {}", e))),
