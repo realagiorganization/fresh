@@ -98,9 +98,9 @@ impl StringBuffer {
         }
     }
 
-    /// Load buffer data from file (for unloaded buffers)
+    /// Load buffer data from file using a FileSystem (for unloaded buffers)
     /// Returns error if buffer is not unloaded or if I/O fails
-    pub fn load(&mut self) -> io::Result<()> {
+    pub fn load(&mut self, fs: &dyn crate::model::filesystem::FileSystem) -> io::Result<()> {
         match &self.data {
             BufferData::Loaded { .. } => Ok(()), // Already loaded
             BufferData::Unloaded {
@@ -108,12 +108,8 @@ impl StringBuffer {
                 file_offset,
                 bytes,
             } => {
-                // Load from file
-                let mut file = std::fs::File::open(file_path)?;
-                file.seek(SeekFrom::Start(*file_offset as u64))?;
-
-                let mut buffer = vec![0u8; *bytes];
-                file.read_exact(&mut buffer)?;
+                // Load from file using the FileSystem trait
+                let buffer = fs.read_range(file_path, *file_offset as u64, *bytes)?;
 
                 // Replace with loaded data (no line indexing for lazy-loaded chunks)
                 self.data = BufferData::Loaded {

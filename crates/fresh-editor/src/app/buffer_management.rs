@@ -85,7 +85,9 @@ impl Editor {
         // Resolve relative paths against appropriate base directory
         // For remote mode, use the remote home directory; for local, use working_dir
         let base_dir = if self.filesystem.remote_connection_info().is_some() {
-            self.filesystem.home_dir().unwrap_or_else(|_| self.working_dir.clone())
+            self.filesystem
+                .home_dir()
+                .unwrap_or_else(|_| self.working_dir.clone())
         } else {
             self.working_dir.clone()
         };

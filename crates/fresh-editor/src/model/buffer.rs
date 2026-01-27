@@ -1309,11 +1309,11 @@ impl TextBuffer {
                             BufferLocation::Added(new_buffer_id),
                         );
 
-                        // Load the chunk buffer
+                        // Load the chunk buffer using the FileSystem trait
                         self.buffers
                             .get_mut(new_buffer_id)
                             .context("Chunk buffer not found")?
-                            .load()
+                            .load(&*self.fs)
                             .context("Failed to load chunk")?;
 
                         // Restart iteration with the modified tree
@@ -1324,7 +1324,7 @@ impl TextBuffer {
                         self.buffers
                             .get_mut(buffer_id)
                             .context("Buffer not found")?
-                            .load()
+                            .load(&*self.fs)
                             .context("Failed to load buffer")?;
                     }
                 }
@@ -3141,8 +3141,9 @@ mod tests {
             let mut buffer = StringBuffer::new_unloaded(0, file_path, 0, test_data.len());
             assert!(!buffer.is_loaded());
 
-            // Load the buffer
-            buffer.load().unwrap();
+            // Load the buffer using local filesystem
+            let fs = crate::model::filesystem::StdFileSystem;
+            buffer.load(&fs).unwrap();
 
             // Now it should be loaded
             assert!(buffer.is_loaded());
