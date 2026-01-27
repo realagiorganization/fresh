@@ -1,5 +1,36 @@
 # Release Notes
 
+## 0.1.91
+
+### Experimental
+
+* **SSH Remote Editing**: Edit files on remote machines via SSH using `fresh user@host:path`. Supports password/key auth, sudo save, and file explorer integration.
+
+### Features
+
+* **Bracket Matching**: Highlight matching brackets with rainbow colors based on nesting depth. Configurable via `highlight_matching_brackets` and `rainbow_brackets`.
+* **Whitespace Cleanup**: New `trim_trailing_whitespace_on_save` and `ensure_final_newline_on_save` options, plus manual commands.
+* **Shift+Click Selection**: Extend selection to clicked position with Shift+click or Ctrl+click.
+* **Terminal Mouse Forwarding**: Mouse events forwarded to terminal in alternate screen mode (vim, htop, etc.) (#853).
+* **Tab Bar Scroll Buttons**: Click `<`/`>` buttons to scroll through tabs.
+* **Library Files Protection**: Files outside project root are read-only and have LSP disabled.
+* **Buffer Focus History**: Closing a buffer returns to previously focused buffer instead of adjacent tab.
+
+### Bug Fixes
+
+* **Multi-Cursor Cut**: Fixed cut not deleting all selections with multiple cursors.
+* **Tab Scroll**: Fixed tab scroll buttons and active tab visibility.
+
+### Packaging
+
+* **AUR aarch64**: Added aarch64 support for Arch Linux ARM (#856).
+
+### Internal
+
+* Nix: Switched to `flake.parts`, added `shell.nix`/`default.nix` compatibility (@drupol).
+
+---
+
 ## 0.1.90
 
 ### Features
