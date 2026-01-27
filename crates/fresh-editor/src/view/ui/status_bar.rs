@@ -587,17 +587,21 @@ impl StatusBarRenderer {
         };
 
         // Build left status (file info, position, diagnostics, messages)
+        // Remote indicator comes first (if present), then filename
         // Line and column are 0-indexed internally, but displayed as 1-indexed (standard editor convention)
         // For virtual buffers with hidden cursors, don't show line/column info
+        let remote_prefix = remote_connection
+            .map(|conn| format!("[SSH:{}] ", conn))
+            .unwrap_or_default();
         let base_status = if state.show_cursors {
             format!(
-                "{filename}{modified} | Ln {}, Col {}{diagnostics_summary}{cursor_count_indicator}",
+                "{remote_prefix}{filename}{modified} | Ln {}, Col {}{diagnostics_summary}{cursor_count_indicator}",
                 line + 1,
                 col + 1
             )
         } else {
             // Virtual buffer - just show filename and modified indicator
-            format!("{filename}{modified}{diagnostics_summary}")
+            format!("{remote_prefix}{filename}{modified}{diagnostics_summary}")
         };
 
         // Track where the message starts for click detection
@@ -607,11 +611,8 @@ impl StatusBarRenderer {
         let left_status = format!("{base_status}{chord_display}{message_suffix}");
 
         // Build right-side indicators (these stay fixed on the right)
-        // Order: [Remote] [Line ending] [Language] [LSP indicator] [warning badge] [update] [Palette]
-
-        // Remote connection indicator (shown when editing remote files)
-        let remote_indicator = remote_connection.map(|conn| format!(" SSH:{} ", conn));
-        let remote_indicator_width = remote_indicator.as_ref().map(|s| str_width(s)).unwrap_or(0);
+        // Order: [Line ending] [Language] [LSP indicator] [warning badge] [update] [Palette]
+        // Note: Remote indicator is now on the left side, before the filename
 
         // Line ending indicator (clickable to change format)
         let line_ending_text = format!(" {} ", state.buffer.line_ending().display_name());
@@ -654,11 +655,10 @@ impl StatusBarRenderer {
         let padded_cmd_palette = format!(" {} ", cmd_palette_indicator);
 
         // Calculate available width and right side width
-        // Right side: [Remote] [Line ending] [Language] [LSP indicator] [warning badge] [update] [Palette]
+        // Right side: [Line ending] [Language] [LSP indicator] [warning badge] [update] [Palette]
         let available_width = area.width as usize;
         let cmd_palette_width = str_width(&padded_cmd_palette);
-        let right_side_width = remote_indicator_width
-            + line_ending_width
+        let right_side_width = line_ending_width
             + language_width
             + lsp_indicator_width
             + warning_badge_width
@@ -746,16 +746,6 @@ impl StatusBarRenderer {
             let mut current_col = area.x + displayed_left_len as u16;
             if displayed_left_len + right_side_width < available_width {
                 current_col = area.x + (available_width - right_side_width) as u16;
-            }
-
-            // Add remote connection indicator (if editing remote files)
-            if let Some(ref remote_text) = remote_indicator {
-                // Use a distinct style for remote indicator (green background)
-                let style = Style::default()
-                    .fg(theme.status_bar_bg) // Inverse colors for visibility
-                    .bg(ratatui::style::Color::Rgb(0, 128, 64)); // Green background
-                spans.push(Span::styled(remote_text.clone(), style));
-                current_col += remote_indicator_width as u16;
             }
 
             // Add line ending indicator (clickable to change format)

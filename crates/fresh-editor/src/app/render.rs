@@ -152,6 +152,9 @@ impl Editor {
             self.cached_layout.file_explorer_area = Some(horizontal_chunks[0]);
             editor_content_area = horizontal_chunks[1];
 
+            // Get remote connection info before mutable borrow of file_explorer
+            let remote_connection = self.remote_connection_info().map(|s| s.to_string());
+
             // Render file explorer (only if we have it - during sync we just keep the area reserved)
             if let Some(ref mut explorer) = self.file_explorer {
                 let is_focused = self.key_context == KeyContext::FileExplorer;
@@ -183,6 +186,7 @@ impl Editor {
                     self.key_context,
                     &self.theme,
                     close_button_hovered,
+                    remote_connection.as_deref(),
                 );
             }
             // Note: if file_explorer is None but sync_in_progress is true,

@@ -41,6 +41,7 @@ impl FileExplorerRenderer {
         current_context: crate::input::keybindings::KeyContext,
         theme: &Theme,
         close_button_hovered: bool,
+        remote_connection: Option<&str>,
     ) {
         // Update viewport height for scrolling calculations
         // Account for borders (top + bottom = 2)
@@ -86,14 +87,26 @@ impl FileExplorerRenderer {
             })
             .collect();
 
-        // Build the title with keybinding
-        let title = if let Some(keybinding) = keybinding_resolver.get_keybinding_for_action(
-            &crate::input::keybindings::Action::FocusFileExplorer,
-            current_context,
-        ) {
-            format!(" File Explorer ({}) ", keybinding)
+        // Build the title with keybinding and optional remote host
+        let keybinding_suffix = keybinding_resolver
+            .get_keybinding_for_action(
+                &crate::input::keybindings::Action::FocusFileExplorer,
+                current_context,
+            )
+            .map(|kb| format!(" ({})", kb))
+            .unwrap_or_default();
+        let title = if let Some(host) = remote_connection {
+            // Extract just the hostname from "user@host" or "user@host:port"
+            let hostname = host
+                .split('@')
+                .last()
+                .unwrap_or(host)
+                .split(':')
+                .next()
+                .unwrap_or(host);
+            format!(" [{}]{} ", hostname, keybinding_suffix)
         } else {
-            " File Explorer ".to_string()
+            format!(" File Explorer{} ", keybinding_suffix)
         };
 
         // Title style: inverted colors (dark on light) when focused using theme colors
