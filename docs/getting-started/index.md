@@ -27,6 +27,12 @@ fresh src/main.rs:42:10
 
 # Open multiple files (with optional line:col)
 fresh Cargo.toml src/lib.rs:100:5
+
+# Open a remote file via SSH (experimental)
+fresh user@host:/path/to/file.txt
+
+# Open a remote directory via SSH
+fresh user@host:~/projects
 ```
 
 The `file:line:col` syntax is useful for jumping directly to compiler errors or search results.

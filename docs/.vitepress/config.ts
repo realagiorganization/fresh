@@ -39,6 +39,7 @@ export default defineConfig({
           { text: "Integrated Terminal", link: "/features/terminal" },
           { text: "LSP Integration", link: "/features/lsp" },
           { text: "Themes", link: "/features/themes" },
+          { text: "Remote Editing (SSH)", link: "/features/ssh" },
         ],
       },
       {
@@ -159,6 +160,13 @@ export default defineConfig({
                 items: [
                   { text: "Terminal Design", link: "/internal/terminal" },
                   { text: "I/O Separation", link: "/internal/io-separation-plan" },
+                ],
+              },
+              {
+                text: "Remote",
+                collapsed: true,
+                items: [
+                  { text: "SSH Remote Editing Design", link: "/internal/ssh-remote-editing-design" },
                 ],
               },
               {
