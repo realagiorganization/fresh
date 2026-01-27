@@ -142,6 +142,7 @@ impl AgentHarness {
         resp.result?.get("exists")?.as_bool()
     }
 
+    #[allow(dead_code)]
     fn mkdir(&mut self, path: &str) -> Option<AgentResponse> {
         self.send_request("mkdir", serde_json::json!({"path": path}))
     }

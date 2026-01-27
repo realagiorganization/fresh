@@ -28,11 +28,13 @@ pub fn bracket_highlight_namespace() -> OverlayNamespace {
 const BRACKET_PAIRS: &[(char, char)] = &[('(', ')'), ('[', ']'), ('{', '}'), ('<', '>')];
 
 /// Check if a character is an opening bracket
+#[cfg(test)]
 fn is_opening_bracket(ch: char) -> bool {
     BRACKET_PAIRS.iter().any(|(open, _)| *open == ch)
 }
 
 /// Check if a character is a closing bracket
+#[cfg(test)]
 fn is_closing_bracket(ch: char) -> bool {
     BRACKET_PAIRS.iter().any(|(_, close)| *close == ch)
 }

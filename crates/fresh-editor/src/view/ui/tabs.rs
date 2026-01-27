@@ -441,7 +441,7 @@ impl TabsRenderer {
         let total_width: usize = all_tab_spans.iter().map(|(_, w)| w).sum();
         // Use rendered_buffer_ids (not split_buffers) to find active index,
         // since some buffers may have been skipped if not in buffers HashMap
-        let active_tab_idx = rendered_buffer_ids
+        let _active_tab_idx = rendered_buffer_ids
             .iter()
             .position(|id| *id == active_buffer);
 

@@ -248,6 +248,7 @@ impl Editor {
 
     /// Execute a shell command blocking the UI.
     /// This is used for commands like `sudo` where we might need to wait for completion.
+    #[allow(dead_code)]
     pub(crate) fn run_shell_command_blocking(&mut self, command: &str) -> anyhow::Result<()> {
         use crossterm::terminal::{
             disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
