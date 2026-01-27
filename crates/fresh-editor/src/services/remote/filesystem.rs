@@ -402,6 +402,24 @@ impl FileSystem for RemoteFileSystem {
         Ok(PathBuf::from(home))
     }
 
+    fn unique_temp_path(&self, dest_path: &Path) -> PathBuf {
+        // Use /tmp on the remote system, not local temp_dir
+        let temp_dir = PathBuf::from("/tmp");
+        let file_name = dest_path
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("fresh-save"));
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        temp_dir.join(format!(
+            "{}-{}-{}.tmp",
+            file_name.to_string_lossy(),
+            std::process::id(),
+            timestamp
+        ))
+    }
+
     fn sudo_write(
         &self,
         path: &Path,

@@ -82,32 +82,40 @@ impl Editor {
     ///
     /// If the file doesn't exist, creates an unsaved buffer with that filename.
     pub fn open_file_no_focus(&mut self, path: &Path) -> anyhow::Result<BufferId> {
-        // Resolve relative paths against working_dir, not process current directory
+        // Resolve relative paths against appropriate base directory
+        // For remote mode, use the remote home directory; for local, use working_dir
+        let base_dir = if self.filesystem.remote_connection_info().is_some() {
+            self.filesystem.home_dir().unwrap_or_else(|_| self.working_dir.clone())
+        } else {
+            self.working_dir.clone()
+        };
+
         let resolved_path = if path.is_relative() {
-            self.working_dir.join(path)
+            base_dir.join(path)
         } else {
             path.to_path_buf()
         };
 
         // Determine if we're opening a non-existent file (for creating new files)
-        let file_exists = resolved_path.exists();
+        // Use filesystem trait method to support remote files
+        let file_exists = self.filesystem.exists(&resolved_path);
 
         // Canonicalize the path to resolve symlinks and normalize path components
         // This ensures consistent path representation throughout the editor
         // For non-existent files, we need to canonicalize the parent directory and append the filename
         let canonical_path = if file_exists {
-            resolved_path
-                .canonicalize()
+            self.filesystem
+                .canonicalize(&resolved_path)
                 .unwrap_or_else(|_| resolved_path.clone())
         } else {
             // For non-existent files, canonicalize parent dir and append filename
             if let Some(parent) = resolved_path.parent() {
                 let canonical_parent = if parent.as_os_str().is_empty() {
-                    // No parent means just a filename, use working dir
-                    self.working_dir.clone()
+                    // No parent means just a filename, use base dir
+                    base_dir.clone()
                 } else {
-                    parent
-                        .canonicalize()
+                    self.filesystem
+                        .canonicalize(parent)
                         .unwrap_or_else(|_| parent.to_path_buf())
                 };
                 if let Some(filename) = resolved_path.file_name() {
@@ -123,7 +131,8 @@ impl Editor {
 
         // Check if the path is a directory (after following symlinks via canonicalize)
         // Directories cannot be opened as files in the editor
-        if path.is_dir() {
+        // Use filesystem trait method to support remote files
+        if self.filesystem.is_dir(path).unwrap_or(false) {
             anyhow::bail!(t!("buffer.cannot_open_directory"));
         }
 
