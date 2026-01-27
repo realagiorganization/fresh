@@ -170,3 +170,93 @@ fn test_metadata() {
         "Size should match content length"
     );
 }
+
+#[test]
+fn test_read_file_larger_than_threshold() {
+    // Test reading a file larger than LARGE_FILE_THRESHOLD_BYTES (1MB)
+    // This tests that streaming works correctly for very large files
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let test_path = temp_dir.path().join("very_large.bin");
+
+    // Create a 1.5MB file (larger than the 1MB threshold)
+    let size = 1_500_000;
+    let test_content: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+
+    std::fs::write(&test_path, &test_content).unwrap();
+
+    // Read via RemoteFileSystem
+    let read_content = fs.read_file(&test_path).unwrap();
+
+    assert_eq!(
+        read_content.len(),
+        test_content.len(),
+        "File sizes should match for 1.5MB file"
+    );
+    assert_eq!(
+        read_content, test_content,
+        "Very large file content should match"
+    );
+}
+
+#[test]
+fn test_write_and_read_file_larger_than_threshold() {
+    // Test write+read roundtrip for a file larger than the threshold
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let test_path = temp_dir.path().join("write_large.bin");
+
+    // Create 2MB of content
+    let size = 2_000_000;
+    let test_content: Vec<u8> = (0..size).map(|i| ((i * 7) % 256) as u8).collect();
+
+    // Write via RemoteFileSystem
+    fs.write_file(&test_path, &test_content).unwrap();
+
+    // Read back via RemoteFileSystem
+    let read_content = fs.read_file(&test_path).unwrap();
+
+    assert_eq!(
+        read_content.len(),
+        test_content.len(),
+        "2MB file sizes should match after roundtrip"
+    );
+    assert_eq!(
+        read_content, test_content,
+        "2MB file content should match after roundtrip"
+    );
+}
+
+#[test]
+fn test_read_range_on_large_file() {
+    // Test read_range on a large file
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let test_path = temp_dir.path().join("range_large.bin");
+
+    // Create 1.5MB file
+    let size = 1_500_000;
+    let test_content: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+    std::fs::write(&test_path, &test_content).unwrap();
+
+    // Read a range from the middle of the file
+    let offset = 1_000_000; // 1MB into the file
+    let len = 100_000; // Read 100KB
+    let read_content = fs.read_range(&test_path, offset, len).unwrap();
+
+    assert_eq!(read_content.len(), len, "Read range length should match");
+    assert_eq!(
+        read_content,
+        &test_content[offset as usize..(offset as usize + len)],
+        "Read range content should match"
+    );
+}
