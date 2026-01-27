@@ -12,7 +12,10 @@ mod spawner;
 pub use channel::AgentChannel;
 pub use connection::{ConnectionParams, SshConnection};
 pub use filesystem::RemoteFileSystem;
-pub use protocol::{AgentRequest, AgentResponse};
+pub use protocol::{
+    decode_base64, encode_base64, ls_params, read_params, stat_params, write_params, AgentRequest,
+    AgentResponse,
+};
 pub use spawner::RemoteProcessSpawner;
 
 /// The Python agent source code, embedded at compile time.
