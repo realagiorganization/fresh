@@ -130,6 +130,8 @@ struct SetupState {
     stdin_stream: Option<StdinStreamState>,
     /// Filesystem implementation (local or remote)
     filesystem: std::sync::Arc<dyn FileSystem + Send + Sync>,
+    /// Process spawner for plugin command execution (local or remote)
+    process_spawner: std::sync::Arc<dyn remote::ProcessSpawner>,
     /// Remote session resources - must be kept alive for remote editing
     _remote_session: Option<RemoteSession>,
     /// Key translator for input calibration
@@ -518,6 +520,8 @@ struct RemoteSession {
 /// Result of creating filesystem - includes optional remote session to keep alive
 struct FilesystemResult {
     filesystem: std::sync::Arc<dyn FileSystem + Send + Sync>,
+    /// Process spawner for plugin command execution
+    process_spawner: std::sync::Arc<dyn remote::ProcessSpawner>,
     /// Remote session resources - must be kept alive for remote editing
     remote_session: Option<RemoteSession>,
 }
@@ -529,6 +533,7 @@ fn create_filesystem(remote_info: &Option<RemoteLocation>) -> AnyhowResult<Files
     } else {
         Ok(FilesystemResult {
             filesystem: std::sync::Arc::new(StdFileSystem),
+            process_spawner: std::sync::Arc::new(remote::LocalProcessSpawner),
             remote_session: None,
         })
     }
@@ -560,10 +565,15 @@ fn connect_remote(remote: &RemoteLocation) -> AnyhowResult<FilesystemResult> {
 
     tracing::info!("Connected to remote host: {}", connection_string);
 
-    let filesystem = std::sync::Arc::new(remote::RemoteFileSystem::new(channel, connection_string));
+    let filesystem = std::sync::Arc::new(remote::RemoteFileSystem::new(
+        channel.clone(),
+        connection_string,
+    ));
+    let process_spawner = std::sync::Arc::new(remote::RemoteProcessSpawner::new(channel));
 
     Ok(FilesystemResult {
         filesystem,
+        process_spawner,
         remote_session: Some(RemoteSession {
             _connection: connection,
             _runtime: rt,
@@ -691,6 +701,7 @@ fn initialize_app(args: &Args) -> AnyhowResult<SetupState> {
     // For remote editing, this establishes the SSH connection
     let FilesystemResult {
         filesystem,
+        process_spawner,
         remote_session,
     } = create_filesystem(&remote_info)?;
 
@@ -813,6 +824,7 @@ fn initialize_app(args: &Args) -> AnyhowResult<SetupState> {
         gpm_client,
         terminal_modes,
         filesystem,
+        process_spawner,
         _remote_session: remote_session,
     })
 }
@@ -1531,6 +1543,7 @@ fn main() -> AnyhowResult<()> {
         gpm_client,
         mut terminal_modes,
         filesystem,
+        process_spawner,
         _remote_session,
     } = initialize_app(&args).context("Failed to initialize application")?;
 
@@ -1566,6 +1579,9 @@ fn main() -> AnyhowResult<()> {
             fs,
         )
         .context("Failed to create editor instance")?;
+
+        // Set the process spawner (LocalProcessSpawner for local, RemoteProcessSpawner for remote)
+        editor.set_process_spawner(process_spawner.clone());
 
         #[cfg(target_os = "linux")]
         if gpm_client.is_some() {

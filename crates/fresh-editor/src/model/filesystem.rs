@@ -433,6 +433,18 @@ pub trait FileSystem: Send + Sync {
             timestamp
         ))
     }
+
+    // ========================================================================
+    // Remote Connection Info
+    // ========================================================================
+
+    /// Get remote connection info if this is a remote filesystem
+    ///
+    /// Returns `Some("user@host")` for remote filesystems, `None` for local.
+    /// Used to display remote connection status in the UI.
+    fn remote_connection_info(&self) -> Option<&str> {
+        None
+    }
 }
 
 // ============================================================================

@@ -573,6 +573,9 @@ impl Editor {
                 _ => StatusBarHover::None,
             };
 
+            // Get remote connection info if editing remote files
+            let remote_connection = self.remote_connection_info().map(|s| s.to_string());
+
             let status_bar_layout = StatusBarRenderer::render_status_bar(
                 frame,
                 main_chunks[status_bar_idx],
@@ -582,12 +585,13 @@ impl Editor {
                 &lsp_status,
                 &theme,
                 &display_name,
-                &keybindings_cloned,         // Pass the cloned keybindings
-                &chord_state_cloned,         // Pass the cloned chord state
-                update_available.as_deref(), // Pass update availability
-                warning_level,               // Pass warning level for colored indicator
-                general_warning_count,       // Pass general warning count for badge
-                status_bar_hover,            // Pass hover state for indicator styling
+                &keybindings_cloned,          // Pass the cloned keybindings
+                &chord_state_cloned,          // Pass the cloned chord state
+                update_available.as_deref(),  // Pass update availability
+                warning_level,                // Pass warning level for colored indicator
+                general_warning_count,        // Pass general warning count for badge
+                status_bar_hover,             // Pass hover state for indicator styling
+                remote_connection.as_deref(), // Pass remote connection info
             );
 
             // Store status bar layout for click detection

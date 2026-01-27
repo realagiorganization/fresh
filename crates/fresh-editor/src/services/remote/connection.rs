@@ -103,7 +103,21 @@ impl SshConnection {
         }
 
         cmd.arg(format!("{}@{}", params.user, params.host));
-        cmd.arg("python3").arg("-u").arg("-");
+
+        // Bootstrap the agent using Python itself to read the exact byte count.
+        // This avoids requiring bash or other shell utilities on the remote.
+        // Python reads exactly N bytes (the agent code), execs it, and the agent
+        // then continues reading from stdin for protocol messages.
+        //
+        // Note: SSH passes the remote command through a shell, so we need to
+        // properly quote the Python code. We use double quotes for the outer
+        // shell and avoid problematic characters in the Python code.
+        let agent_len = AGENT_SOURCE.len();
+        let bootstrap = format!(
+            "python3 -u -c \"import sys;exec(sys.stdin.read({}))\"",
+            agent_len
+        );
+        cmd.arg(bootstrap);
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
@@ -120,20 +134,50 @@ impl SshConnection {
             .stdout
             .take()
             .ok_or_else(|| SshError::AgentStartFailed("failed to get stdout".to_string()))?;
+        let stderr = child.stderr.take();
 
-        // Send agent code
+        // Send the agent code (exact byte count)
         stdin.write_all(AGENT_SOURCE.as_bytes()).await?;
         stdin.flush().await?;
 
         // Create buffered reader for stdout
         let mut reader = BufReader::new(stdout);
 
-        // Wait for ready message
+        // Wait for ready message with timeout
         let mut ready_line = String::new();
-        reader.read_line(&mut ready_line).await?;
+        let read_result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            reader.read_line(&mut ready_line),
+        )
+        .await;
 
-        let ready: AgentResponse = serde_json::from_str(&ready_line)
-            .map_err(|e| SshError::AgentStartFailed(format!("invalid ready message: {}", e)))?;
+        // If read failed or timed out, try to get stderr for debugging
+        let ready_line = match read_result {
+            Ok(Ok(0)) | Err(_) => {
+                // EOF or timeout - check stderr for error message
+                let mut stderr_msg = String::new();
+                if let Some(mut stderr) = stderr {
+                    let mut stderr_reader = BufReader::new(&mut stderr);
+                    let _ = stderr_reader.read_line(&mut stderr_msg).await;
+                }
+                let err_detail = if stderr_msg.is_empty() {
+                    "no output from agent".to_string()
+                } else {
+                    stderr_msg.trim().to_string()
+                };
+                return Err(SshError::AgentStartFailed(err_detail));
+            }
+            Ok(Ok(_)) => ready_line,
+            Ok(Err(e)) => return Err(SshError::AgentStartFailed(format!("read error: {}", e))),
+        };
+
+        let ready: AgentResponse = serde_json::from_str(&ready_line).map_err(|e| {
+            SshError::AgentStartFailed(format!(
+                "invalid ready message '{}': {}",
+                ready_line.trim(),
+                e
+            ))
+        })?;
 
         if !ready.is_ready() {
             return Err(SshError::AgentStartFailed(

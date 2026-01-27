@@ -383,6 +383,10 @@ impl FileSystem for RemoteFileSystem {
         // This is used for ownership checks which we skip for remote
         0
     }
+
+    fn remote_connection_info(&self) -> Option<&str> {
+        Some(&self.connection_string)
+    }
 }
 
 /// Remote file reader - wraps in-memory data

@@ -16,7 +16,9 @@ pub use protocol::{
     decode_base64, encode_base64, ls_params, read_params, stat_params, write_params, AgentRequest,
     AgentResponse,
 };
-pub use spawner::RemoteProcessSpawner;
+pub use spawner::{
+    LocalProcessSpawner, ProcessSpawner, RemoteProcessSpawner, SpawnError, SpawnResult,
+};
 
 /// The Python agent source code, embedded at compile time.
 pub const AGENT_SOURCE: &str = include_str!("agent.py");

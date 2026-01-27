@@ -50,10 +50,14 @@ pub struct AgentChannel {
     next_id: AtomicU64,
     /// Whether the channel is connected
     connected: Arc<std::sync::atomic::AtomicBool>,
+    /// Runtime handle for blocking operations
+    runtime_handle: tokio::runtime::Handle,
 }
 
 impl AgentChannel {
     /// Create a new channel from async read/write handles
+    ///
+    /// Must be called from within a Tokio runtime context.
     pub fn new(
         mut reader: tokio::io::BufReader<tokio::process::ChildStdout>,
         mut writer: tokio::process::ChildStdin,
@@ -61,6 +65,8 @@ impl AgentChannel {
         let pending: Arc<Mutex<HashMap<u64, PendingRequest>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let connected = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        // Capture the runtime handle for later use in blocking operations
+        let runtime_handle = tokio::runtime::Handle::current();
 
         // Channel for outgoing requests
         let (write_tx, mut write_rx) = mpsc::channel::<String>(64);
@@ -117,6 +123,7 @@ impl AgentChannel {
             pending,
             next_id: AtomicU64::new(1),
             connected,
+            runtime_handle,
         }
     }
 
@@ -206,13 +213,14 @@ impl AgentChannel {
     }
 
     /// Send a request synchronously (blocking)
+    ///
+    /// This can be called from outside the Tokio runtime context.
     pub fn request_blocking(
         &self,
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, ChannelError> {
-        let handle = tokio::runtime::Handle::current();
-        handle.block_on(self.request(method, params))
+        self.runtime_handle.block_on(self.request(method, params))
     }
 
     /// Cancel a request
