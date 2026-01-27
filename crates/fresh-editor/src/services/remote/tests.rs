@@ -415,7 +415,11 @@ mod agent_integration {
         assert!(resp.is_some());
         let result = resp.unwrap().result.unwrap();
         let path = result.get("path").and_then(|v| v.as_str()).unwrap();
-        assert!(path.starts_with('/'));
+        assert!(
+            std::path::Path::new(path).is_absolute(),
+            "realpath should return absolute path, got: {}",
+            path
+        );
         assert!(!path.contains('~'));
     }
 

@@ -94,7 +94,7 @@ def cmd_write(id, p):
         if mode is not None:
             os.chmod(tmp, mode)
 
-        os.rename(tmp, path)
+        os.replace(tmp, path)  # replace() works cross-platform, rename() fails on Windows if dest exists
     finally:
         if os.path.exists(tmp):
             try:

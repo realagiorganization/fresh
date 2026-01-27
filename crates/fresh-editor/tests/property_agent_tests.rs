@@ -322,11 +322,23 @@ proptest! {
         prop_assert!(real.is_some(), "realpath failed");
 
         let real = real.unwrap();
-        // Should be absolute
-        prop_assert!(real.starts_with('/'), "realpath should be absolute");
-        // Should not contain . or ..
-        prop_assert!(!real.contains("/./"), "realpath should not contain /./");
-        prop_assert!(!real.contains("/../"), "realpath should not contain /../");
+        // Should be absolute (cross-platform check)
+        prop_assert!(
+            std::path::Path::new(&real).is_absolute(),
+            "realpath should be absolute, got: {}",
+            real
+        );
+        // Should not contain . or .. components
+        prop_assert!(
+            !real.contains("/./") && !real.contains("\\.\\"),
+            "realpath should not contain ./: {}",
+            real
+        );
+        prop_assert!(
+            !real.contains("/../") && !real.contains("\\..\\"),
+            "realpath should not contain ../: {}",
+            real
+        );
 
         // Calling realpath on realpath should return same result
         let real2 = harness.realpath(&real);
