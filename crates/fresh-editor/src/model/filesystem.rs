@@ -446,6 +446,15 @@ pub trait FileSystem: Send + Sync {
         None
     }
 
+    /// Get the home directory for this filesystem
+    ///
+    /// For local filesystems, returns the local home directory.
+    /// For remote filesystems, returns the remote home directory.
+    fn home_dir(&self) -> io::Result<PathBuf> {
+        dirs::home_dir()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "home directory not found"))
+    }
+
     /// Write file using sudo (for root-owned files).
     ///
     /// This writes the file with elevated privileges, preserving the specified

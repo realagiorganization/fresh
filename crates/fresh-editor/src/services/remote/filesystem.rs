@@ -389,6 +389,19 @@ impl FileSystem for RemoteFileSystem {
         Some(&self.connection_string)
     }
 
+    fn home_dir(&self) -> io::Result<PathBuf> {
+        let result = self
+            .channel
+            .request_blocking("info", serde_json::json!({}))
+            .map_err(Self::to_io_error)?;
+
+        let home = result.get("home").and_then(|v| v.as_str()).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "missing home in response")
+        })?;
+
+        Ok(PathBuf::from(home))
+    }
+
     fn sudo_write(
         &self,
         path: &Path,

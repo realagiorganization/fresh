@@ -137,7 +137,19 @@ impl Editor {
     }
 
     pub(crate) fn init_file_explorer(&mut self) {
-        let root_path = self.working_dir.clone();
+        // Use remote home directory if in remote mode, otherwise local working directory
+        let root_path = if self.filesystem.remote_connection_info().is_some() {
+            match self.filesystem.home_dir() {
+                Ok(home) => home,
+                Err(e) => {
+                    tracing::error!("Failed to get remote home directory: {}", e);
+                    self.set_status_message(format!("Failed to get remote home: {}", e));
+                    return;
+                }
+            }
+        } else {
+            self.working_dir.clone()
+        };
 
         if let (Some(runtime), Some(bridge)) = (&self.tokio_runtime, &self.async_bridge) {
             let fs_manager = Arc::clone(&self.fs_manager);

@@ -260,6 +260,14 @@ def cmd_exists(id, p):
         send(id, r={"exists": False})
 
 
+def cmd_info(id, p):
+    """Get system info (home directory, cwd, etc.)."""
+    send(id, r={
+        "home": os.path.expanduser("~"),
+        "cwd": os.getcwd(),
+    })
+
+
 # === Process Operations ===
 
 
@@ -374,6 +382,7 @@ METHODS = {
     "realpath": cmd_realpath,
     "chmod": cmd_chmod,
     "exists": cmd_exists,
+    "info": cmd_info,
     "exec": cmd_exec,
     "kill": cmd_kill,
     "cancel": cmd_cancel,
