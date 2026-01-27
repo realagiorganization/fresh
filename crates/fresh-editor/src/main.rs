@@ -10,8 +10,14 @@ use fresh::services::gpm::{gpm_to_crossterm, GpmClient};
 use fresh::services::terminal_modes::{self, KeyboardConfig, TerminalModes};
 use fresh::services::tracing_setup;
 use fresh::{
-    app::Editor, config, config_io::DirectoryContext, model::filesystem::StdFileSystem,
-    services::release_checker, services::signal_handler, services::tracing_setup::TracingHandles,
+    app::Editor,
+    config,
+    config_io::DirectoryContext,
+    model::filesystem::{FileSystem, StdFileSystem},
+    services::release_checker,
+    services::remote,
+    services::signal_handler,
+    services::tracing_setup::TracingHandles,
 };
 use ratatui::Terminal;
 use std::{
@@ -87,6 +93,23 @@ struct FileLocation {
     column: Option<usize>,
 }
 
+/// Parsed remote location from CLI argument in user@host:path format
+#[derive(Debug, Clone)]
+struct RemoteLocation {
+    user: String,
+    host: String,
+    path: String,
+    line: Option<usize>,
+    column: Option<usize>,
+}
+
+/// Either a local or remote file location
+#[derive(Debug)]
+enum ParsedLocation {
+    Local(FileLocation),
+    Remote(RemoteLocation),
+}
+
 struct IterationOutcome {
     loop_result: AnyhowResult<()>,
     update_result: Option<release_checker::ReleaseCheckResult>,
@@ -105,6 +128,8 @@ struct SetupState {
     /// Stdin streaming state (if --stdin flag or "-" file was used)
     /// Contains temp file path and background thread handle
     stdin_stream: Option<StdinStreamState>,
+    /// Remote connection info if editing remote files
+    remote_info: Option<RemoteLocation>,
     /// Key translator for input calibration
     key_translator: KeyTranslator,
     #[cfg(target_os = "linux")]
@@ -412,6 +437,123 @@ fn parse_file_location(input: &str) -> FileLocation {
     }
 }
 
+/// Parse a location that may be local (file:line:col) or remote (user@host:path:line:col)
+///
+/// Remote format: user@host:path or user@host:path:line or user@host:path:line:col
+/// The path can be absolute (/path) or relative (path)
+fn parse_location(input: &str) -> ParsedLocation {
+    // Check for SSH-style syntax: user@host:path
+    // Must have @ before the first : to be considered remote
+    // Also skip if it looks like a Windows path (single letter before :)
+    if let Some(at_pos) = input.find('@') {
+        // Everything before @ is the user
+        let user = &input[..at_pos];
+
+        // Everything after @ contains host:path[:line[:col]]
+        let after_at = &input[at_pos + 1..];
+
+        // Find the first : which separates host from path
+        if let Some(colon_pos) = after_at.find(':') {
+            let host = &after_at[..colon_pos];
+            let path_and_rest = &after_at[colon_pos + 1..];
+
+            // Validate: user and host must be non-empty and not contain spaces
+            if !user.is_empty()
+                && !host.is_empty()
+                && !user.contains(' ')
+                && !host.contains(' ')
+                && !path_and_rest.is_empty()
+            {
+                // Now parse path:line:col from path_and_rest
+                // We need to distinguish between path components and line:col suffixes
+                // Strategy: work backwards, try to parse numeric suffixes
+
+                let parts: Vec<&str> = path_and_rest.rsplitn(3, ':').collect();
+
+                let (path, line, column) = match parts.as_slice() {
+                    [maybe_col, maybe_line, rest] => {
+                        if let (Ok(line), Ok(col)) =
+                            (maybe_line.parse::<usize>(), maybe_col.parse::<usize>())
+                        {
+                            (rest.to_string(), Some(line), Some(col))
+                        } else {
+                            (path_and_rest.to_string(), None, None)
+                        }
+                    }
+                    [maybe_line, rest] => {
+                        if let Ok(line) = maybe_line.parse::<usize>() {
+                            (rest.to_string(), Some(line), None)
+                        } else {
+                            (path_and_rest.to_string(), None, None)
+                        }
+                    }
+                    _ => (path_and_rest.to_string(), None, None),
+                };
+
+                return ParsedLocation::Remote(RemoteLocation {
+                    user: user.to_string(),
+                    host: host.to_string(),
+                    path,
+                    line,
+                    column,
+                });
+            }
+        }
+    }
+
+    // Not a remote path, parse as local
+    ParsedLocation::Local(parse_file_location(input))
+}
+
+/// Create filesystem for local or remote editing
+fn create_filesystem(
+    remote_info: &Option<RemoteLocation>,
+) -> AnyhowResult<std::sync::Arc<dyn FileSystem + Send + Sync>> {
+    if let Some(remote) = remote_info {
+        connect_remote(remote)
+    } else {
+        Ok(std::sync::Arc::new(StdFileSystem))
+    }
+}
+
+/// Establish SSH connection to remote host and return RemoteFileSystem
+fn connect_remote(
+    remote: &RemoteLocation,
+) -> AnyhowResult<std::sync::Arc<dyn FileSystem + Send + Sync>> {
+    // Create a Tokio runtime for the SSH connection
+    let rt = tokio::runtime::Runtime::new()
+        .context("Failed to create Tokio runtime for remote connection")?;
+
+    let connection_params = remote::ConnectionParams {
+        user: remote.user.clone(),
+        host: remote.host.clone(),
+        port: None, // TODO: support port in remote location parsing
+        identity_file: None,
+    };
+
+    // Establish SSH connection (this is async, so we block on it)
+    let connection = rt
+        .block_on(remote::SshConnection::connect(connection_params))
+        .context(format!(
+            "Failed to connect to remote host {}@{}",
+            remote.user, remote.host
+        ))?;
+
+    let connection_string = connection.connection_string();
+    let channel = connection.channel();
+
+    // Note: we need to keep the connection alive
+    // TODO: proper connection lifecycle management
+    std::mem::forget(connection);
+
+    tracing::info!("Connected to remote host: {}", connection_string);
+
+    Ok(std::sync::Arc::new(remote::RemoteFileSystem::new(
+        channel,
+        connection_string,
+    )))
+}
+
 fn initialize_app(args: &Args) -> AnyhowResult<SetupState> {
     let log_file = args
         .log_file
@@ -469,11 +611,63 @@ fn initialize_app(args: &Args) -> AnyhowResult<SetupState> {
 
     // Determine working directory early for config loading
     // Filter out "-" from files list since it's handled via stdin_stream
-    let file_locations: Vec<FileLocation> = args
+    // Parse locations which may be local or remote (user@host:path)
+    let parsed_locations: Vec<ParsedLocation> = args
         .files
         .iter()
         .filter(|f| *f != "-")
-        .map(|f| parse_file_location(f))
+        .map(|f| parse_location(f))
+        .collect();
+
+    // Check for remote locations - for now, collect them separately
+    let remote_locations: Vec<&RemoteLocation> = parsed_locations
+        .iter()
+        .filter_map(|loc| match loc {
+            ParsedLocation::Remote(r) => Some(r),
+            ParsedLocation::Local(_) => None,
+        })
+        .collect();
+
+    // If there are remote locations, validate they're all on the same host
+    let remote_info: Option<RemoteLocation> = if !remote_locations.is_empty() {
+        let first = remote_locations[0];
+        for r in &remote_locations[1..] {
+            if r.user != first.user || r.host != first.host {
+                anyhow::bail!(
+                    "Cannot open files from multiple remote hosts. \
+                     First: {}@{}, found: {}@{}",
+                    first.user,
+                    first.host,
+                    r.user,
+                    r.host
+                );
+            }
+        }
+        // Check that there are no local files mixed with remote
+        let has_local = parsed_locations
+            .iter()
+            .any(|loc| matches!(loc, ParsedLocation::Local(_)));
+        if has_local {
+            anyhow::bail!(
+                "Cannot mix local and remote files. Use either local paths or remote paths (user@host:path)."
+            );
+        }
+        Some(first.clone())
+    } else {
+        None
+    };
+
+    // Convert to FileLocation for downstream code
+    let file_locations: Vec<FileLocation> = parsed_locations
+        .into_iter()
+        .map(|loc| match loc {
+            ParsedLocation::Local(fl) => fl,
+            ParsedLocation::Remote(rl) => FileLocation {
+                path: PathBuf::from(&rl.path),
+                line: rl.line,
+                column: rl.column,
+            },
+        })
         .collect();
 
     let mut working_dir = None;
@@ -586,6 +780,7 @@ fn initialize_app(args: &Args) -> AnyhowResult<SetupState> {
         key_translator,
         gpm_client,
         terminal_modes,
+        remote_info,
     })
 }
 
@@ -1302,6 +1497,7 @@ fn main() -> AnyhowResult<()> {
         #[cfg(not(target_os = "linux"))]
         gpm_client,
         mut terminal_modes,
+        remote_info,
     } = initialize_app(&args).context("Failed to initialize application")?;
 
     let mut current_working_dir = initial_working_dir;
@@ -1323,7 +1519,7 @@ fn main() -> AnyhowResult<()> {
         let color_capability = fresh::view::color_support::ColorCapability::detect();
 
         // Create filesystem implementation for all IO operations
-        let filesystem = std::sync::Arc::new(StdFileSystem);
+        let filesystem = create_filesystem(&remote_info)?;
 
         let mut editor = Editor::with_working_dir(
             config.clone(),
@@ -1835,6 +2031,114 @@ mod tests {
         assert_eq!(loc.path, PathBuf::from("foo:bar:10"));
         assert_eq!(loc.line, None);
         assert_eq!(loc.column, None);
+    }
+
+    // Tests for parse_location (local vs remote detection)
+
+    #[test]
+    fn test_parse_location_local_simple() {
+        let loc = parse_location("file.txt");
+        match loc {
+            ParsedLocation::Local(fl) => {
+                assert_eq!(fl.path, PathBuf::from("file.txt"));
+                assert_eq!(fl.line, None);
+            }
+            ParsedLocation::Remote(_) => panic!("Expected local, got remote"),
+        }
+    }
+
+    #[test]
+    fn test_parse_location_local_with_line() {
+        let loc = parse_location("/path/to/file.rs:42");
+        match loc {
+            ParsedLocation::Local(fl) => {
+                assert_eq!(fl.path, PathBuf::from("/path/to/file.rs"));
+                assert_eq!(fl.line, Some(42));
+            }
+            ParsedLocation::Remote(_) => panic!("Expected local, got remote"),
+        }
+    }
+
+    #[test]
+    fn test_parse_location_remote_simple() {
+        let loc = parse_location("user@host:/path/to/file.rs");
+        match loc {
+            ParsedLocation::Remote(rl) => {
+                assert_eq!(rl.user, "user");
+                assert_eq!(rl.host, "host");
+                assert_eq!(rl.path, "/path/to/file.rs");
+                assert_eq!(rl.line, None);
+                assert_eq!(rl.column, None);
+            }
+            ParsedLocation::Local(_) => panic!("Expected remote, got local"),
+        }
+    }
+
+    #[test]
+    fn test_parse_location_remote_with_line() {
+        let loc = parse_location("alice@server.com:/home/alice/project/main.rs:42");
+        match loc {
+            ParsedLocation::Remote(rl) => {
+                assert_eq!(rl.user, "alice");
+                assert_eq!(rl.host, "server.com");
+                assert_eq!(rl.path, "/home/alice/project/main.rs");
+                assert_eq!(rl.line, Some(42));
+                assert_eq!(rl.column, None);
+            }
+            ParsedLocation::Local(_) => panic!("Expected remote, got local"),
+        }
+    }
+
+    #[test]
+    fn test_parse_location_remote_with_line_and_col() {
+        let loc = parse_location("bob@example.org:src/lib.rs:100:25");
+        match loc {
+            ParsedLocation::Remote(rl) => {
+                assert_eq!(rl.user, "bob");
+                assert_eq!(rl.host, "example.org");
+                assert_eq!(rl.path, "src/lib.rs");
+                assert_eq!(rl.line, Some(100));
+                assert_eq!(rl.column, Some(25));
+            }
+            ParsedLocation::Local(_) => panic!("Expected remote, got local"),
+        }
+    }
+
+    #[test]
+    fn test_parse_location_remote_relative_path() {
+        let loc = parse_location("user@host:relative/path/file.txt");
+        match loc {
+            ParsedLocation::Remote(rl) => {
+                assert_eq!(rl.user, "user");
+                assert_eq!(rl.host, "host");
+                assert_eq!(rl.path, "relative/path/file.txt");
+            }
+            ParsedLocation::Local(_) => panic!("Expected remote, got local"),
+        }
+    }
+
+    #[test]
+    fn test_parse_location_email_like_not_remote() {
+        // An email-like string without a path should be treated as local
+        let loc = parse_location("user@host");
+        match loc {
+            ParsedLocation::Local(fl) => {
+                assert_eq!(fl.path, PathBuf::from("user@host"));
+            }
+            ParsedLocation::Remote(_) => panic!("Expected local, got remote"),
+        }
+    }
+
+    #[test]
+    fn test_parse_location_at_in_path_local() {
+        // A local path that happens to contain @ should still be local
+        let loc = parse_location("/path/with@sign/file.txt");
+        match loc {
+            ParsedLocation::Local(fl) => {
+                assert_eq!(fl.path, PathBuf::from("/path/with@sign/file.txt"));
+            }
+            ParsedLocation::Remote(_) => panic!("Expected local, got remote"),
+        }
     }
 }
 

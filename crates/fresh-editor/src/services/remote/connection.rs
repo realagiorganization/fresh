@@ -78,8 +78,8 @@ impl ConnectionParams {
 pub struct SshConnection {
     /// SSH child process
     process: Child,
-    /// Communication channel with agent
-    channel: AgentChannel,
+    /// Communication channel with agent (wrapped in Arc for sharing)
+    channel: std::sync::Arc<AgentChannel>,
     /// Connection parameters
     params: ConnectionParams,
 }
@@ -151,7 +151,7 @@ impl SshConnection {
         }
 
         // Create channel (takes ownership of stdin for writing)
-        let channel = AgentChannel::new(reader, stdin);
+        let channel = std::sync::Arc::new(AgentChannel::new(reader, stdin));
 
         Ok(Self {
             process: child,
@@ -160,9 +160,9 @@ impl SshConnection {
         })
     }
 
-    /// Get the communication channel
-    pub fn channel(&self) -> &AgentChannel {
-        &self.channel
+    /// Get the communication channel as an Arc for sharing
+    pub fn channel(&self) -> std::sync::Arc<AgentChannel> {
+        self.channel.clone()
     }
 
     /// Get connection parameters
