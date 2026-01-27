@@ -5,6 +5,7 @@
 
 use super::connection::ConnectionParams;
 use super::protocol::*;
+use super::AGENT_SOURCE;
 
 #[test]
 fn test_protocol_version() {
@@ -252,4 +253,193 @@ fn test_exec_output_parsing() {
     let output: ExecOutput = serde_json::from_str(json).unwrap();
     assert!(output.out.is_some());
     assert!(output.err.is_some());
+}
+
+// ============================================================================
+// Integration tests - spawn Python agent locally
+// ============================================================================
+
+/// Helper to spawn agent and communicate with it
+#[cfg(test)]
+mod agent_integration {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+
+    /// Spawn the Python agent and return stdin/stdout handles
+    fn spawn_agent() -> Option<(
+        std::process::ChildStdin,
+        BufReader<std::process::ChildStdout>,
+    )> {
+        let mut child = Command::new("python3")
+            .arg("-u")
+            .arg("-c")
+            .arg(AGENT_SOURCE)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .ok()?;
+
+        let stdin = child.stdin.take()?;
+        let stdout = BufReader::new(child.stdout.take()?);
+
+        Some((stdin, stdout))
+    }
+
+    /// Send a request and read the response
+    fn send_request(
+        stdin: &mut std::process::ChildStdin,
+        stdout: &mut BufReader<std::process::ChildStdout>,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Option<AgentResponse> {
+        let req = AgentRequest::new(1, method, params);
+        stdin.write_all(req.to_json_line().as_bytes()).ok()?;
+        stdin.flush().ok()?;
+
+        let mut line = String::new();
+        stdout.read_line(&mut line).ok()?;
+        serde_json::from_str(&line).ok()
+    }
+
+    #[test]
+    fn test_agent_ready_message() {
+        let Some((_, mut stdout)) = spawn_agent() else {
+            eprintln!("Skipping test: Python3 not available");
+            return;
+        };
+
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+        let resp: AgentResponse = serde_json::from_str(&line).unwrap();
+
+        assert!(resp.is_ready());
+        assert_eq!(resp.version, Some(1));
+    }
+
+    #[test]
+    fn test_agent_stat_command() {
+        let Some((mut stdin, mut stdout)) = spawn_agent() else {
+            eprintln!("Skipping test: Python3 not available");
+            return;
+        };
+
+        // Read ready message
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+
+        // Stat a known path (root directory always exists)
+        let resp = send_request(
+            &mut stdin,
+            &mut stdout,
+            "stat",
+            serde_json::json!({
+                "path": "/"
+            }),
+        );
+
+        assert!(resp.is_some());
+        let resp = resp.unwrap();
+        assert!(resp.is_final());
+        assert!(resp.result.is_some());
+
+        let result = resp.result.unwrap();
+        assert!(result.get("dir").and_then(|v| v.as_bool()).unwrap_or(false));
+    }
+
+    #[test]
+    fn test_agent_exists_command() {
+        let Some((mut stdin, mut stdout)) = spawn_agent() else {
+            eprintln!("Skipping test: Python3 not available");
+            return;
+        };
+
+        // Read ready message
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+
+        // Check a path that exists
+        let resp = send_request(
+            &mut stdin,
+            &mut stdout,
+            "exists",
+            serde_json::json!({
+                "path": "/"
+            }),
+        );
+        assert!(resp.is_some());
+        let result = resp.unwrap().result.unwrap();
+        assert!(result
+            .get("exists")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false));
+
+        // Check a path that doesn't exist
+        let resp = send_request(
+            &mut stdin,
+            &mut stdout,
+            "exists",
+            serde_json::json!({
+                "path": "/nonexistent/path/12345"
+            }),
+        );
+        assert!(resp.is_some());
+        let result = resp.unwrap().result.unwrap();
+        assert!(!result
+            .get("exists")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true));
+    }
+
+    #[test]
+    fn test_agent_realpath_command() {
+        let Some((mut stdin, mut stdout)) = spawn_agent() else {
+            eprintln!("Skipping test: Python3 not available");
+            return;
+        };
+
+        // Read ready message
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+
+        // Canonicalize home directory
+        let resp = send_request(
+            &mut stdin,
+            &mut stdout,
+            "realpath",
+            serde_json::json!({
+                "path": "~"
+            }),
+        );
+        assert!(resp.is_some());
+        let result = resp.unwrap().result.unwrap();
+        let path = result.get("path").and_then(|v| v.as_str()).unwrap();
+        assert!(path.starts_with('/'));
+        assert!(!path.contains('~'));
+    }
+
+    #[test]
+    fn test_agent_unknown_method() {
+        let Some((mut stdin, mut stdout)) = spawn_agent() else {
+            eprintln!("Skipping test: Python3 not available");
+            return;
+        };
+
+        // Read ready message
+        let mut line = String::new();
+        stdout.read_line(&mut line).unwrap();
+
+        // Send unknown method
+        let resp = send_request(
+            &mut stdin,
+            &mut stdout,
+            "unknown_method",
+            serde_json::json!({}),
+        );
+        assert!(resp.is_some());
+        let resp = resp.unwrap();
+        assert!(resp.error.is_some());
+        assert!(resp.error.unwrap().contains("unknown method"));
+    }
 }
