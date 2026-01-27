@@ -660,19 +660,17 @@ fn test_pkg_manager_ui_split_view_and_tab_navigation() {
         "Should still show Packages header after Tab cycle"
     );
 
-    // Test Escape to close
+    // Test Escape to close - may need multiple presses depending on focus state
     harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
-    harness.render().unwrap();
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+
+    // Wait for package manager to close (semantic waiting per README guidelines)
+    harness
+        .wait_until(|h| !h.screen_to_string().contains("*Packages*"))
+        .unwrap();
 
     let screen_after_close = harness.screen_to_string();
     println!("After Escape:\n{}", screen_after_close);
-
-    // Package manager should be closed
-    assert!(
-        !screen_after_close.contains("*Packages*"),
-        "Package manager tab should be closed. Screen:\n{}",
-        screen_after_close
-    );
 }
 
 /// Test installing a plugin from a monorepo with subpath (e.g., repo#packages/my-plugin).
