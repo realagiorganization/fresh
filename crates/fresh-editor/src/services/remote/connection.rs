@@ -144,30 +144,19 @@ impl SshConnection {
         // Create buffered reader for stdout
         let mut reader = BufReader::new(stdout);
 
-        // Wait for ready message with timeout (longer timeout to allow for password entry)
+        // Wait for ready message from agent
+        // No timeout needed - all failure modes (auth failure, network issues, etc.)
+        // result in SSH exiting and us getting EOF. User can Ctrl+C if needed.
         let mut ready_line = String::new();
-        let read_result = tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            reader.read_line(&mut ready_line),
-        )
-        .await;
-
-        // If read failed or timed out, connection failed
-        // Error details were printed to stderr (inherited) by SSH
-        let ready_line = match read_result {
-            Ok(Ok(0)) => {
+        match reader.read_line(&mut ready_line).await {
+            Ok(0) => {
                 return Err(SshError::AgentStartFailed(
                     "connection closed (check terminal for SSH errors)".to_string(),
                 ));
             }
-            Err(_) => {
-                return Err(SshError::AgentStartFailed(
-                    "connection timed out waiting for agent".to_string(),
-                ));
-            }
-            Ok(Ok(_)) => ready_line,
-            Ok(Err(e)) => return Err(SshError::AgentStartFailed(format!("read error: {}", e))),
-        };
+            Ok(_) => {}
+            Err(e) => return Err(SshError::AgentStartFailed(format!("read error: {}", e))),
+        }
 
         let ready: AgentResponse = serde_json::from_str(&ready_line).map_err(|e| {
             SshError::AgentStartFailed(format!(
