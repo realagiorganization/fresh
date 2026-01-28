@@ -86,6 +86,13 @@ impl LineEnding {
     }
 }
 
+/// Helper enum for tracking piece actions during patched save
+#[derive(Debug, Clone, Copy)]
+enum PieceAction {
+    Copy { offset: u64, len: u64 },
+    Insert,
+}
+
 /// Represents a line number (simplified for new implementation)
 /// Legacy enum kept for backwards compatibility - always Absolute now
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,11 +439,14 @@ impl TextBuffer {
 
     /// Try to save using the patched write optimization (for remote filesystems).
     ///
-    /// This method checks if the conditions allow for a patched save:
-    /// 1. This is a remote filesystem (has remote_connection_info)
-    /// 2. We're saving to the same file we loaded from
-    /// 3. No line ending conversion is needed
-    /// 4. The source file exists
+    /// For remote filesystems, this method always attempts to use the optimized path:
+    /// - Copy ops for unloaded regions from the original file
+    /// - Insert ops for loaded/modified content
+    ///
+    /// The only case where this returns Ok(false) is when there are unloaded buffers
+    /// from multiple different source files (rare edge case).
+    ///
+    /// For line ending conversion, all data is sent as Insert ops (no Copy).
     ///
     /// Returns Ok(true) if the patched save was used, Ok(false) if conditions weren't met,
     /// or Err if the patched save was attempted but failed.
@@ -446,24 +456,6 @@ impl TextBuffer {
             return Ok(false);
         }
 
-        // Must be saving to the same file we loaded from
-        let src_path = match &self.file_path {
-            Some(p) if p == dest_path => p,
-            _ => return Ok(false),
-        };
-
-        // No line ending conversion allowed (would need to process all data)
-        if self.line_ending != self.original_line_ending {
-            return Ok(false);
-        }
-
-        // Source file must exist
-        if !self.fs.exists(src_path) {
-            return Ok(false);
-        }
-
-        // Build the recipe from pieces
-        let mut ops: Vec<WriteOp> = Vec::new();
         let total = self.total_bytes();
 
         if total == 0 {
@@ -472,8 +464,24 @@ impl TextBuffer {
             return Ok(true);
         }
 
+        // Determine the source file for Copy operations (if any)
+        // We can only use Copy if:
+        // 1. We have a source file path
+        // 2. The source file exists
+        // 3. No line ending conversion is needed
+        let src_path_for_copy: Option<&Path> = self
+            .file_path
+            .as_deref()
+            .filter(|p| self.line_ending == self.original_line_ending && self.fs.exists(p));
+
+        // Build the recipe from pieces
         // Temporary storage for insert data (to ensure lifetimes work)
         let mut insert_data: Vec<Vec<u8>> = Vec::new();
+        // Track which pieces can use Copy vs Insert
+        let mut piece_actions: Vec<PieceAction> = Vec::new();
+
+        let needs_conversion = self.line_ending != self.original_line_ending;
+        let target_ending = self.line_ending;
 
         for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
             let buffer_id = piece_view.location.buffer_id();
@@ -484,74 +492,92 @@ impl TextBuffer {
                 )
             })?;
 
-            match (&piece_view.location, &buffer.data) {
-                // Stored piece from unloaded buffer: can use Copy (data is on original file)
-                (
-                    BufferLocation::Stored(_),
-                    BufferData::Unloaded {
+            match &buffer.data {
+                // Unloaded buffer: can use Copy if same source file, else load and send
+                BufferData::Unloaded {
+                    file_path,
+                    file_offset,
+                    ..
+                } => {
+                    // Can only use Copy if:
+                    // - This is a Stored piece (original file content)
+                    // - We have a valid source for copying
+                    // - This buffer is from that source
+                    // - No line ending conversion
+                    let can_copy = matches!(piece_view.location, BufferLocation::Stored(_))
+                        && src_path_for_copy.is_some_and(|src| file_path == src);
+
+                    if can_copy {
+                        let src_offset = (*file_offset + piece_view.buffer_offset) as u64;
+                        piece_actions.push(PieceAction::Copy {
+                            offset: src_offset,
+                            len: piece_view.bytes as u64,
+                        });
+                        continue;
+                    }
+
+                    // Need to load and send this unloaded region
+                    // This happens when: different source file, or line ending conversion
+                    let data = self.fs.read_range(
                         file_path,
-                        file_offset,
-                        ..
-                    },
-                ) if file_path == src_path => {
-                    // The offset in the original file
-                    let src_offset = (*file_offset + piece_view.buffer_offset) as u64;
-                    ops.push(WriteOp::Copy {
-                        offset: src_offset,
-                        len: piece_view.bytes as u64,
-                    });
+                        (*file_offset + piece_view.buffer_offset) as u64,
+                        piece_view.bytes,
+                    )?;
+
+                    let data = if needs_conversion {
+                        Self::convert_line_endings_to(&data, target_ending)
+                    } else {
+                        data
+                    };
+
+                    insert_data.push(data);
+                    piece_actions.push(PieceAction::Insert);
                 }
 
-                // Any other case: need to send the data
-                (_, BufferData::Loaded { data, .. }) => {
+                // Loaded data: send as Insert
+                BufferData::Loaded { data, .. } => {
                     let start = piece_view.buffer_offset;
                     let end = start + piece_view.bytes;
-                    insert_data.push(data[start..end].to_vec());
-                }
+                    let chunk = &data[start..end];
 
-                // Unloaded but from different file - need to load and send
-                (_, BufferData::Unloaded { .. }) => {
-                    // Can't use Copy for different source file, fall back to standard save
-                    return Ok(false);
+                    let chunk = if needs_conversion {
+                        Self::convert_line_endings_to(chunk, target_ending)
+                    } else {
+                        chunk.to_vec()
+                    };
+
+                    insert_data.push(chunk);
+                    piece_actions.push(PieceAction::Insert);
                 }
             }
         }
 
-        // Now build the final ops vec with proper lifetimes
+        // Build the final ops vec
         let mut final_ops: Vec<WriteOp> = Vec::new();
         let mut insert_idx = 0;
 
-        for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
-            let buffer_id = piece_view.location.buffer_id();
-            let buffer = &self.buffers[buffer_id];
-
-            match (&piece_view.location, &buffer.data) {
-                (
-                    BufferLocation::Stored(_),
-                    BufferData::Unloaded {
-                        file_path,
-                        file_offset,
-                        ..
-                    },
-                ) if file_path == src_path => {
-                    let src_offset = (*file_offset + piece_view.buffer_offset) as u64;
+        for action in &piece_actions {
+            match action {
+                PieceAction::Copy { offset, len } => {
                     final_ops.push(WriteOp::Copy {
-                        offset: src_offset,
-                        len: piece_view.bytes as u64,
+                        offset: *offset,
+                        len: *len,
                     });
                 }
-                (_, BufferData::Loaded { .. }) => {
+                PieceAction::Insert => {
                     final_ops.push(WriteOp::Insert {
                         data: &insert_data[insert_idx],
                     });
                     insert_idx += 1;
                 }
-                _ => unreachable!(), // We already returned false for other cases
             }
         }
 
         // Perform the patched write
-        self.fs.write_patched(src_path, dest_path, &final_ops)?;
+        // Use source file for Copy ops if available, otherwise use dest (won't have any Copy ops)
+        let src_for_patch = src_path_for_copy.unwrap_or(dest_path);
+        self.fs
+            .write_patched(src_for_patch, dest_path, &final_ops)?;
         Ok(true)
     }
 
