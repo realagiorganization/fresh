@@ -48,6 +48,7 @@ pub mod position_history_truncate_debug;
 pub mod prompt;
 pub mod prompt_editing;
 pub mod recovery;
+pub mod remote_fs_test;
 pub mod rendering;
 pub mod save_as_language_detection;
 pub mod scroll_clearing;

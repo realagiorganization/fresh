@@ -565,3 +565,106 @@ fn test_large_file_save_preserves_unloaded_regions() {
         "Should preserve content from middle of file (Line 0500)"
     );
 }
+
+/// Test edits at beginning, middle, and end of a large file using the e2e harness
+#[test]
+fn test_large_file_edits_beginning_middle_end() {
+    use std::fs;
+    use tempfile::TempDir;
+
+    let temp_dir = TempDir::new().unwrap();
+    let file_path = temp_dir.path().join("large_edit_test.txt");
+
+    // Create 100 lines, ~10KB (enough for 500 byte threshold)
+    let mut content = String::new();
+    let mut expected_lines = Vec::new();
+    let LINES = 1_000_000;
+    let LINE_LEN = format!("Line {:04}  original content\n", 1).len();
+    for i in 0..LINES {
+        let line = format!("Line {:04}  original content\n", i);
+        content.push_str(&line);
+        expected_lines.push(line);
+    }
+    fs::write(&file_path, &content).unwrap();
+
+    let mut harness = EditorTestHarness::with_config(
+        80,
+        24,
+        fresh::config::Config {
+            editor: fresh::config::EditorConfig {
+                estimated_line_length: LINE_LEN,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    harness.open_file(&file_path).unwrap();
+    harness.render().unwrap();
+
+    // Edit lines
+    let STEPS = 17;
+    for i in 0..STEPS {
+        let target = i * (LINES / STEPS);
+        println!("{}", harness.screen_to_string());
+        harness
+            .send_key(KeyCode::Char('g'), KeyModifiers::CONTROL)
+            .unwrap();
+        println!("target line: {}", target);
+        harness.type_text(&format!("{}", target).to_string());
+        println!("{}", harness.screen_to_string());
+        harness
+            .send_key(KeyCode::Enter, KeyModifiers::NONE)
+            .unwrap();
+        harness.send_key(KeyCode::Home, KeyModifiers::NONE).unwrap();
+        harness.type_text("MIDDLE_EDIT ").unwrap();
+        let edited_screen = harness.screen_to_string();
+        println!("{}", edited_screen);
+        // find exactly which line was modified and update the equivalent line in expected_lines
+        for screen_line in edited_screen.lines() {
+            if let Some(match_index) = screen_line.find("MIDDLE_EDIT Line ") {
+                let line_num_str: Vec<&str> = screen_line
+                    [(match_index + "MIDDLE_EDIT Line ".len())..]
+                    .split_whitespace()
+                    .collect();
+                println!("match: {}", line_num_str[0]);
+                let line_num = line_num_str[0].parse::<usize>().unwrap();
+                expected_lines[line_num] = format!("MIDDLE_EDIT {}", expected_lines[line_num]);
+                println!("expected: {}", expected_lines[line_num]);
+            }
+        }
+    }
+
+    harness
+        .send_key(KeyCode::End, KeyModifiers::CONTROL)
+        .unwrap();
+    harness.send_key(KeyCode::Home, KeyModifiers::NONE).unwrap();
+    harness.type_text("END_EDIT").unwrap();
+    expected_lines.push(format!("END_EDIT"));
+
+    // Save
+    harness
+        .send_key(KeyCode::Char('s'), KeyModifiers::CONTROL)
+        .unwrap();
+
+    // Verify
+    let saved_content = fs::read_to_string(&file_path).unwrap();
+    let saved_lines: Vec<&str> = saved_content.lines().collect();
+
+    // Note: lines() strips newlines, so we need to compare carefully
+    assert_eq!(
+        saved_lines.len(),
+        expected_lines.len(),
+        "Line count mismatch"
+    );
+
+    for (i, (got, want)) in saved_lines.iter().zip(expected_lines.iter()).enumerate() {
+        let want_trimmed = want.trim_end_matches('\n');
+        assert_eq!(
+            *got, want_trimmed,
+            "Line {} mismatch:\n  got:      {:?}\n  expected: {:?}",
+            i, got, want_trimmed
+        );
+    }
+}

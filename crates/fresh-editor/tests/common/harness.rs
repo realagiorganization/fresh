@@ -147,6 +147,8 @@ pub struct HarnessOptions {
     pub dir_context: Option<DirectoryContext>,
     /// Slow filesystem configuration for performance testing.
     pub slow_fs_config: Option<SlowFsConfig>,
+    /// Custom filesystem backend. If provided, overrides slow_fs_config.
+    pub filesystem: Option<Arc<dyn FileSystem + Send + Sync>>,
     /// Preserve the keybinding map from the config (don't force "default").
     /// Set this when testing a specific keymap like emacs.
     pub preserve_keybinding_map: bool,
@@ -164,6 +166,7 @@ impl HarnessOptions {
             create_empty_plugins_dir: true,
             dir_context: None,
             slow_fs_config: None,
+            filesystem: None,
             preserve_keybinding_map: false,
         }
     }
@@ -215,6 +218,12 @@ impl HarnessOptions {
     /// Configure a slow filesystem backend for performance testing.
     pub fn with_slow_fs(mut self, config: SlowFsConfig) -> Self {
         self.slow_fs_config = Some(config);
+        self
+    }
+
+    /// Set a custom filesystem backend.
+    pub fn with_filesystem(mut self, fs: Arc<dyn FileSystem + Send + Sync>) -> Self {
+        self.filesystem = Some(fs);
         self
     }
 
@@ -380,9 +389,11 @@ impl EditorTestHarness {
         fresh::i18n::init_with_config(config.locale.as_option());
         config.editor.double_click_time_ms = 10; // Fast double-click for faster tests
 
-        // Create filesystem backend (slow or default)
+        // Create filesystem backend (custom, slow, or default)
         let (filesystem, fs_metrics): (Arc<dyn FileSystem + Send + Sync>, _) =
-            if let Some(slow_config) = options.slow_fs_config {
+            if let Some(fs) = options.filesystem {
+                (fs, None)
+            } else if let Some(slow_config) = options.slow_fs_config {
                 let std_fs: Arc<dyn FileSystem + Send + Sync> = Arc::new(StdFileSystem);
                 let slow_fs = SlowFileSystem::new(std_fs, slow_config);
                 let metrics = slow_fs.metrics().clone();

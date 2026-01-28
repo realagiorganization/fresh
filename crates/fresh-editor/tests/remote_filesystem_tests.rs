@@ -776,3 +776,284 @@ fn test_buffer_save_large_file_with_small_edit_through_remote() {
     // Edit should be in place
     assert_eq!(&content[edit_pos..edit_pos + 3], b"END");
 }
+
+#[test]
+fn test_buffer_large_file_edits_at_beginning_middle_and_end_through_remote() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem_arc() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let file_path = temp_dir.path().join("large_multi_edit.txt");
+
+    // Create a 12MB file with uniquely calculatable lines
+    // Each line is exactly 24 bytes: "Line NNNNNNNN content\n" where NNNNNNNN is the line number
+    // This makes it easy to verify which lines are preserved or modified
+    const LINE_LEN: usize = 22;
+    const NUM_LINES: usize = 1_000_000;
+    let mut original = Vec::with_capacity(LINE_LEN * NUM_LINES);
+    let mut original_lines: Vec<Vec<u8>> = vec![];
+    for i in 0..NUM_LINES {
+        let line = format!("Line {:08} content\n", i);
+        assert_eq!(line.len(), LINE_LEN);
+        original.extend_from_slice(line.as_bytes().clone());
+        original_lines.push(line.into_bytes());
+    }
+    let size = original.len();
+    assert_eq!(size, LINE_LEN * NUM_LINES);
+    std::fs::write(&file_path, &original).unwrap();
+
+    // Load through remote filesystem with default threshold (no customization)
+    let mut buffer = TextBuffer::load_from_file(&file_path, 0, fs).unwrap();
+
+    let orig_line_count = original_lines.len();
+
+    // Define the edits we'll make
+    // We need to work backwards (end -> middle -> beginning) to avoid offset shifts
+    // affecting subsequent edit positions
+    let mut expected_lines = Vec::from(original_lines);
+
+    let steps = 4;
+    let mut offset = 0;
+    for i in 0..steps {
+        let pos = i * (NUM_LINES / steps);
+        if pos >= orig_line_count {
+            break;
+        }
+
+        let line = format!("new {:08}\n", pos);
+        let bytes = line.into_bytes();
+        let target_offset = pos * LINE_LEN + offset;
+        offset += bytes.len();
+        println!("Inserting: at line: {}, offset: {}", pos, target_offset);
+        buffer.insert_bytes(target_offset, bytes.clone());
+        expected_lines.insert(pos + i, bytes);
+    }
+
+    // Save back through remote filesystem
+    buffer.save_to_file(&file_path).unwrap();
+
+    // Read back the saved file
+    let content = std::fs::read(&file_path).unwrap();
+    let content_str = String::from_utf8(content.clone()).expect("Content should be valid UTF-8");
+
+    // Compare line by line for clear error messages
+    let content_lines: Vec<&str> = content_str.lines().collect();
+
+    // Compare each line
+    for (line_num, (got, want)) in content_lines.iter().zip(expected_lines.iter()).enumerate() {
+        // println!("{}", got);
+        let want_bytes = &want[..(want.len() - 1)]; // drop newline
+        assert_eq!(
+            got.as_bytes(),
+            want_bytes,
+            "Line {} mismatch:\n  got:      {:?}\n  expected: {:?}",
+            line_num,
+            got,
+            String::from_utf8(want.clone()).unwrap()
+        );
+    }
+
+    assert_eq!(
+        content_lines.len(),
+        expected_lines.len(),
+        "Line count should match: got {}, expected {}",
+        content_lines.len(),
+        expected_lines.len()
+    );
+}
+
+#[test]
+fn test_buffer_large_file_multiple_scattered_edits_through_remote() {
+    // Test with many edits scattered throughout a 12MB file
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem_arc() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let file_path = temp_dir.path().join("scattered_edits.txt");
+
+    // Create a 12MB file with uniquely calculatable lines
+    // Each line is exactly 30 bytes: "L:NNNNNNNN:NNNNNNNN:content\n"
+    // where NNNNNNNN is the line number (appears twice for redundancy)
+    const LINE_LEN: usize = 28;
+    const NUM_LINES: usize = 400_000; // 12MB total (400000 * 30 = 12,000,000)
+    let make_line = |n: usize| -> String { format!("L:{:08}:{:08}:content\n", n, n) };
+
+    let mut original = Vec::with_capacity(LINE_LEN * NUM_LINES);
+    for i in 0..NUM_LINES {
+        let line = make_line(i);
+        assert_eq!(line.len(), LINE_LEN);
+
+        original.extend_from_slice(line.as_bytes());
+    }
+    let size = original.len();
+    assert_eq!(size, LINE_LEN * NUM_LINES);
+    std::fs::write(&file_path, &original).unwrap();
+
+    // Load through remote filesystem with default threshold (no customization)
+    let mut buffer = TextBuffer::load_from_file(&file_path, 0, fs).unwrap();
+
+    // Define edits at specific line positions (work backwards to simplify offset tracking)
+    // Each edit: (line_number, insert_data, lines_to_delete)
+    let edits: Vec<(usize, &[u8], usize)> = vec![
+        // (line_num, insert_data, num_lines_to_delete)
+        (380_000, b"[NEAR_END_MARKER]\n", 1),  // 95% through
+        (300_000, b"[300K_LINE_MARKER]\n", 0), // 75% through
+        (200_123, b"[HALFWAY_MARKER]\n", 0),   // 50% through
+        (100_000, b"[100K_LINE_MARKER]\n", 0), // 25% through
+        (50_515, b"[50K_LINE_MARKER]\n", 0),   // 12.5% through
+        (10_000, b"[10K_LINE_MARKER]\n", 0),   // 2.5% through
+        (0, b"[FILE_HEADER]\n", 0),            // Pure insert at start (no delete)
+    ];
+
+    // Apply edits in reverse order (high to low line number)
+    for (line_num, insert_data, lines_to_delete) in &edits {
+        let byte_pos = line_num * LINE_LEN;
+        let delete_bytes = lines_to_delete * LINE_LEN;
+        if delete_bytes > 0 {
+            buffer.delete_bytes(byte_pos, delete_bytes);
+        }
+        buffer.insert_bytes(byte_pos, insert_data.to_vec());
+    }
+
+    // Save
+    buffer.save_to_file(&file_path).unwrap();
+
+    // Build expected content
+    let mut expected = Vec::with_capacity(size + 200);
+
+    // Line numbers that were deleted (replaced)
+    let deleted_lines: std::collections::HashSet<usize> = edits
+        .iter()
+        .filter(|(_, _, del)| *del > 0)
+        .map(|(line, _, _)| *line)
+        .collect();
+
+    // Insert markers at the right positions (sorted by line number for building)
+    let mut markers: Vec<(usize, &[u8])> =
+        edits.iter().map(|(line, data, _)| (*line, *data)).collect();
+    markers.sort_by_key(|(line, _)| *line);
+
+    let mut current_line = 0;
+    for (marker_line, marker_data) in &markers {
+        // Add all original lines before this marker (except deleted ones)
+        while current_line < *marker_line {
+            if !deleted_lines.contains(&current_line) {
+                expected.extend_from_slice(make_line(current_line).as_bytes());
+            }
+            current_line += 1;
+        }
+        // Add the marker
+        expected.extend_from_slice(marker_data);
+        // If this marker replaced a line, skip it
+        if deleted_lines.contains(marker_line) {
+            current_line = marker_line + 1;
+        }
+    }
+    // Add remaining original lines
+    while current_line < NUM_LINES {
+        if !deleted_lines.contains(&current_line) {
+            expected.extend_from_slice(make_line(current_line).as_bytes());
+        }
+        current_line += 1;
+    }
+
+    // Read back the saved file
+    let content = std::fs::read(&file_path).unwrap();
+    let content_str = String::from_utf8(content.clone()).expect("Content should be valid UTF-8");
+    let expected_str = String::from_utf8(expected.clone()).expect("Expected should be valid UTF-8");
+
+    // Compare line by line for clear error messages
+    let content_lines: Vec<&str> = content_str.lines().collect();
+    let expected_lines: Vec<&str> = expected_str.lines().collect();
+
+    assert_eq!(
+        content_lines.len(),
+        expected_lines.len(),
+        "Line count should match: got {}, expected {}",
+        content_lines.len(),
+        expected_lines.len()
+    );
+
+    // Compare each line
+    for (line_num, (got, want)) in content_lines.iter().zip(expected_lines.iter()).enumerate() {
+        assert_eq!(
+            got, want,
+            "Line {} mismatch:\n  got:      {:?}\n  expected: {:?}",
+            line_num, got, want
+        );
+    }
+
+    // Also verify the raw bytes match exactly (including line endings)
+    assert_eq!(
+        content.len(),
+        expected.len(),
+        "Byte length should match: got {}, expected {}",
+        content.len(),
+        expected.len()
+    );
+    assert_eq!(content, expected, "Full byte content should match expected");
+}
+
+#[test]
+fn test_buffer_huge_file_multi_save_cycle_through_remote() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem_arc() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let file_path = temp_dir.path().join("multi_save_huge.txt");
+
+    // Use exactly the same line logic as e2e test
+    const NUM_LINES: usize = 1_000_000;
+    let mut original = Vec::new();
+    let mut expected_lines = Vec::with_capacity(NUM_LINES);
+    let mut line_starts = Vec::with_capacity(NUM_LINES);
+    let mut current_offset = 0;
+
+    for i in 0..NUM_LINES {
+        line_starts.push(current_offset);
+        let line = format!("Line {:05}: original content\n", i);
+        current_offset += line.len();
+        original.extend_from_slice(line.as_bytes());
+        expected_lines.push(line);
+    }
+    std::fs::write(&file_path, &original).unwrap();
+
+    // Use default threshold (1MB) to match production behavior
+    let threshold = 1024 * 1024;
+    let mut buffer = TextBuffer::load_from_file(&file_path, threshold, fs).unwrap();
+
+    for target_line in vec![5000, 3] {
+        let edit_text = format!("ITER_{}_", target_line);
+        let byte_pos = line_starts[target_line];
+
+        buffer.insert_bytes(byte_pos, edit_text.as_bytes().to_vec());
+        expected_lines[target_line] = format!("{}{}", edit_text, expected_lines[target_line]);
+
+        // Save
+        buffer.save_to_file(&file_path).unwrap();
+
+        // Verify
+        let content = std::fs::read(&file_path).unwrap();
+        let content_str = String::from_utf8(content).unwrap();
+        let content_lines: Vec<&str> = content_str.lines().collect();
+
+        assert_eq!(
+            content_lines.len(),
+            expected_lines.len(),
+            "Line count mismatch at iter {}",
+            target_line
+        );
+        for (i, (got, want)) in content_lines.iter().zip(expected_lines.iter()).enumerate() {
+            let want_trimmed = want.trim_end_matches('\n');
+            if *got != want_trimmed {
+                panic!(
+                    "Line {} mismatch at iter {}:\n  got:      {:?}\n  expected: {:?}",
+                    i, target_line, got, want_trimmed
+                );
+            }
+        }
+    }
+}
