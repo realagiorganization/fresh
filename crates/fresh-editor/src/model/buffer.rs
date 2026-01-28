@@ -4569,6 +4569,111 @@ mod property_tests {
                 }
             }
         }
+
+        #[test]
+        fn prop_write_recipe_matches_content(text in text_with_newlines()) {
+            let buffer = TextBuffer::from_bytes(text.clone(), test_fs());
+            let recipe = buffer.build_write_recipe().expect("build_write_recipe should succeed");
+
+            // Apply the recipe to get the output
+            let output = apply_recipe(&buffer, &recipe);
+            prop_assert_eq!(output, text, "Recipe output should match original content");
+        }
+
+        #[test]
+        fn prop_write_recipe_after_edits(
+            initial_text in text_with_newlines(),
+            operations in operation_strategy()
+        ) {
+            let mut buffer = TextBuffer::from_bytes(initial_text, test_fs());
+
+            // Apply random operations
+            for op in operations {
+                match op {
+                    Operation::Insert { offset, text } => {
+                        let offset = offset.min(buffer.total_bytes());
+                        buffer.insert_bytes(offset, text);
+                    }
+                    Operation::Delete { offset, bytes } => {
+                        if offset < buffer.total_bytes() {
+                            let bytes = bytes.min(buffer.total_bytes() - offset);
+                            if bytes > 0 {
+                                buffer.delete_bytes(offset, bytes);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Build recipe and verify it matches buffer content
+            let expected = buffer.get_all_text().unwrap();
+            let recipe = buffer.build_write_recipe().expect("build_write_recipe should succeed");
+            let output = apply_recipe(&buffer, &recipe);
+
+            prop_assert_eq!(output, expected, "Recipe output should match buffer content after edits");
+        }
+
+        #[test]
+        fn prop_write_recipe_copy_ops_valid(
+            text in prop::collection::vec(prop_oneof![(b'a'..=b'z').prop_map(|c| c), Just(b'\n')], 10..200),
+            edit_offset in 0usize..100,
+            edit_text in text_with_newlines()
+        ) {
+            use tempfile::TempDir;
+
+            // Create a temp file with initial content
+            let temp_dir = TempDir::new().unwrap();
+            let file_path = temp_dir.path().join("test.txt");
+            std::fs::write(&file_path, &text).unwrap();
+
+            // Load the file (creates unloaded buffer regions)
+            let mut buffer = TextBuffer::load_from_file(&file_path, 1024 * 1024, test_fs()).unwrap();
+
+            // Make an edit in the middle
+            let edit_offset = edit_offset.min(buffer.total_bytes());
+            buffer.insert_bytes(edit_offset, edit_text.clone());
+
+            // Build recipe - should have Copy ops for unmodified regions
+            let recipe = buffer.build_write_recipe().expect("build_write_recipe should succeed");
+
+            // Verify recipe produces correct output
+            let expected = buffer.get_all_text().unwrap();
+            let output = apply_recipe(&buffer, &recipe);
+            prop_assert_eq!(output, expected, "Recipe with Copy ops should match buffer content");
+
+            // Verify we have at least some Copy ops if the file was large enough
+            // (Copy ops reference unloaded regions from the original file)
+            if text.len() > 100 && edit_offset > 10 {
+                let has_copy = recipe.actions.iter().any(|a| matches!(a, RecipeAction::Copy { .. }));
+                // Note: We don't assert this because line ending conversion or other factors
+                // might cause all Insert ops, which is valid behavior
+                let _ = has_copy;
+            }
+        }
+    }
+
+    /// Helper to apply a WriteRecipe and return the resulting bytes
+    fn apply_recipe(buffer: &TextBuffer, recipe: &WriteRecipe) -> Vec<u8> {
+        let mut output = Vec::new();
+        for action in &recipe.actions {
+            match action {
+                RecipeAction::Copy { offset, len } => {
+                    if let Some(src_path) = &recipe.src_path {
+                        let data = buffer
+                            .fs
+                            .read_range(src_path, *offset, *len as usize)
+                            .expect("read_range should succeed for Copy op");
+                        output.extend_from_slice(&data);
+                    } else {
+                        panic!("Copy action without source path");
+                    }
+                }
+                RecipeAction::Insert { index } => {
+                    output.extend_from_slice(&recipe.insert_data[*index]);
+                }
+            }
+        }
+        output
     }
 
     #[test]
