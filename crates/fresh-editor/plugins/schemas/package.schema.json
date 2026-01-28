@@ -140,6 +140,10 @@
               "type": "boolean",
               "description": "Enable automatic indentation"
             },
+            "showWhitespaceTabs": {
+              "type": "boolean",
+              "description": "Whether to show whitespace tab indicators (→). Defaults to true. Set to false for languages like Go/Hare that use tabs for indentation."
+            },
             "formatter": {
               "type": "object",
               "required": ["command"],

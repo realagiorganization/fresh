@@ -1246,6 +1246,7 @@ impl Editor {
             auto_indent: config.auto_indent.unwrap_or(true),
             use_tabs: config.use_tabs.unwrap_or(false),
             tab_size: config.tab_size,
+            show_whitespace_tabs: config.show_whitespace_tabs.unwrap_or(true),
             formatter: config.formatter.map(|f| crate::config::FormatterConfig {
                 command: f.command,
                 args: f.args,

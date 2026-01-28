@@ -92,6 +92,7 @@ interface PackageManifest {
       useTabs?: boolean;
       tabSize?: number;
       autoIndent?: boolean;
+      showWhitespaceTabs?: boolean;
       formatter?: {
         command: string;
         args?: string[];
@@ -828,6 +829,7 @@ async function loadLanguagePack(packageDir: string, manifest: PackageManifest): 
       useTabs: lang.useTabs ?? null,
       tabSize: lang.tabSize ?? null,
       autoIndent: lang.autoIndent ?? null,
+      showWhitespaceTabs: lang.showWhitespaceTabs ?? null,
       formatter: lang.formatter ? {
         command: lang.formatter.command,
         args: lang.formatter.args ?? [],

@@ -1450,6 +1450,11 @@ pub struct LanguagePackConfig {
     #[serde(default)]
     pub auto_indent: Option<bool>,
 
+    /// Whether to show whitespace tab indicators (→) for this language
+    /// Defaults to true. Set to false for languages like Go/Hare that use tabs for indentation.
+    #[serde(default)]
+    pub show_whitespace_tabs: Option<bool>,
+
     /// Formatter configuration
     #[serde(default)]
     pub formatter: Option<FormatterPackConfig>,

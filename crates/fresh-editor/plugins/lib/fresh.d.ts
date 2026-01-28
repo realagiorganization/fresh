@@ -559,6 +559,11 @@ type LanguagePackConfig = {
 	*/
 	autoIndent: boolean | null;
 	/**
+	* Whether to show whitespace tab indicators (→) for this language
+	* Defaults to true. Set to false for languages like Go/Hare that use tabs for indentation.
+	*/
+	showWhitespaceTabs: boolean | null;
+	/**
 	* Formatter configuration
 	*/
 	formatter: FormatterPackConfig | null;

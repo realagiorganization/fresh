@@ -242,7 +242,10 @@ Thanks for contributing!
 
 7. **LSP**: Ensure LSP interactions follow the correct lifecycle (e.g., `didOpen` must always precede other requests to avoid server-side errors). Use the appropriate existing helpers for this pattern.
 
-8. **Regenerate plugin types**: After modifying the plugin API, run `cargo test -p fresh-plugin-runtime write_fresh_dts_file -- --ignored`
+8. **Regenerate plugin types and schemas**: After modifying the plugin API or config types:
+   - **TypeScript definitions** (`plugins/lib/fresh.d.ts`): Auto-generated from Rust types with `#[derive(TS)]`. Run: `cargo test -p fresh-plugin-runtime write_fresh_dts_file -- --ignored`
+   - **JSON schemas** (`plugins/config-schema.json`, `plugins/schemas/theme.schema.json`): Auto-generated from Rust types with `#[derive(JsonSchema)]`. Run: `./scripts/gen_schema.sh`
+   - **Package schema** (`plugins/schemas/package.schema.json`): Manually maintained - edit directly when adding new language pack fields
 
 9. **Type check plugins**: Run `crates/fresh-editor/plugins/check-types.sh` (requires `tsc`)
 
