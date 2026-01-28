@@ -9,7 +9,7 @@ use crate::model::piece_tree_diff::PieceTreeDiff;
 use crate::primitives::grapheme;
 use anyhow::{Context, Result};
 use regex::bytes::Regex;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -86,11 +86,41 @@ impl LineEnding {
     }
 }
 
-/// Helper enum for tracking piece actions during patched save
+/// A write recipe built from the piece tree for saving
+struct WriteRecipe {
+    /// The source file path for Copy operations (if any)
+    src_path: Option<PathBuf>,
+    /// Data chunks for Insert operations (owned to avoid lifetime issues)
+    insert_data: Vec<Vec<u8>>,
+    /// Sequence of actions to build the output file
+    actions: Vec<RecipeAction>,
+}
+
+/// An action in a write recipe
 #[derive(Debug, Clone, Copy)]
-enum PieceAction {
+enum RecipeAction {
+    /// Copy bytes from source file at offset
     Copy { offset: u64, len: u64 },
-    Insert,
+    /// Insert data from insert_data[index]
+    Insert { index: usize },
+}
+
+impl WriteRecipe {
+    /// Convert the recipe to WriteOp slice for use with filesystem write_patched
+    fn to_write_ops(&self) -> Vec<WriteOp<'_>> {
+        self.actions
+            .iter()
+            .map(|action| match action {
+                RecipeAction::Copy { offset, len } => WriteOp::Copy {
+                    offset: *offset,
+                    len: *len,
+                },
+                RecipeAction::Insert { index } => WriteOp::Insert {
+                    data: &self.insert_data[*index],
+                },
+            })
+            .collect()
+    }
 }
 
 /// Represents a line number (simplified for new implementation)
@@ -437,51 +467,32 @@ impl TextBuffer {
         !self.fs.is_owner(dest_path)
     }
 
-    /// Try to save using the patched write optimization (for remote filesystems).
+    /// Build a write recipe from the piece tree for saving.
     ///
-    /// For remote filesystems, this method always attempts to use the optimized path:
-    /// - Copy ops for unloaded regions from the original file
-    /// - Insert ops for loaded/modified content
+    /// This creates a recipe of Copy and Insert operations that can reconstruct
+    /// the buffer content. Copy operations reference unchanged regions in the
+    /// source file, while Insert operations contain new/modified data.
     ///
-    /// The only case where this returns Ok(false) is when there are unloaded buffers
-    /// from multiple different source files (rare edge case).
-    ///
-    /// For line ending conversion, all data is sent as Insert ops (no Copy).
-    ///
-    /// Returns Ok(true) if the patched save was used, Ok(false) if conditions weren't met,
-    /// or Err if the patched save was attempted but failed.
-    fn try_patched_save(&self, dest_path: &Path) -> anyhow::Result<bool> {
-        // Only use for remote filesystems
-        if self.fs.remote_connection_info().is_none() {
-            return Ok(false);
-        }
-
+    /// # Returns
+    /// A WriteRecipe with the source path, insert data, and sequence of actions.
+    fn build_write_recipe(&self) -> io::Result<WriteRecipe> {
         let total = self.total_bytes();
-
-        if total == 0 {
-            // Empty file - just write empty
-            self.fs.write_file(dest_path, &[])?;
-            return Ok(true);
-        }
 
         // Determine the source file for Copy operations (if any)
         // We can only use Copy if:
         // 1. We have a source file path
         // 2. The source file exists
         // 3. No line ending conversion is needed
-        let src_path_for_copy: Option<&Path> = self
-            .file_path
-            .as_deref()
-            .filter(|p| self.line_ending == self.original_line_ending && self.fs.exists(p));
-
-        // Build the recipe from pieces
-        // Temporary storage for insert data (to ensure lifetimes work)
-        let mut insert_data: Vec<Vec<u8>> = Vec::new();
-        // Track which pieces can use Copy vs Insert
-        let mut piece_actions: Vec<PieceAction> = Vec::new();
-
         let needs_conversion = self.line_ending != self.original_line_ending;
+        let src_path_for_copy: Option<&Path> = if needs_conversion {
+            None
+        } else {
+            self.file_path.as_deref().filter(|p| self.fs.exists(p))
+        };
         let target_ending = self.line_ending;
+
+        let mut insert_data: Vec<Vec<u8>> = Vec::new();
+        let mut actions: Vec<RecipeAction> = Vec::new();
 
         for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
             let buffer_id = piece_view.location.buffer_id();
@@ -509,7 +520,7 @@ impl TextBuffer {
 
                     if can_copy {
                         let src_offset = (*file_offset + piece_view.buffer_offset) as u64;
-                        piece_actions.push(PieceAction::Copy {
+                        actions.push(RecipeAction::Copy {
                             offset: src_offset,
                             len: piece_view.bytes as u64,
                         });
@@ -530,8 +541,9 @@ impl TextBuffer {
                         data
                     };
 
+                    let index = insert_data.len();
                     insert_data.push(data);
-                    piece_actions.push(PieceAction::Insert);
+                    actions.push(RecipeAction::Insert { index });
                 }
 
                 // Loaded data: send as Insert
@@ -546,39 +558,18 @@ impl TextBuffer {
                         chunk.to_vec()
                     };
 
+                    let index = insert_data.len();
                     insert_data.push(chunk);
-                    piece_actions.push(PieceAction::Insert);
+                    actions.push(RecipeAction::Insert { index });
                 }
             }
         }
 
-        // Build the final ops vec
-        let mut final_ops: Vec<WriteOp> = Vec::new();
-        let mut insert_idx = 0;
-
-        for action in &piece_actions {
-            match action {
-                PieceAction::Copy { offset, len } => {
-                    final_ops.push(WriteOp::Copy {
-                        offset: *offset,
-                        len: *len,
-                    });
-                }
-                PieceAction::Insert => {
-                    final_ops.push(WriteOp::Insert {
-                        data: &insert_data[insert_idx],
-                    });
-                    insert_idx += 1;
-                }
-            }
-        }
-
-        // Perform the patched write
-        // Use source file for Copy ops if available, otherwise use dest (won't have any Copy ops)
-        let src_for_patch = src_path_for_copy.unwrap_or(dest_path);
-        self.fs
-            .write_patched(src_for_patch, dest_path, &final_ops)?;
-        Ok(true)
+        Ok(WriteRecipe {
+            src_path: src_path_for_copy.map(|p| p.to_path_buf()),
+            insert_data,
+            actions,
+        })
     }
 
     /// Create a temporary file for saving.
@@ -606,188 +597,133 @@ impl TextBuffer {
 
     /// Save the buffer to a specific file
     ///
-    /// This uses incremental saving for large files: instead of loading the entire
-    /// file into memory, it streams unmodified regions directly from the source file
-    /// and only keeps edited regions in memory.
+    /// Uses the write recipe approach for both local and remote filesystems:
+    /// - Copy ops reference unchanged regions in the source file
+    /// - Insert ops contain new/modified data
+    ///
+    /// For remote filesystems, the recipe is sent to the agent which reconstructs
+    /// the file server-side, avoiding transfer of unchanged content.
+    ///
+    /// For local filesystems with ownership concerns (file owned by another user),
+    /// uses in-place writing to preserve ownership. Otherwise uses atomic writes.
     ///
     /// If the line ending format has been changed (via set_line_ending), all content
     /// will be converted to the new format during save.
     pub fn save_to_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<()> {
         let dest_path = path.as_ref();
+        let total = self.total_bytes();
 
-        // Try optimized patched save for remote filesystems
-        // This avoids transferring unchanged portions of the file over the network
-        if self.try_patched_save(dest_path)? {
-            // Mark buffer as saved
-            self.mark_saved_snapshot();
-            self.original_line_ending = self.line_ending;
+        // Handle empty files
+        if total == 0 {
+            self.fs.write_file(dest_path, &[])?;
+            self.finalize_save(dest_path)?;
             return Ok(());
         }
 
-        let total = self.total_bytes();
+        // Build the write recipe (unified for all filesystem types)
+        let recipe = self.build_write_recipe()?;
+        let ops = recipe.to_write_ops();
 
-        // Get original file metadata (permissions, owner, etc.) before writing
-        // so we can preserve it after creating/renaming the temp file
-        let original_metadata = self.fs.metadata_if_exists(dest_path);
+        // Check if we need in-place writing to preserve file ownership (local only)
+        // Remote filesystems handle this differently
+        let is_local = self.fs.remote_connection_info().is_none();
+        let use_inplace = is_local && self.should_use_inplace_write(dest_path);
 
-        // Check if we need to convert line endings
-        let needs_conversion = self.line_ending != self.original_line_ending;
-        let target_ending = self.line_ending;
-
-        // Determine whether to use in-place writing to preserve file ownership.
-        // When the file is owned by a different user (e.g., editing with group write
-        // permissions), we must write directly to the file to preserve ownership,
-        // since non-root users cannot chown files to other users.
-        let use_inplace = self.should_use_inplace_write(dest_path);
-
-        // Stage A: Create output file (either temp file or open existing for in-place write)
-        let (temp_path, mut out_file): (
-            Option<PathBuf>,
-            Box<dyn crate::model::filesystem::FileWriter>,
-        ) = if use_inplace {
-            // In-place write: open existing file with truncate to preserve ownership
-            match self.fs.open_file_for_write(dest_path) {
-                Ok(file) => (None, file),
-                Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                    // Permission denied on in-place write: fall back to atomic write
-                    // with temp file. The rename will also fail, triggering SudoSaveRequired.
-                    let (path, file) = self.create_temp_file(dest_path)?;
-                    (Some(path), file)
+        if use_inplace {
+            // In-place write: write directly to preserve ownership
+            self.save_with_inplace_write(dest_path, &recipe)?;
+        } else if is_local {
+            // Local atomic write: use write_patched with sudo fallback
+            let src_for_patch = recipe.src_path.as_deref().unwrap_or(dest_path);
+            if let Err(e) = self.fs.write_patched(src_for_patch, dest_path, &ops) {
+                if e.kind() == io::ErrorKind::PermissionDenied {
+                    // Create temp file and return sudo error
+                    let original_metadata = self.fs.metadata_if_exists(dest_path);
+                    let (temp_path, mut temp_file) = self.create_temp_file(dest_path)?;
+                    self.write_recipe_to_file(&mut temp_file, &recipe)?;
+                    temp_file.sync_all()?;
+                    drop(temp_file);
+                    return Err(self.make_sudo_error(temp_path, dest_path, original_metadata));
                 }
-                Err(e) => return Err(e.into()),
+                return Err(e.into());
             }
         } else {
-            // Atomic write: create temp file, will rename later
-            let (path, file) = self.create_temp_file(dest_path)?;
-            (Some(path), file)
-        };
+            // Remote: use write_patched (recipe sent to agent)
+            let src_for_patch = recipe.src_path.as_deref().unwrap_or(dest_path);
+            self.fs.write_patched(src_for_patch, dest_path, &ops)?;
+        }
 
-        if total > 0 {
-            // Cache for open source files (for streaming unloaded regions)
-            let mut source_file_cache: Option<(
-                PathBuf,
-                Box<dyn crate::model::filesystem::FileReader>,
-            )> = None;
+        self.finalize_save(dest_path)?;
+        Ok(())
+    }
 
-            // Iterate through all pieces and write them
-            for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
-                let buffer_id = piece_view.location.buffer_id();
-                let buffer = self.buffers.get(buffer_id).ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        format!("Buffer {} not found", buffer_id),
-                    )
-                })?;
+    /// Write using in-place mode to preserve file ownership.
+    ///
+    /// This is used when the file is owned by a different user and we need
+    /// to write directly to the existing file to preserve its ownership.
+    fn save_with_inplace_write(
+        &self,
+        dest_path: &Path,
+        recipe: &WriteRecipe,
+    ) -> anyhow::Result<()> {
+        let original_metadata = self.fs.metadata_if_exists(dest_path);
 
-                match &buffer.data {
-                    BufferData::Loaded { data, .. } => {
-                        let start = piece_view.buffer_offset;
-                        let end = start + piece_view.bytes;
-                        let chunk = &data[start..end];
+        match self.fs.open_file_for_write(dest_path) {
+            Ok(mut out_file) => {
+                // Write recipe content directly to file
+                self.write_recipe_to_file(&mut out_file, recipe)?;
+                out_file.sync_all()?;
+                Ok(())
+            }
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                // Fall back to atomic write, which will likely also fail
+                // and trigger sudo fallback
+                let ops = recipe.to_write_ops();
+                let src_for_patch = recipe.src_path.as_deref().unwrap_or(dest_path);
 
-                        if needs_conversion {
-                            // Convert line endings before writing
-                            let converted = Self::convert_line_endings_to(chunk, target_ending);
-                            out_file.write_all(&converted)?;
-                        } else {
-                            // Write directly without conversion
-                            out_file.write_all(chunk)?;
-                        }
+                match self.fs.write_patched(src_for_patch, dest_path, &ops) {
+                    Ok(()) => Ok(()),
+                    Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                        // Create temp file for sudo fallback
+                        let (temp_path, mut temp_file) = self.create_temp_file(dest_path)?;
+                        self.write_recipe_to_file(&mut temp_file, recipe)?;
+                        temp_file.sync_all()?;
+                        drop(temp_file);
+                        Err(self.make_sudo_error(temp_path, dest_path, original_metadata))
                     }
-                    BufferData::Unloaded {
-                        file_path,
-                        file_offset,
-                        ..
-                    } => {
-                        // Stream from source file using the filesystem abstraction
-                        let source_file: &mut Box<dyn crate::model::filesystem::FileReader> =
-                            match &mut source_file_cache {
-                                Some((cached_path, file)) if cached_path == file_path => file,
-                                _ => {
-                                    let file = self.fs.open_file(file_path)?;
-                                    source_file_cache = Some((file_path.clone(), file));
-                                    &mut source_file_cache.as_mut().unwrap().1
-                                }
-                            };
+                    Err(e) => Err(e.into()),
+                }
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
 
-                        // Seek to the right position in source file
-                        let read_offset = *file_offset + piece_view.buffer_offset;
-                        source_file.seek(SeekFrom::Start(read_offset as u64))?;
-
-                        // Stream in chunks
-                        const STREAM_CHUNK_SIZE: usize = 64 * 1024; // 64KB chunks
-                        let mut remaining = piece_view.bytes;
-                        let mut chunk_buf = vec![0u8; STREAM_CHUNK_SIZE.min(remaining)];
-
-                        while remaining > 0 {
-                            let to_read = remaining.min(chunk_buf.len());
-                            source_file.read_exact(&mut chunk_buf[..to_read])?;
-
-                            if needs_conversion {
-                                // Convert line endings before writing
-                                let converted = Self::convert_line_endings_to(
-                                    &chunk_buf[..to_read],
-                                    target_ending,
-                                );
-                                out_file.write_all(&converted)?;
-                            } else {
-                                // Write directly without conversion
-                                out_file.write_all(&chunk_buf[..to_read])?;
-                            }
-                            remaining -= to_read;
-                        }
-                    }
+    /// Write the recipe content to a file writer.
+    fn write_recipe_to_file(
+        &self,
+        out_file: &mut Box<dyn crate::model::filesystem::FileWriter>,
+        recipe: &WriteRecipe,
+    ) -> io::Result<()> {
+        for action in &recipe.actions {
+            match action {
+                RecipeAction::Copy { offset, len } => {
+                    // Read from source and write to output
+                    let src_path = recipe.src_path.as_ref().ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidData, "Copy action without source")
+                    })?;
+                    let data = self.fs.read_range(src_path, *offset, *len as usize)?;
+                    out_file.write_all(&data)?;
+                }
+                RecipeAction::Insert { index } => {
+                    out_file.write_all(&recipe.insert_data[*index])?;
                 }
             }
         }
+        Ok(())
+    }
 
-        // Ensure all data is written
-        out_file.sync_all()?;
-        drop(out_file);
-
-        // Stage B & C: Only needed for atomic write (not in-place write)
-        if let Some(temp_path) = temp_path {
-            // Restore original file permissions before renaming
-            if let Some(ref meta) = original_metadata {
-                if let Some(ref perms) = meta.permissions {
-                    // Best effort restore
-                    let _ = self.fs.set_permissions(&temp_path, perms);
-                }
-            }
-
-            // Stage C: Atomic Replacement or Sudo Fallback
-            if let Err(e) = self.fs.rename(&temp_path, dest_path) {
-                let is_permission_denied = e.kind() == io::ErrorKind::PermissionDenied;
-                let is_cross_device = cfg!(unix) && e.raw_os_error() == Some(18);
-
-                if is_cross_device {
-                    #[cfg(unix)]
-                    {
-                        match self.fs.copy(&temp_path, dest_path) {
-                            Ok(_) => {
-                                let _ = self.fs.remove_file(&temp_path);
-                            }
-                            Err(copy_err) if copy_err.kind() == io::ErrorKind::PermissionDenied => {
-                                return Err(self.make_sudo_error(
-                                    temp_path,
-                                    dest_path,
-                                    original_metadata,
-                                ));
-                            }
-                            Err(copy_err) => return Err(copy_err.into()),
-                        }
-                    }
-                } else if is_permission_denied {
-                    return Err(self.make_sudo_error(temp_path, dest_path, original_metadata));
-                } else {
-                    return Err(e.into());
-                }
-            }
-        }
-        // For in-place write, we already wrote directly to dest_path,
-        // preserving ownership since we modified the existing inode
-
-        // Update saved file size to match the file on disk
+    /// Finalize save state after successful write.
+    fn finalize_save(&mut self, dest_path: &Path) -> anyhow::Result<()> {
         let new_size = self.fs.metadata(dest_path)?.size as usize;
         tracing::debug!(
             "Buffer::save: updating saved_file_size from {:?} to {}",
@@ -795,14 +731,9 @@ impl TextBuffer {
             new_size
         );
         self.saved_file_size = Some(new_size);
-
         self.file_path = Some(dest_path.to_path_buf());
         self.mark_saved_snapshot();
-
-        // Update original_line_ending to match what we just saved
-        // This prevents repeated conversions on subsequent saves
         self.original_line_ending = self.line_ending;
-
         Ok(())
     }
 
