@@ -75,7 +75,7 @@ fn test_to_lowercase() {
     );
 }
 
-/// Test case conversion with no selection (should do nothing)
+/// Test case conversion with no selection (should convert word under cursor)
 #[test]
 fn test_case_conversion_no_selection() {
     let mut harness = EditorTestHarness::new(80, 24).unwrap();
@@ -90,17 +90,17 @@ fn test_case_conversion_no_selection() {
     // Verify no selection
     harness.assert_no_selection();
 
-    // Try to convert to uppercase (should do nothing)
+    // Convert to uppercase (should convert word under cursor)
     harness
         .send_key(KeyCode::Char('u'), KeyModifiers::ALT)
         .unwrap();
     harness.render().unwrap();
 
-    // Text should remain unchanged
+    // Word under cursor should be converted
     let buffer_content = harness.get_buffer_content().unwrap();
     assert_eq!(
-        buffer_content, "hello world",
-        "Text should remain unchanged when no selection"
+        buffer_content, "HELLO world",
+        "Word under cursor should be converted to uppercase when no selection"
     );
 }
 
