@@ -31,6 +31,14 @@
       "when": "global"
     },
     {
+      "comment": "Ctrl+E -> Focus file explorer (switch focus between explorer and editor)",
+      "key": "e",
+      "modifiers": ["ctrl"],
+      "action": "focus_file_explorer",
+      "args": {},
+      "when": "normal"
+    },
+    {
       "key": "v",
       "modifiers": ["alt"],
       "action": "menu_open",
@@ -234,10 +242,10 @@
       "when": "normal"
     },
     {
-      "comment": "Normal context - Focus file explorer",
-      "key": "e",
+      "comment": "Normal context - Toggle sidebar/file explorer visibility",
+      "key": "b",
       "modifiers": ["ctrl"],
-      "action": "focus_file_explorer",
+      "action": "toggle_file_explorer",
       "args": {},
       "when": "normal"
     },
@@ -1525,9 +1533,26 @@
       "when": "file_explorer"
     },
     {
+      "comment": "Ctrl+E -> Focus editor (switch focus from explorer to editor)",
       "key": "e",
       "modifiers": ["ctrl"],
       "action": "focus_editor",
+      "args": {},
+      "when": "file_explorer"
+    },
+    {
+      "comment": "Alt+] -> Focus last focused editor split",
+      "key": "]",
+      "modifiers": ["alt"],
+      "action": "focus_editor",
+      "args": {},
+      "when": "file_explorer"
+    },
+    {
+      "comment": "Ctrl+B -> Toggle sidebar/file explorer visibility",
+      "key": "b",
+      "modifiers": ["ctrl"],
+      "action": "toggle_file_explorer",
       "args": {},
       "when": "file_explorer"
     },

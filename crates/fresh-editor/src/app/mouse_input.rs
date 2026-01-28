@@ -872,6 +872,19 @@ impl Editor {
             return Ok(());
         }
 
+        // Is it in the file explorer? Double-click opens file AND focuses editor
+        if let Some(explorer_area) = self.cached_layout.file_explorer_area {
+            if col >= explorer_area.x
+                && col < explorer_area.x + explorer_area.width
+                && row > explorer_area.y // Skip title bar
+                && row < explorer_area.y + explorer_area.height
+            {
+                // Open file and focus editor (via file_explorer_open_file which calls focus_editor)
+                self.file_explorer_open_file()?;
+                return Ok(());
+            }
+        }
+
         // Find which split/buffer was clicked and handle double-click
         let split_areas = self.cached_layout.split_areas.clone();
         for (split_id, buffer_id, content_rect, _scrollbar_rect, _thumb_start, _thumb_end) in

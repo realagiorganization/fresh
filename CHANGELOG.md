@@ -12,6 +12,8 @@ See [getfresh.dev/docs](https://getfresh.dev/docs)
 
 * **Event Debug Dialog**: New diagnostic tool for troubleshooting keyboard and terminal issues. Shows raw key codes and modifiers as they are received, helping diagnose keybinding problems. Access via Command Palette → "Event Debug".
 
+* **File Explorer Keybindings**: Reorganized the keys and updated the docs. Ctrl+E now toggles focus between file explorer and editor. Ctrl+B toggles sidebar visibility. Single-click opens files without leaving explorer; double-click or Enter opens and focuses editor (#748).
+
 ### Bug Fixes
 
 * **Case Conversion Enhancement**: To Upper (Alt+U) and To Lower (Alt+L) now automatically select the current word when no text is selected, matching common editor behavior.

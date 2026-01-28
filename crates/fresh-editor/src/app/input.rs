@@ -1954,10 +1954,14 @@ impl Editor {
                         // Toggle expand/collapse using the existing method
                         self.file_explorer_toggle_expand();
                     } else if node.is_file() {
-                        // Open the file using the existing method
-                        self.file_explorer_open_file()?;
-                        // Switch focus back to editor after opening file
-                        self.key_context = crate::input::keybindings::KeyContext::Normal;
+                        // Open the file but keep focus on file explorer (single click)
+                        // Double-click or Enter will focus the editor
+                        let path = node.entry.path.clone();
+                        let name = node.entry.name.clone();
+                        self.open_file(&path)?;
+                        self.set_status_message(
+                            rust_i18n::t!("explorer.opened_file", name = &name).to_string(),
+                        );
                     }
                 }
             }
