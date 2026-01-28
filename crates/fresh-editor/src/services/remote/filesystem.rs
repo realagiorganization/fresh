@@ -7,8 +7,8 @@ use crate::model::filesystem::{
 };
 use crate::services::remote::channel::{AgentChannel, ChannelError};
 use crate::services::remote::protocol::{
-    decode_base64, ls_params, read_params, stat_params, sudo_write_params, write_params,
-    RemoteDirEntry, RemoteMetadata,
+    append_params, decode_base64, ls_params, read_params, stat_params, sudo_write_params,
+    truncate_params, write_params, RemoteDirEntry, RemoteMetadata,
 };
 use std::io::{self, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -202,18 +202,19 @@ impl FileSystem for RemoteFileSystem {
     }
 
     fn open_file_for_append(&self, path: &Path) -> io::Result<Box<dyn FileWriter>> {
-        // Read existing content
-        let existing = self.read_file(path).unwrap_or_default();
-        let mut writer = RemoteFileWriter::new(self.channel.clone(), path.to_path_buf());
-        writer.buffer = existing;
-        Ok(Box::new(writer))
+        // Use append-only writer that sends only new data
+        Ok(Box::new(AppendingRemoteFileWriter::new(
+            self.channel.clone(),
+            path.to_path_buf(),
+        )))
     }
 
     fn set_file_length(&self, path: &Path, len: u64) -> io::Result<()> {
-        // Read file, truncate/extend, write back
-        let mut data = self.read_file(path)?;
-        data.resize(len as usize, 0);
-        self.write_file(path, &data)
+        let path_str = path.to_string_lossy();
+        self.channel
+            .request_blocking("truncate", truncate_params(&path_str, len))
+            .map_err(Self::to_io_error)?;
+        Ok(())
     }
 
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
@@ -500,6 +501,47 @@ impl FileWriter for RemoteFileWriter {
         let path_str = self.path.to_string_lossy();
         self.channel
             .request_blocking("write", write_params(&path_str, &self.buffer))
+            .map_err(RemoteFileSystem::to_io_error)?;
+        Ok(())
+    }
+}
+
+/// Remote file writer for append operations - only sends new data
+struct AppendingRemoteFileWriter {
+    channel: Arc<AgentChannel>,
+    path: PathBuf,
+    buffer: Vec<u8>,
+}
+
+impl AppendingRemoteFileWriter {
+    fn new(channel: Arc<AgentChannel>, path: PathBuf) -> Self {
+        Self {
+            channel,
+            path,
+            buffer: Vec::new(),
+        }
+    }
+}
+
+impl Write for AppendingRemoteFileWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl FileWriter for AppendingRemoteFileWriter {
+    fn sync_all(&self) -> io::Result<()> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+        let path_str = self.path.to_string_lossy();
+        self.channel
+            .request_blocking("append", append_params(&path_str, &self.buffer))
             .map_err(RemoteFileSystem::to_io_error)?;
         Ok(())
     }

@@ -206,6 +206,22 @@ pub fn cancel_params(request_id: u64) -> serde_json::Value {
     serde_json::json!({"id": request_id})
 }
 
+/// Build params for append request
+pub fn append_params(path: &str, data: &[u8]) -> serde_json::Value {
+    serde_json::json!({
+        "path": path,
+        "data": encode_base64(data)
+    })
+}
+
+/// Build params for truncate request
+pub fn truncate_params(path: &str, len: u64) -> serde_json::Value {
+    serde_json::json!({
+        "path": path,
+        "len": len
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

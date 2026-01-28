@@ -251,6 +251,24 @@ def cmd_chmod(id, p):
     send(id, r={})
 
 
+def cmd_append(id, p):
+    """Append data to a file (creates if doesn't exist)."""
+    path = validate_path(p["path"])
+    data = unb64(p["data"])
+    with open(path, "ab") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    send(id, r={"size": len(data)})
+
+
+def cmd_truncate(id, p):
+    """Truncate or extend a file to a specified length."""
+    path = validate_path(p["path"])
+    os.truncate(path, p["len"])
+    send(id, r={})
+
+
 def cmd_exists(id, p):
     """Check if path exists."""
     try:
@@ -381,6 +399,8 @@ METHODS = {
     "cp": cmd_cp,
     "realpath": cmd_realpath,
     "chmod": cmd_chmod,
+    "append": cmd_append,
+    "truncate": cmd_truncate,
     "exists": cmd_exists,
     "info": cmd_info,
     "exec": cmd_exec,
