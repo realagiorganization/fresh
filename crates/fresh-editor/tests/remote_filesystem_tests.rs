@@ -8,7 +8,7 @@
 //! - AgentChannel for communication
 //! - RemoteFileSystem for file operations
 
-use fresh::model::filesystem::FileSystem;
+use fresh::model::filesystem::{FileSystem, WriteOp};
 use fresh::services::remote::{spawn_local_agent, RemoteFileSystem};
 
 /// Creates a RemoteFileSystem using production code
@@ -259,4 +259,252 @@ fn test_read_range_on_large_file() {
         &test_content[offset as usize..(offset as usize + len)],
         "Read range content should match"
     );
+}
+
+// =============================================================================
+// Tests for optimized remote operations (Phase 1 & 2 optimizations)
+// =============================================================================
+
+#[test]
+fn test_append_to_file() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let test_path = temp_dir.path().join("append_test.txt");
+
+    // Create initial file
+    fs.write_file(&test_path, b"Hello").unwrap();
+
+    // Append using open_file_for_append
+    {
+        use std::io::Write;
+        let mut writer = fs.open_file_for_append(&test_path).unwrap();
+        writer.write_all(b" World").unwrap();
+        writer.sync_all().unwrap();
+    }
+
+    // Verify content
+    let content = fs.read_file(&test_path).unwrap();
+    assert_eq!(
+        content, b"Hello World",
+        "Append should add to existing content"
+    );
+}
+
+#[test]
+fn test_append_creates_file_if_missing() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let test_path = temp_dir.path().join("append_new.txt");
+
+    // File doesn't exist yet
+    assert!(!test_path.exists());
+
+    // Append to non-existent file (should create it)
+    {
+        use std::io::Write;
+        let mut writer = fs.open_file_for_append(&test_path).unwrap();
+        writer.write_all(b"New content").unwrap();
+        writer.sync_all().unwrap();
+    }
+
+    // Verify file was created with content
+    let content = fs.read_file(&test_path).unwrap();
+    assert_eq!(content, b"New content");
+}
+
+#[test]
+fn test_truncate_file() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let test_path = temp_dir.path().join("truncate_test.txt");
+
+    // Create file with content
+    fs.write_file(&test_path, b"Hello World!").unwrap();
+
+    // Truncate to 5 bytes
+    fs.set_file_length(&test_path, 5).unwrap();
+
+    // Verify content was truncated
+    let content = fs.read_file(&test_path).unwrap();
+    assert_eq!(content, b"Hello", "File should be truncated to 5 bytes");
+}
+
+#[test]
+fn test_truncate_extend_file() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let test_path = temp_dir.path().join("extend_test.txt");
+
+    // Create file with content
+    fs.write_file(&test_path, b"Hi").unwrap();
+
+    // Extend to 10 bytes (should pad with zeros)
+    fs.set_file_length(&test_path, 10).unwrap();
+
+    // Verify content was extended
+    let content = fs.read_file(&test_path).unwrap();
+    assert_eq!(content.len(), 10, "File should be extended to 10 bytes");
+    assert_eq!(&content[0..2], b"Hi", "Original content preserved");
+    assert!(
+        content[2..].iter().all(|&b| b == 0),
+        "Extended portion should be zeros"
+    );
+}
+
+#[test]
+fn test_write_patched_copy_and_insert() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let src_path = temp_dir.path().join("patch_src.txt");
+    let dst_path = temp_dir.path().join("patch_dst.txt");
+
+    // Create source file: "AAABBBCCC"
+    fs.write_file(&src_path, b"AAABBBCCC").unwrap();
+
+    // Apply patch: copy "AAA", insert "XXX", copy "CCC"
+    let ops = vec![
+        WriteOp::Copy { offset: 0, len: 3 }, // "AAA"
+        WriteOp::Insert { data: b"XXX" },    // "XXX"
+        WriteOp::Copy { offset: 6, len: 3 }, // "CCC"
+    ];
+
+    fs.write_patched(&src_path, &dst_path, &ops).unwrap();
+
+    // Verify result
+    let content = fs.read_file(&dst_path).unwrap();
+    assert_eq!(
+        content, b"AAAXXXCCC",
+        "Patched content should match expected"
+    );
+}
+
+#[test]
+fn test_write_patched_in_place() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let path = temp_dir.path().join("patch_inplace.txt");
+
+    // Create source file
+    fs.write_file(&path, b"Hello World").unwrap();
+
+    // Patch in-place: keep "Hello ", replace "World" with "Rust!"
+    let ops = vec![
+        WriteOp::Copy { offset: 0, len: 6 }, // "Hello "
+        WriteOp::Insert { data: b"Rust!" },  // "Rust!"
+    ];
+
+    fs.write_patched(&path, &path, &ops).unwrap();
+
+    // Verify result
+    let content = fs.read_file(&path).unwrap();
+    assert_eq!(content, b"Hello Rust!", "In-place patch should work");
+}
+
+#[test]
+fn test_write_patched_large_file_small_edit() {
+    // This test verifies the optimization benefit:
+    // Edit a large file with a small change, only the change is transferred
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let path = temp_dir.path().join("large_patch.bin");
+
+    // Create a 1MB file
+    let size = 1_000_000;
+    let original: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+    fs.write_file(&path, &original).unwrap();
+
+    // Patch: keep first 500KB, insert 100 bytes, keep last 500KB
+    let insert_data = b"THIS IS THE NEW CONTENT INSERTED IN THE MIDDLE OF A LARGE FILE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+    let ops = vec![
+        WriteOp::Copy {
+            offset: 0,
+            len: 500_000,
+        },
+        WriteOp::Insert { data: insert_data },
+        WriteOp::Copy {
+            offset: 500_000,
+            len: 500_000,
+        },
+    ];
+
+    fs.write_patched(&path, &path, &ops).unwrap();
+
+    // Verify result
+    let content = fs.read_file(&path).unwrap();
+    assert_eq!(
+        content.len(),
+        size + insert_data.len(),
+        "File size should be original + inserted"
+    );
+    assert_eq!(
+        &content[0..500_000],
+        &original[0..500_000],
+        "First half should match"
+    );
+    assert_eq!(
+        &content[500_000..500_000 + insert_data.len()],
+        insert_data,
+        "Inserted content should match"
+    );
+    assert_eq!(
+        &content[500_000 + insert_data.len()..],
+        &original[500_000..],
+        "Second half should match"
+    );
+}
+
+#[test]
+fn test_write_patched_preserves_permissions() {
+    let Some((fs, temp_dir, _rt)) = create_test_filesystem() else {
+        eprintln!("Skipping test: could not create test filesystem");
+        return;
+    };
+
+    let path = temp_dir.path().join("perms_test.txt");
+
+    // Create file and set specific permissions
+    fs.write_file(&path, b"original").unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    // Patch the file
+    let ops = vec![WriteOp::Insert { data: b"patched" }];
+    fs.write_patched(&path, &path, &ops).unwrap();
+
+    // Verify permissions preserved
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::metadata(&path).unwrap().permissions();
+        assert_eq!(
+            perms.mode() & 0o777,
+            0o755,
+            "Permissions should be preserved after patch"
+        );
+    }
 }
