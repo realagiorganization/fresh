@@ -269,6 +269,52 @@ def cmd_truncate(id, p):
     send(id, r={})
 
 
+def cmd_patch(id, p):
+    """Apply a patch recipe to create a new file from original + edits.
+
+    Recipe format:
+    - {"copy": {"off": offset, "len": length}} - copy from original file
+    - {"insert": {"data": base64_data}} - insert new content
+
+    This allows saving edits without transferring unchanged portions of the file.
+    """
+    src = validate_path(p["src"])  # Original file to read from
+    dst = validate_path(p.get("dst", src))  # Destination (defaults to same file)
+    ops = p["ops"]
+
+    # Get original file's metadata to preserve permissions
+    mode = None
+    if os.path.exists(dst):
+        mode = os.stat(dst).st_mode
+
+    tmp = f"{dst}.fresh-{os.getpid()}"
+    try:
+        with open(src, "rb") as orig, open(tmp, "wb") as out:
+            for op in ops:
+                if "copy" in op:
+                    orig.seek(op["copy"]["off"])
+                    data = orig.read(op["copy"]["len"])
+                    out.write(data)
+                elif "insert" in op:
+                    out.write(unb64(op["insert"]["data"]))
+
+            out.flush()
+            os.fsync(out.fileno())
+
+        if mode is not None:
+            os.chmod(tmp, mode)
+
+        os.replace(tmp, dst)
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+    send(id, r={})
+
+
 def cmd_exists(id, p):
     """Check if path exists."""
     try:
@@ -401,6 +447,7 @@ METHODS = {
     "chmod": cmd_chmod,
     "append": cmd_append,
     "truncate": cmd_truncate,
+    "patch": cmd_patch,
     "exists": cmd_exists,
     "info": cmd_info,
     "exec": cmd_exec,

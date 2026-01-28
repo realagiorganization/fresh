@@ -222,6 +222,59 @@ pub fn truncate_params(path: &str, len: u64) -> serde_json::Value {
     })
 }
 
+/// A single operation in a patch recipe
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum PatchOp {
+    /// Copy a range from the original file
+    Copy { copy: CopyRange },
+    /// Insert new content
+    Insert { insert: InsertData },
+}
+
+/// Range to copy from original file
+#[derive(Debug, Clone, Serialize)]
+pub struct CopyRange {
+    pub off: u64,
+    pub len: u64,
+}
+
+/// Data to insert
+#[derive(Debug, Clone, Serialize)]
+pub struct InsertData {
+    pub data: String, // base64 encoded
+}
+
+impl PatchOp {
+    /// Create a copy operation
+    pub fn copy(offset: u64, len: u64) -> Self {
+        PatchOp::Copy {
+            copy: CopyRange { off: offset, len },
+        }
+    }
+
+    /// Create an insert operation
+    pub fn insert(data: &[u8]) -> Self {
+        PatchOp::Insert {
+            insert: InsertData {
+                data: encode_base64(data),
+            },
+        }
+    }
+}
+
+/// Build params for patch request
+pub fn patch_params(src: &str, dst: Option<&str>, ops: &[PatchOp]) -> serde_json::Value {
+    let mut params = serde_json::json!({
+        "src": src,
+        "ops": ops
+    });
+    if let Some(d) = dst {
+        params["dst"] = serde_json::json!(d);
+    }
+    params
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

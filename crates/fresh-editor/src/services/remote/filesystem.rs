@@ -3,12 +3,12 @@
 //! Implements the FileSystem trait for remote operations via SSH agent.
 
 use crate::model::filesystem::{
-    DirEntry, EntryType, FileMetadata, FilePermissions, FileReader, FileSystem, FileWriter,
+    DirEntry, EntryType, FileMetadata, FilePermissions, FileReader, FileSystem, FileWriter, WriteOp,
 };
 use crate::services::remote::channel::{AgentChannel, ChannelError};
 use crate::services::remote::protocol::{
-    append_params, decode_base64, ls_params, read_params, stat_params, sudo_write_params,
-    truncate_params, write_params, RemoteDirEntry, RemoteMetadata,
+    append_params, decode_base64, ls_params, patch_params, read_params, stat_params,
+    sudo_write_params, truncate_params, write_params, PatchOp, RemoteDirEntry, RemoteMetadata,
 };
 use std::io::{self, Cursor, Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -213,6 +213,30 @@ impl FileSystem for RemoteFileSystem {
         let path_str = path.to_string_lossy();
         self.channel
             .request_blocking("truncate", truncate_params(&path_str, len))
+            .map_err(Self::to_io_error)?;
+        Ok(())
+    }
+
+    fn write_patched(&self, src_path: &Path, dst_path: &Path, ops: &[WriteOp]) -> io::Result<()> {
+        // Convert WriteOps to protocol PatchOps
+        let patch_ops: Vec<PatchOp> = ops
+            .iter()
+            .map(|op| match op {
+                WriteOp::Copy { offset, len } => PatchOp::copy(*offset, *len),
+                WriteOp::Insert { data } => PatchOp::insert(data),
+            })
+            .collect();
+
+        let src_str = src_path.to_string_lossy();
+        let dst_str = dst_path.to_string_lossy();
+        let dst_param = if src_path == dst_path {
+            None
+        } else {
+            Some(dst_str.as_ref())
+        };
+
+        self.channel
+            .request_blocking("patch", patch_params(&src_str, dst_param, &patch_ops))
             .map_err(Self::to_io_error)?;
         Ok(())
     }

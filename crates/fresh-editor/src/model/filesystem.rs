@@ -240,6 +240,19 @@ pub trait FileWriter: Write + Send {
     fn sync_all(&self) -> io::Result<()>;
 }
 
+// ============================================================================
+// Patch Operations for Efficient Remote Saves
+// ============================================================================
+
+/// An operation in a patched write - either copy from source or insert new data
+#[derive(Debug, Clone)]
+pub enum WriteOp<'a> {
+    /// Copy bytes from the source file at the given offset
+    Copy { offset: u64, len: u64 },
+    /// Insert new data
+    Insert { data: &'a [u8] },
+}
+
 /// Wrapper around std::fs::File that implements FileWriter
 struct StdFileWriter(std::fs::File);
 
@@ -320,6 +333,37 @@ pub trait FileSystem: Send + Sync {
 
     /// Set file length (truncate or extend with zeros)
     fn set_file_length(&self, path: &Path, len: u64) -> io::Result<()>;
+
+    /// Write a file using a patch recipe (optimized for remote filesystems).
+    ///
+    /// This allows saving edited files by specifying which parts to copy from
+    /// the original and which parts are new content. For remote filesystems,
+    /// this avoids transferring unchanged portions over the network.
+    ///
+    /// # Arguments
+    /// * `src_path` - The original file to read from (for Copy operations)
+    /// * `dst_path` - The destination file (often same as src_path)
+    /// * `ops` - The sequence of operations to build the new file
+    ///
+    /// The default implementation flattens all operations into memory and
+    /// calls `write_file`. Remote implementations can override this to send
+    /// the recipe and let the remote host do the reconstruction.
+    fn write_patched(&self, src_path: &Path, dst_path: &Path, ops: &[WriteOp]) -> io::Result<()> {
+        // Default implementation: flatten to buffer and write
+        let mut buffer = Vec::new();
+        for op in ops {
+            match op {
+                WriteOp::Copy { offset, len } => {
+                    let data = self.read_range(src_path, *offset, *len as usize)?;
+                    buffer.extend_from_slice(&data);
+                }
+                WriteOp::Insert { data } => {
+                    buffer.extend_from_slice(data);
+                }
+            }
+        }
+        self.write_file(dst_path, &buffer)
+    }
 
     // ========================================================================
     // File Operations
