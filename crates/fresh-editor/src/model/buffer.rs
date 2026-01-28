@@ -1,6 +1,6 @@
 /// Text buffer that uses PieceTree with integrated line tracking
 /// Architecture where the tree is the single source of truth for text and line information
-use crate::model::filesystem::{FileMetadata, FileSystem};
+use crate::model::filesystem::{FileMetadata, FileSystem, WriteOp};
 use crate::model::piece_tree::{
     BufferData, BufferLocation, Cursor, PieceInfo, PieceRangeIter, PieceTree, Position,
     StringBuffer, TreeStats,
@@ -430,6 +430,131 @@ impl TextBuffer {
         !self.fs.is_owner(dest_path)
     }
 
+    /// Try to save using the patched write optimization (for remote filesystems).
+    ///
+    /// This method checks if the conditions allow for a patched save:
+    /// 1. This is a remote filesystem (has remote_connection_info)
+    /// 2. We're saving to the same file we loaded from
+    /// 3. No line ending conversion is needed
+    /// 4. The source file exists
+    ///
+    /// Returns Ok(true) if the patched save was used, Ok(false) if conditions weren't met,
+    /// or Err if the patched save was attempted but failed.
+    fn try_patched_save(&self, dest_path: &Path) -> anyhow::Result<bool> {
+        // Only use for remote filesystems
+        if self.fs.remote_connection_info().is_none() {
+            return Ok(false);
+        }
+
+        // Must be saving to the same file we loaded from
+        let src_path = match &self.file_path {
+            Some(p) if p == dest_path => p,
+            _ => return Ok(false),
+        };
+
+        // No line ending conversion allowed (would need to process all data)
+        if self.line_ending != self.original_line_ending {
+            return Ok(false);
+        }
+
+        // Source file must exist
+        if !self.fs.exists(src_path) {
+            return Ok(false);
+        }
+
+        // Build the recipe from pieces
+        let mut ops: Vec<WriteOp> = Vec::new();
+        let total = self.total_bytes();
+
+        if total == 0 {
+            // Empty file - just write empty
+            self.fs.write_file(dest_path, &[])?;
+            return Ok(true);
+        }
+
+        // Temporary storage for insert data (to ensure lifetimes work)
+        let mut insert_data: Vec<Vec<u8>> = Vec::new();
+
+        for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
+            let buffer_id = piece_view.location.buffer_id();
+            let buffer = self.buffers.get(buffer_id).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Buffer {} not found", buffer_id),
+                )
+            })?;
+
+            match (&piece_view.location, &buffer.data) {
+                // Stored piece from unloaded buffer: can use Copy (data is on original file)
+                (
+                    BufferLocation::Stored(_),
+                    BufferData::Unloaded {
+                        file_path,
+                        file_offset,
+                        ..
+                    },
+                ) if file_path == src_path => {
+                    // The offset in the original file
+                    let src_offset = (*file_offset + piece_view.buffer_offset) as u64;
+                    ops.push(WriteOp::Copy {
+                        offset: src_offset,
+                        len: piece_view.bytes as u64,
+                    });
+                }
+
+                // Any other case: need to send the data
+                (_, BufferData::Loaded { data, .. }) => {
+                    let start = piece_view.buffer_offset;
+                    let end = start + piece_view.bytes;
+                    insert_data.push(data[start..end].to_vec());
+                }
+
+                // Unloaded but from different file - need to load and send
+                (_, BufferData::Unloaded { .. }) => {
+                    // Can't use Copy for different source file, fall back to standard save
+                    return Ok(false);
+                }
+            }
+        }
+
+        // Now build the final ops vec with proper lifetimes
+        let mut final_ops: Vec<WriteOp> = Vec::new();
+        let mut insert_idx = 0;
+
+        for piece_view in self.piece_tree.iter_pieces_in_range(0, total) {
+            let buffer_id = piece_view.location.buffer_id();
+            let buffer = &self.buffers[buffer_id];
+
+            match (&piece_view.location, &buffer.data) {
+                (
+                    BufferLocation::Stored(_),
+                    BufferData::Unloaded {
+                        file_path,
+                        file_offset,
+                        ..
+                    },
+                ) if file_path == src_path => {
+                    let src_offset = (*file_offset + piece_view.buffer_offset) as u64;
+                    final_ops.push(WriteOp::Copy {
+                        offset: src_offset,
+                        len: piece_view.bytes as u64,
+                    });
+                }
+                (_, BufferData::Loaded { .. }) => {
+                    final_ops.push(WriteOp::Insert {
+                        data: &insert_data[insert_idx],
+                    });
+                    insert_idx += 1;
+                }
+                _ => unreachable!(), // We already returned false for other cases
+            }
+        }
+
+        // Perform the patched write
+        self.fs.write_patched(src_path, dest_path, &final_ops)?;
+        Ok(true)
+    }
+
     /// Create a temporary file for saving.
     ///
     /// Tries to create the file in the same directory as the destination file first
@@ -463,6 +588,16 @@ impl TextBuffer {
     /// will be converted to the new format during save.
     pub fn save_to_file<P: AsRef<Path>>(&mut self, path: P) -> anyhow::Result<()> {
         let dest_path = path.as_ref();
+
+        // Try optimized patched save for remote filesystems
+        // This avoids transferring unchanged portions of the file over the network
+        if self.try_patched_save(dest_path)? {
+            // Mark buffer as saved
+            self.mark_saved_snapshot();
+            self.original_line_ending = self.line_ending;
+            return Ok(());
+        }
+
         let total = self.total_bytes();
 
         // Get original file metadata (permissions, owner, etc.) before writing
