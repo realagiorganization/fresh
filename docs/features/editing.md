@@ -76,9 +76,9 @@ Edit multiple locations simultaneously:
 | `Ctrl+R` | Replace in buffer |
 | `Ctrl+Alt+R` | Interactive replace (y/n/!/q for each match) |
 | `F3` | Find next match |
-| `Shift+F3` | Find previous match |
+| `Shift+F3` | Find previous match **TODO - use command palette**|
 | `Alt+N` / `Ctrl+F3` | Find next occurrence of selection |
-| `Alt+P` / `Ctrl+Shift+F3` | Find previous occurrence of selection |
+| `Alt+P` / `Ctrl+Shift+F3` | Find previous occurrence of selection **TODO - use command palette**|
 
 See [Search and Replace](./search-replace.md) for more details.
 
@@ -89,7 +89,7 @@ Record and replay sequences of keystrokes:
 | Shortcut | Action |
 |----------|--------|
 | `Alt+Shift+0-9` | Toggle macro recording for slot 0-9 |
-| `Ctrl+0-9` | Play macro from slot 0-9 |
+| `Ctrl+0-9` | Play macro from slot 0-9 **TODO - use command palette**|
 | `F5` | Stop macro recording |
 
 ## Bookmarks
