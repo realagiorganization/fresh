@@ -318,4 +318,46 @@ mod tests {
         let decoded = decode_base64(&encoded).unwrap();
         assert_eq!(data.as_slice(), decoded.as_slice());
     }
+
+    #[test]
+    fn test_patch_op_copy_serialization() {
+        let op = PatchOp::copy(100, 500);
+        let json = serde_json::to_string(&op).unwrap();
+        assert!(json.contains("\"copy\""));
+        assert!(json.contains("\"off\":100"));
+        assert!(json.contains("\"len\":500"));
+        // Should NOT contain "insert"
+        assert!(!json.contains("\"insert\""));
+    }
+
+    #[test]
+    fn test_patch_op_insert_serialization() {
+        let op = PatchOp::insert(b"hello");
+        let json = serde_json::to_string(&op).unwrap();
+        assert!(json.contains("\"insert\""));
+        assert!(json.contains("\"data\":\"aGVsbG8=\"")); // base64 of "hello"
+                                                         // Should NOT contain "copy"
+        assert!(!json.contains("\"copy\""));
+    }
+
+    #[test]
+    fn test_patch_params() {
+        let ops = vec![
+            PatchOp::copy(0, 100),
+            PatchOp::insert(b"new content"),
+            PatchOp::copy(200, 300),
+        ];
+
+        // Same src and dst
+        let params = patch_params("/path/to/file", None, &ops);
+        assert_eq!(params["src"], "/path/to/file");
+        assert!(params.get("dst").is_none() || params["dst"].is_null());
+        assert!(params["ops"].is_array());
+        assert_eq!(params["ops"].as_array().unwrap().len(), 3);
+
+        // Different dst
+        let params = patch_params("/src/file", Some("/dst/file"), &ops);
+        assert_eq!(params["src"], "/src/file");
+        assert_eq!(params["dst"], "/dst/file");
+    }
 }

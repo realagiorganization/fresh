@@ -1116,4 +1116,71 @@ mod tests {
         fs.write_file(&path, b"updated").unwrap();
         assert_eq!(fs.read_file(&path).unwrap(), b"updated");
     }
+
+    #[test]
+    fn test_write_patched_default_impl() {
+        // Test that the default write_patched implementation works correctly
+        let fs = StdFileSystem;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let src_path = temp_dir.path().join("source.txt");
+        let dst_path = temp_dir.path().join("dest.txt");
+
+        // Create source file with known content
+        fs.write_file(&src_path, b"AAABBBCCC").unwrap();
+
+        // Apply patch: copy first 3 bytes, insert "XXX", copy last 3 bytes
+        let ops = vec![
+            WriteOp::Copy { offset: 0, len: 3 }, // "AAA"
+            WriteOp::Insert { data: b"XXX" },    // "XXX"
+            WriteOp::Copy { offset: 6, len: 3 }, // "CCC"
+        ];
+
+        fs.write_patched(&src_path, &dst_path, &ops).unwrap();
+
+        let result = fs.read_file(&dst_path).unwrap();
+        assert_eq!(result, b"AAAXXXCCC");
+    }
+
+    #[test]
+    fn test_write_patched_same_file() {
+        // Test patching a file in-place (src == dst)
+        let fs = StdFileSystem;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("file.txt");
+
+        // Create file
+        fs.write_file(&path, b"Hello World").unwrap();
+
+        // Replace "World" with "Rust"
+        let ops = vec![
+            WriteOp::Copy { offset: 0, len: 6 }, // "Hello "
+            WriteOp::Insert { data: b"Rust" },   // "Rust"
+        ];
+
+        fs.write_patched(&path, &path, &ops).unwrap();
+
+        let result = fs.read_file(&path).unwrap();
+        assert_eq!(result, b"Hello Rust");
+    }
+
+    #[test]
+    fn test_write_patched_insert_only() {
+        // Test a patch with only inserts (new file)
+        let fs = StdFileSystem;
+        let temp_dir = tempfile::tempdir().unwrap();
+        let src_path = temp_dir.path().join("empty.txt");
+        let dst_path = temp_dir.path().join("new.txt");
+
+        // Create empty source (won't be read from)
+        fs.write_file(&src_path, b"").unwrap();
+
+        let ops = vec![WriteOp::Insert {
+            data: b"All new content",
+        }];
+
+        fs.write_patched(&src_path, &dst_path, &ops).unwrap();
+
+        let result = fs.read_file(&dst_path).unwrap();
+        assert_eq!(result, b"All new content");
+    }
 }
