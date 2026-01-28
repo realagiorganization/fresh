@@ -1,6 +1,12 @@
 # Plugins
 
-Fresh's functionality can be extended with plugins written in TypeScript. Fresh comes with a few useful plugins out of the box:
+Fresh's functionality can be extended with packages:
+
+*   **Plugins:** TypeScript code that extends editor functionality
+*   **Themes:** Color schemes for syntax highlighting and UI
+*   **Language Packs:** Syntax highlighting, language configuration, and LSP support for new languages
+
+Fresh comes with a few useful plugins out of the box:
 
 *   **TODO Highlighter:** Highlights `TODO`, `FIXME`, and other keywords in your comments.
 *   **Git Grep:** Interactively search through your Git repository.
@@ -10,7 +16,7 @@ Fresh's functionality can be extended with plugins written in TypeScript. Fresh 
 
 ## Package Manager
 
-Fresh includes a built-in package manager for installing plugins and themes from git repositories.
+Fresh includes a built-in package manager for installing plugins, themes, and language packs from git repositories.
 
 ### Installing Packages
 
@@ -47,6 +53,7 @@ This installs only the `packages/rainbow-brackets` directory from the repository
 Installed packages are stored in:
 - **Plugins:** `~/.config/fresh/plugins/packages/`
 - **Themes:** `~/.config/fresh/themes/packages/`
+- **Language Packs:** `~/.config/fresh/grammars/`
 
 Each package is a git repository, so you can update manually with `git pull` if needed.
 
@@ -66,6 +73,21 @@ By default, Fresh uses the official package registry. You can add additional reg
 ```
 
 Run `pkg: Sync Registry` to fetch the latest package lists.
+
+## Creating Packages
+
+Use the CLI to scaffold new packages:
+
+```bash
+fresh --init           # Interactive mode
+fresh --init plugin    # Create a plugin
+fresh --init theme     # Create a theme
+fresh --init language  # Create a language pack
+```
+
+For detailed guides, see:
+- [Plugin Development](./development/)
+- [Language Packs](./development/language-packs.md)
 
 ## Clangd helper plugin
 

@@ -2,6 +2,18 @@
 
 Welcome to the Fresh plugin development guide! This document will walk you through the process of creating your own plugins for Fresh.
 
+## Package Types
+
+Fresh supports three types of packages:
+
+| Type | Description | Guide |
+|------|-------------|-------|
+| **Plugin** | TypeScript code extending editor functionality | This page |
+| **Theme** | Color schemes for the editor | See `:pkg init theme` |
+| **Language Pack** | Syntax highlighting, language config, and LSP | [Language Packs](./language-packs.md) |
+
+Use `fresh --init` to scaffold any package type.
+
 ## Introduction
 
 Fresh plugins are written in **TypeScript** and run in a sandboxed Deno environment. This provides a safe and modern development experience with access to a powerful set of APIs for extending the editor.

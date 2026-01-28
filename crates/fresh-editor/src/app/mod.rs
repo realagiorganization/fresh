@@ -146,7 +146,7 @@ fn uri_to_path(uri: &lsp_types::Uri) -> Result<PathBuf, String> {
 pub struct PendingGrammar {
     /// Language identifier (e.g., "elixir")
     pub language: String,
-    /// Path to the grammar file (.tmLanguage.json or .sublime-syntax)
+    /// Path to the grammar file (.sublime-syntax or .tmLanguage)
     pub grammar_path: String,
     /// File extensions to associate with this grammar
     pub extensions: Vec<String>,

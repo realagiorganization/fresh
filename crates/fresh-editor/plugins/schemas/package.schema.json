@@ -98,7 +98,7 @@
           "properties": {
             "file": {
               "type": "string",
-              "description": "Path to TextMate grammar file (.tmLanguage.json)"
+              "description": "Path to grammar file (.sublime-syntax recommended, or .tmLanguage)"
             },
             "extensions": {
               "type": "array",

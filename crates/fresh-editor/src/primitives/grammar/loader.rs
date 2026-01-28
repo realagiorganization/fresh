@@ -233,14 +233,14 @@ fn process_manifest(
     }
 }
 
-/// Load a grammar directly from a .tmLanguage.json file.
+/// Load a grammar directly from a .sublime-syntax or .tmLanguage file.
 fn load_direct_grammar(
     loader: &dyn GrammarLoader,
     dir: &Path,
     builder: &mut SyntaxSetBuilder,
     found_any: &mut bool,
 ) {
-    // Look for .tmLanguage.json or .sublime-syntax files
+    // Look for .sublime-syntax or .tmLanguage files
     let entries = match loader.read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -249,10 +249,7 @@ fn load_direct_grammar(
     for path in entries {
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        if file_name.ends_with(".tmLanguage.json")
-            || file_name.ends_with(".tmLanguage")
-            || file_name.ends_with(".sublime-syntax")
-        {
+        if file_name.ends_with(".tmLanguage") || file_name.ends_with(".sublime-syntax") {
             if let Err(e) = builder.add_from_folder(dir, false) {
                 tracing::warn!("Failed to load grammar from {:?}: {}", dir, e);
             } else {

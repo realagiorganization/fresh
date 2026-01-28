@@ -22,27 +22,23 @@ fn test_register_grammar_api() {
     let grammars_dir = plugins_dir.join("grammars");
     fs::create_dir(&grammars_dir).unwrap();
 
-    // Create a minimal TextMate grammar for a test language
-    let test_grammar = r#"{
-        "name": "TestLang",
-        "scopeName": "source.testlang",
-        "fileTypes": ["tl"],
-        "patterns": [
-            {
-                "match": "\\b(fn|let|if|else)\\b",
-                "name": "keyword.control.testlang"
-            },
-            {
-                "match": "//.*$",
-                "name": "comment.line.testlang"
-            },
-            {
-                "match": "\"[^\"]*\"",
-                "name": "string.quoted.double.testlang"
-            }
-        ]
-    }"#;
-    let grammar_path = grammars_dir.join("testlang.tmLanguage.json");
+    // Create a minimal Sublime syntax grammar for a test language
+    let test_grammar = r#"%YAML 1.2
+---
+name: TestLang
+scope: source.testlang
+file_extensions: [tl]
+
+contexts:
+  main:
+    - match: \b(fn|let|if|else)\b
+      scope: keyword.control.testlang
+    - match: //.*$
+      scope: comment.line.testlang
+    - match: '"[^"]*"'
+      scope: string.quoted.double.testlang
+"#;
+    let grammar_path = grammars_dir.join("testlang.sublime-syntax");
     fs::write(&grammar_path, test_grammar).unwrap();
 
     // Create a plugin that registers the grammar
@@ -154,16 +150,19 @@ fn test_grammar_extension_detection() {
     let grammars_dir = plugins_dir.join("grammars");
     fs::create_dir(&grammars_dir).unwrap();
 
-    // Minimal grammar
-    let test_grammar = r#"{
-        "name": "CustomScript",
-        "scopeName": "source.customscript",
-        "fileTypes": ["cscript", "cs2"],
-        "patterns": [
-            { "match": "\\bprint\\b", "name": "keyword.other" }
-        ]
-    }"#;
-    let grammar_path = grammars_dir.join("customscript.tmLanguage.json");
+    // Minimal grammar in Sublime syntax format
+    let test_grammar = r#"%YAML 1.2
+---
+name: CustomScript
+scope: source.customscript
+file_extensions: [cscript, cs2]
+
+contexts:
+  main:
+    - match: \bprint\b
+      scope: keyword.other
+"#;
+    let grammar_path = grammars_dir.join("customscript.sublime-syntax");
     fs::write(&grammar_path, test_grammar).unwrap();
 
     let test_plugin = format!(

@@ -1385,7 +1385,7 @@ pub enum PluginCommand {
     RegisterGrammar {
         /// Language identifier (e.g., "elixir", "zig")
         language: String,
-        /// Path to the grammar file (.tmLanguage.json or .sublime-syntax)
+        /// Path to the grammar file (.sublime-syntax or .tmLanguage)
         grammar_path: String,
         /// File extensions to associate with this grammar (e.g., ["ex", "exs"])
         extensions: Vec<String>,

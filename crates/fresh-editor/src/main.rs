@@ -1024,9 +1024,10 @@ fn init_package_command(package_type: Option<String>) -> AnyhowResult<()> {
             println!("  3. Validate theme: ./validate.sh (requires: pip install jsonschema)");
         }
         "language" => {
-            println!("  2. Add your grammar file to grammars/");
-            println!("  3. Edit package.json to configure LSP and formatting");
-            println!("  4. Validate manifest: ./validate.sh");
+            println!("  2. Edit grammars/syntax.sublime-syntax (YAML format)");
+            println!("  3. Update package.json with file extensions and LSP command");
+            println!("  4. Test by copying to ~/.config/fresh/grammars/");
+            println!("  5. Validate manifest: ./validate.sh");
         }
         _ => unreachable!(),
     }
@@ -1340,7 +1341,7 @@ fn create_language_package(
   "license": "MIT",
   "fresh": {{
     "grammar": {{
-      "file": "grammars/syntax.tmLanguage.json",
+      "file": "grammars/syntax.sublime-syntax",
       "extensions": ["ext"]
     }},
     "language": {{
@@ -1369,39 +1370,48 @@ fn create_language_package(
     // validate.sh
     write_validate_script(dir)?;
 
-    // Minimal TextMate grammar template
-    let grammar = r#"{
-  "name": "My Language",
-  "scopeName": "source.mylang",
-  "fileTypes": ["ext"],
-  "patterns": [
-    {
-      "name": "comment.line",
-      "match": "//.*$"
-    },
-    {
-      "name": "string.quoted.double",
-      "begin": "\"",
-      "end": "\"",
-      "patterns": [
-        {
-          "name": "constant.character.escape",
-          "match": "\\\\."
-        }
-      ]
-    },
-    {
-      "name": "constant.numeric",
-      "match": "\\b[0-9]+\\b"
-    },
-    {
-      "name": "keyword.control",
-      "match": "\\b(if|else|while|for|return)\\b"
-    }
-  ]
-}
+    // Sublime syntax grammar template (YAML format)
+    let grammar = r#"%YAML 1.2
+---
+# Sublime syntax file for your language
+# Documentation: https://www.sublimetext.com/docs/syntax.html
+name: My Language
+scope: source.mylang
+file_extensions: [ext]
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: keywords
+    - include: numbers
+
+  comments:
+    # Line comments
+    - match: //.*$
+      scope: comment.line.double-slash
+
+  strings:
+    # Double-quoted strings with escape sequences
+    - match: '"'
+      scope: punctuation.definition.string.begin
+      push:
+        - meta_scope: string.quoted.double
+        - match: \\.
+          scope: constant.character.escape
+        - match: '"'
+          scope: punctuation.definition.string.end
+          pop: true
+
+  keywords:
+    - match: \b(if|else|while|for|return)\b
+      scope: keyword.control
+
+  numbers:
+    - match: \b[0-9]+(\.[0-9]+)?\b
+      scope: constant.numeric
 "#;
-    std::fs::write(dir.join("grammars/syntax.tmLanguage.json"), grammar)?;
+    std::fs::write(dir.join("grammars/syntax.sublime-syntax"), grammar)?;
 
     // README.md
     let readme = format!(
@@ -1411,7 +1421,7 @@ fn create_language_package(
 
 ## Features
 
-- Syntax highlighting via TextMate grammar
+- Syntax highlighting via Sublime syntax grammar
 - Language configuration (comments, indentation)
 - LSP integration (if configured)
 
@@ -1428,7 +1438,7 @@ This language pack provides:
 
 ### Grammar
 - File extensions: `.ext` (update in package.json)
-- Syntax highlighting rules in `grammars/syntax.tmLanguage.json`
+- Syntax highlighting rules in `grammars/syntax.sublime-syntax`
 
 ### Language Settings
 - Comment prefix: `//`
@@ -1443,14 +1453,23 @@ Update `package.json` to match your language's requirements.
 
 ## Development
 
-1. Edit `grammars/syntax.tmLanguage.json` for syntax highlighting
+1. Edit `grammars/syntax.sublime-syntax` for syntax highlighting
 2. Update `package.json` with correct file extensions and LSP command
-3. Test by installing locally
+3. Test by copying to `~/.config/fresh/grammars/` and restarting Fresh
+
+**Tip:** Search GitHub for existing `<language> sublime-syntax` files you can adapt.
+If using an existing grammar, check its license and include a copy in `grammars/LICENSE`.
+
+## Grammar Attribution
+
+<!-- If you used an existing grammar, add attribution here: -->
+<!-- The syntax grammar is derived from [original](https://github.com/user/repo) -->
+<!-- by Original Author, licensed under MIT. See `grammars/LICENSE` for details. -->
 
 ## Resources
 
-- [TextMate Grammar Guide](https://macromates.com/manual/en/language_grammars)
-- [VS Code Language Extension Guide](https://code.visualstudio.com/api/language-extensions/syntax-highlight-guide)
+- [Sublime Text Syntax Documentation](https://www.sublimetext.com/docs/syntax.html)
+- [Scope Naming Conventions](https://www.sublimetext.com/docs/scope_naming.html)
 
 ## License
 
