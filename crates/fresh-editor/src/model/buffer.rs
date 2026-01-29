@@ -763,11 +763,9 @@ impl TextBuffer {
         self.saved_file_size = Some(new_size);
         self.file_path = Some(dest_path.to_path_buf());
 
-        // For large files, consolidate the piece tree to synchronize with new disk offsets.
-        // Without this, pieces referencing "original" file would use old offsets on new content.
-        if self.large_file {
-            self.consolidate_large_file(dest_path, new_size);
-        }
+        // Consolidate the piece tree to synchronize with disk (for large files)
+        // or to simplify structure (for small files).
+        self.consolidate_after_save(dest_path, new_size);
 
         self.mark_saved_snapshot();
         self.original_line_ending = self.line_ending;
@@ -782,14 +780,23 @@ impl TextBuffer {
         self.saved_file_size = Some(new_size);
         self.file_path = Some(dest_path.clone());
 
-        // For large files, consolidate the piece tree to synchronize with new disk offsets.
-        if self.large_file {
-            self.consolidate_large_file(&dest_path, new_size);
-        }
+        // Consolidate the piece tree to synchronize with disk or simplify structure.
+        self.consolidate_after_save(&dest_path, new_size);
 
         self.mark_saved_snapshot();
         self.original_line_ending = self.line_ending;
         Ok(())
+    }
+
+    /// Consolidate the piece tree into a single piece.
+    /// For large files, this creates a reference to the disk file to save memory and sync offsets.
+    /// For small files, this flattens all edits into a single in-memory buffer.
+    fn consolidate_after_save(&mut self, path: &Path, file_size: usize) {
+        if self.large_file {
+            self.consolidate_large_file(path, file_size);
+        } else {
+            self.consolidate_small_file();
+        }
     }
 
     /// Consolidate large file piece tree into a single piece pointing to the new file.
@@ -817,6 +824,31 @@ impl TextBuffer {
             "Buffer::consolidate_large_file: consolidated into single piece of {} bytes",
             file_size
         );
+    }
+
+    /// Consolidate small file edits into a single in-memory buffer and re-index lines.
+    fn consolidate_small_file(&mut self) {
+        if let Some(bytes) = self.get_all_text() {
+            let line_feed_cnt = bytes.iter().filter(|&&b| b == b'\n').count();
+            let len = bytes.len();
+
+            // Create a single loaded buffer with line indexing
+            let buffer = StringBuffer::new_loaded(0, bytes, true);
+
+            self.piece_tree = if len > 0 {
+                PieceTree::new(BufferLocation::Stored(0), 0, len, Some(line_feed_cnt))
+            } else {
+                PieceTree::empty()
+            };
+
+            self.buffers = vec![buffer];
+            self.next_buffer_id = 1;
+
+            tracing::debug!(
+                "Buffer::consolidate_small_file: consolidated into single loaded buffer of {} bytes",
+                len
+            );
+        }
     }
 
     /// Internal helper to create a SudoSaveRequired error.
