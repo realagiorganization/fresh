@@ -1,0 +1,47 @@
+# FreeBSD builds for fresh-editor
+# Uses a VM to build on actual FreeBSD environment
+
+name: FreeBSD Builds
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  build-freebsd:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Build in FreeBSD
+        uses: vmactions/freebsd-builder@v1
+        with:
+          usesh: true
+          prepare: |
+            pkg install -y rust pkgconf
+          run: |
+            cargo build --release
+            
+            # Create archive
+            VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+            TARGET="x86_64-unknown-freebsd"
+            ARCHIVE_NAME="fresh-editor-${TARGET}"
+            mkdir -p "${ARCHIVE_NAME}"
+            cp target/release/fresh "${ARCHIVE_NAME}/"
+            cp README.md LICENSE CHANGELOG.md "${ARCHIVE_NAME}/"
+            cp -r crates/fresh-editor/plugins "${ARCHIVE_NAME}/"
+            cp -r crates/fresh-editor/themes "${ARCHIVE_NAME}/"
+            
+            tar -cJvf "${ARCHIVE_NAME}.tar.xz" "${ARCHIVE_NAME}"
+            # Use sha256 -r to get the same format as sha256sum on Linux
+            sha256 -r "${ARCHIVE_NAME}.tar.xz" > "${ARCHIVE_NAME}.tar.xz.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: artifacts-freebsd
+          path: |
+            fresh-editor-x86_64-unknown-freebsd.tar.xz
+            fresh-editor-x86_64-unknown-freebsd.tar.xz.sha256

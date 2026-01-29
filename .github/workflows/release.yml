@@ -185,6 +185,13 @@ jobs:
             fresh-editor-${{ matrix.target }}.${{ matrix.archive_ext }}
             fresh-editor-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
 
+  # Build FreeBSD binaries
+  build-freebsd:
+    needs: plan
+    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    uses: ./.github/workflows/freebsd-builds.yml
+    secrets: inherit
+
   # Build musl static binaries (with plugins)
   build-musl:
     needs: plan
@@ -346,7 +353,7 @@ jobs:
   # Only runs if ALL needed jobs succeed - uses !cancelled() to run after all jobs complete,
   # then !failure() ensures none failed
   release:
-    needs: [plan, build, build-musl, build-linux-packages, build-flatpak, build-appimage, build-npm-package, build-homebrew-formula, test-nix-build]
+    needs: [plan, build, build-freebsd, build-musl, build-linux-packages, build-flatpak, build-appimage, build-npm-package, build-homebrew-formula, test-nix-build]
     if: ${{ !cancelled() && !failure() && needs.plan.outputs.publishing == 'true' }}
     runs-on: ubuntu-22.04
     env:
