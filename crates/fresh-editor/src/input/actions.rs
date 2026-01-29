@@ -2242,6 +2242,49 @@ pub fn action_to_events(
             transform_case(state, &mut events, |s| s.to_lowercase());
         }
 
+        Action::SortLines => {
+            // Sort selected lines alphabetically
+            // Process cursors in reverse order to avoid position shifts
+            let line_ending = state.buffer.line_ending().as_str();
+            let mut selections: Vec<_> = state
+                .cursors
+                .iter()
+                .filter_map(|(cursor_id, cursor)| {
+                    cursor.selection_range().map(|range| (cursor_id, range))
+                })
+                .collect();
+            selections.sort_by_key(|(_, range)| std::cmp::Reverse(range.start));
+
+            for (cursor_id, range) in selections {
+                let text = state.get_text_range(range.start, range.end);
+                // Split into lines, preserving the original line ending style
+                let mut lines: Vec<&str> = text.lines().collect();
+                // Check if original text ends with a newline
+                let ends_with_newline = text.ends_with('\n') || text.ends_with("\r\n");
+
+                if lines.len() > 1 {
+                    lines.sort();
+                    let mut sorted_text = lines.join(line_ending);
+                    if ends_with_newline {
+                        sorted_text.push_str(line_ending);
+                    }
+
+                    if sorted_text != text {
+                        events.push(Event::Delete {
+                            range: range.clone(),
+                            deleted_text: text,
+                            cursor_id,
+                        });
+                        events.push(Event::Insert {
+                            position: range.start,
+                            text: sorted_text,
+                            cursor_id,
+                        });
+                    }
+                }
+            }
+        }
+
         Action::OpenLine => {
             // Insert a newline at cursor position but don't move cursor
             // (like pressing Enter but staying on current line)

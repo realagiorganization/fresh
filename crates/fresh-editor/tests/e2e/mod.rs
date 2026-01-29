@@ -62,6 +62,7 @@ pub mod settings_paste;
 pub mod shell_command;
 pub mod slow_filesystem;
 pub mod smart_editing;
+pub mod sort_lines;
 pub mod split_tabs;
 pub mod split_view;
 pub mod split_view_expectations;

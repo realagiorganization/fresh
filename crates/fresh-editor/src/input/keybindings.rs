@@ -549,6 +549,7 @@ pub enum Action {
     // Case conversion
     ToUpperCase, // Convert selection to uppercase
     ToLowerCase, // Convert selection to lowercase
+    SortLines,   // Sort selected lines alphabetically
 
     // Input calibration
     CalibrateInput, // Open the input calibration wizard
@@ -855,6 +856,7 @@ impl Action {
             // Case conversion
             "to_upper_case" => Self::ToUpperCase,
             "to_lower_case" => Self::ToLowerCase,
+            "sort_lines" => Self::SortLines,
 
             // Input calibration
             "calibrate_input" => Self::CalibrateInput,
@@ -1873,6 +1875,7 @@ impl KeybindingResolver {
             Action::ShellCommandReplace => t!("action.shell_command_replace"),
             Action::ToUpperCase => t!("action.to_uppercase"),
             Action::ToLowerCase => t!("action.to_lowercase"),
+            Action::SortLines => t!("action.sort_lines"),
             Action::CalibrateInput => t!("action.calibrate_input"),
             Action::EventDebug => t!("action.event_debug"),
             Action::None => t!("action.none"),

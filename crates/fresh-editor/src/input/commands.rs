@@ -367,6 +367,14 @@ pub fn get_all_commands() -> Vec<Command> {
             source: CommandSource::Builtin,
         },
         Command {
+            name: t!("cmd.sort_lines").to_string(),
+            description: t!("cmd.sort_lines_desc").to_string(),
+            action: Action::SortLines,
+            contexts: vec![KeyContext::Normal],
+            custom_contexts: vec![],
+            source: CommandSource::Builtin,
+        },
+        Command {
             name: t!("cmd.open_line").to_string(),
             description: t!("cmd.open_line_desc").to_string(),
             action: Action::OpenLine,
