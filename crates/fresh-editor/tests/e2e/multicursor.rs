@@ -1677,3 +1677,69 @@ fn test_multicursor_cut_same_line() {
         buffer_content
     );
 }
+
+/// Test that cut with multiple cursors can be undone in a single undo operation
+/// This tests the bug where multiple cursor cut undo was not batched properly
+#[test]
+fn test_multicursor_cut_undo_batched() {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+
+    // Type content with repeated words
+    harness
+        .type_text("hello world\nhello world\nhello world\n")
+        .unwrap();
+    harness.render().unwrap();
+
+    // Move to beginning
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Add cursors below (should have 3 cursors, one per line)
+    harness.editor_mut().add_cursor_below();
+    harness.editor_mut().add_cursor_below();
+    harness.render().unwrap();
+
+    // Verify 3 cursors
+    assert_eq!(
+        harness.editor().active_state().cursors.iter().count(),
+        3,
+        "Should have 3 cursors"
+    );
+
+    // Select "hello" on each line with Shift+Right 5 times
+    for _ in 0..5 {
+        harness
+            .send_key(KeyCode::Right, KeyModifiers::SHIFT)
+            .unwrap();
+    }
+    harness.render().unwrap();
+
+    // Perform cut (Ctrl+X)
+    harness
+        .send_key(KeyCode::Char('x'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Verify cut worked
+    let buffer_after_cut = harness.get_buffer_content().unwrap();
+    assert_eq!(
+        buffer_after_cut, " world\n world\n world\n",
+        "Cut should remove 'hello' from all lines"
+    );
+
+    // Undo with a single Ctrl+Z - should restore all "hello"s at once
+    harness
+        .send_key(KeyCode::Char('z'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Buffer should be restored to original content after single undo
+    let buffer_after_undo = harness.get_buffer_content().unwrap();
+    assert_eq!(
+        buffer_after_undo, "hello world\nhello world\nhello world\n",
+        "Single undo should restore all 'hello' instances (undo should be batched)"
+    );
+}
