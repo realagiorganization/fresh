@@ -2386,3 +2386,52 @@ fn test_search_with_closing_angle_bracket() {
     // Note: We don't check status bar message as it may be truncated on systems
     // with long temp paths (e.g., macOS /private/var/folders/...)
 }
+
+/// Test that pressing ESC during search clears all highlights
+#[test]
+fn test_esc_clears_search_highlights() {
+    let temp_dir = TempDir::new().unwrap();
+    let file_path = temp_dir.path().join("test.txt");
+    std::fs::write(&file_path, "hello world\nfoo bar\nhello again\nbaz").unwrap();
+
+    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    harness.open_file(&file_path).unwrap();
+    harness.render().unwrap();
+
+    // Open search with Ctrl+F
+    harness
+        .send_key(KeyCode::Char('f'), KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Type search query
+    harness.type_text("hello").unwrap();
+    harness.render().unwrap();
+
+    // Verify highlights exist
+    let highlight_count_before = harness.count_search_highlights();
+    assert!(
+        highlight_count_before > 0,
+        "Should have highlights for 'hello', got {}",
+        highlight_count_before
+    );
+
+    // Press ESC to cancel search
+    harness.send_key(KeyCode::Esc, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    // Verify search prompt is gone
+    let screen = harness.screen_to_string();
+    assert!(
+        !screen.contains("Search: "),
+        "Search prompt should be closed after ESC"
+    );
+
+    // Verify highlights are cleared
+    let highlight_count_after = harness.count_search_highlights();
+    assert_eq!(
+        highlight_count_after, 0,
+        "Should have no highlights after pressing ESC, got {}",
+        highlight_count_after
+    );
+}
