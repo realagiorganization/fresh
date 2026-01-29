@@ -1681,3 +1681,249 @@ fn test_mouse_click_wrapped_thai_grapheme_clusters() {
         pos
     );
 }
+
+/// Test Up/Down arrow movement moves by visual line (wrapped segment) instead of logical line
+/// Current behavior: Up/Down move by logical lines, skipping wrapped portions
+/// Expected behavior: Up/Down should move by visual lines when line wrapping is enabled
+#[test]
+fn test_visual_line_movement_up_down() {
+    const TERMINAL_WIDTH: u16 = 60;
+    const TERMINAL_HEIGHT: u16 = 24;
+    const GUTTER_WIDTH: u16 = 8; // Line numbers + margin
+
+    let mut harness = EditorTestHarness::new(TERMINAL_WIDTH, TERMINAL_HEIGHT).unwrap();
+
+    // Create a long line that will wrap to multiple visual lines
+    // With 60 width, 8 gutter, 1 scrollbar = 51 chars per visual line
+    // We want at least 3 visual lines, so ~150+ chars
+    let long_line = "The quick brown fox jumps over the lazy dog and continues running through the forest, exploring ancient trees and mysterious pathways that wind between towering oaks and silent pines.";
+
+    harness.type_text(long_line).unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.type_text("Second logical line.").unwrap();
+
+    harness.render().unwrap();
+
+    let buffer_content = harness.get_buffer_content().unwrap();
+    eprintln!("Buffer: {} bytes", buffer_content.len());
+    eprintln!("Long line: {} chars", long_line.len());
+
+    // Move to start of file
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::CONTROL)
+        .unwrap();
+    harness.render().unwrap();
+
+    let (start_x, start_y) = harness.screen_cursor_position();
+    let start_pos = harness.cursor_position();
+    eprintln!(
+        "Start: buffer_pos={}, screen=({}, {})",
+        start_pos, start_x, start_y
+    );
+
+    assert_eq!(start_pos, 0, "Should start at buffer position 0");
+    assert_eq!(start_x, GUTTER_WIDTH, "Should be at start of text area");
+
+    // Calculate the text width per visual line (terminal - gutter - scrollbar)
+    let text_width = (TERMINAL_WIDTH - GUTTER_WIDTH - 1) as usize; // 51 chars
+
+    // Move cursor to the middle of the first visual line
+    for _ in 0..20 {
+        harness
+            .send_key(KeyCode::Right, KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness.render().unwrap();
+
+    let (mid_x, mid_y) = harness.screen_cursor_position();
+    let mid_pos = harness.cursor_position();
+    eprintln!(
+        "After 20 rights: buffer_pos={}, screen=({}, {})",
+        mid_pos, mid_x, mid_y
+    );
+
+    assert_eq!(mid_pos, 20, "Should be at buffer position 20");
+    assert_eq!(mid_y, start_y, "Should still be on first visual line");
+
+    // Now press Down - with visual line movement, should move to second visual line
+    // (the wrapped continuation), not to the second logical line
+    harness.send_key(KeyCode::Down, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    let (down_x, down_y) = harness.screen_cursor_position();
+    let down_pos = harness.cursor_position();
+    eprintln!(
+        "After Down: buffer_pos={}, screen=({}, {})",
+        down_pos, down_x, down_y
+    );
+
+    // With visual line movement:
+    // - Cursor should move to next visual line (y + 1)
+    // - Buffer position should be around text_width + column (within the wrapped portion)
+    // - Should NOT jump to the second logical line
+
+    // The key assertion: cursor should NOT have jumped to the second logical line
+    let newline_pos = long_line.len();
+    assert!(
+        down_pos < newline_pos,
+        "With visual line movement, Down from first visual line should move to wrapped portion \
+         (position {} should be < newline at {}), but got position {}. \
+         This indicates movement is by logical line instead of visual line.",
+        down_pos,
+        newline_pos,
+        down_pos
+    );
+
+    // The cursor should have moved down one visual row
+    assert_eq!(
+        down_y,
+        mid_y + 1,
+        "Down should move to next visual row (from {} to {}), but moved to {}",
+        mid_y,
+        mid_y + 1,
+        down_y
+    );
+
+    // Buffer position should be approximately at the same column but in the wrapped segment
+    // (around text_width + original_column)
+    let expected_pos_approx = text_width + 20; // roughly where we expect cursor
+    assert!(
+        (down_pos as isize - expected_pos_approx as isize).abs() < 5,
+        "Buffer position {} should be around {} (text_width + column)",
+        down_pos,
+        expected_pos_approx
+    );
+
+    // Now press Up - should go back to first visual line
+    harness.send_key(KeyCode::Up, KeyModifiers::NONE).unwrap();
+    harness.render().unwrap();
+
+    let (up_x, up_y) = harness.screen_cursor_position();
+    let up_pos = harness.cursor_position();
+    eprintln!(
+        "After Up: buffer_pos={}, screen=({}, {})",
+        up_pos, up_x, up_y
+    );
+
+    // Should be back on first visual line
+    assert_eq!(
+        up_y, mid_y,
+        "Up should return to first visual row ({}), but went to {}",
+        mid_y, up_y
+    );
+
+    // Buffer position should be back around position 20 (same column on first segment)
+    assert!(
+        (up_pos as isize - 20).abs() < 5,
+        "Buffer position {} should be around 20 after Up",
+        up_pos
+    );
+}
+
+/// Test Alt+Shift+Up/Down (block select) works with line wrapping enabled
+/// Note: Block selection moves by logical lines (not visual lines) to maintain
+/// consistent block anchor semantics
+#[test]
+fn test_block_select_with_line_wrap_enabled() {
+    const TERMINAL_WIDTH: u16 = 60;
+    const TERMINAL_HEIGHT: u16 = 24;
+
+    let mut harness = EditorTestHarness::new(TERMINAL_WIDTH, TERMINAL_HEIGHT).unwrap();
+
+    // Create multiple lines (short enough to not wrap)
+    harness.type_text("Line 1 content").unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.type_text("Line 2 content").unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.type_text("Line 3 content").unwrap();
+
+    harness.render().unwrap();
+
+    // Move to start of file and position cursor
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::CONTROL)
+        .unwrap();
+    for _ in 0..5 {
+        harness
+            .send_key(KeyCode::Right, KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness.render().unwrap();
+
+    let start_pos = harness.cursor_position();
+    eprintln!("Before block select down: pos={}", start_pos);
+
+    // Press Alt+Shift+Down for block select
+    harness
+        .send_key(KeyCode::Down, KeyModifiers::ALT | KeyModifiers::SHIFT)
+        .unwrap();
+    harness.render().unwrap();
+
+    let down_pos = harness.cursor_position();
+    eprintln!("After block select down: pos={}", down_pos);
+
+    // Block selection should have started and cursor should have moved to next logical line
+    // Line 1 is "Line 1 content\n" (15 chars including newline)
+    // Position 5 is after "Line " on line 1
+    // After Down, should be at position 5 on line 2 = 15 + 5 = 20
+    assert!(
+        down_pos > start_pos,
+        "Block select down should move cursor to next line"
+    );
+}
+
+/// Test Ctrl+Alt+Down (add cursor below) works with line wrapping enabled
+/// Note: Add cursor operations use logical lines, not visual lines
+#[test]
+fn test_add_cursor_below_with_line_wrap_enabled() {
+    const TERMINAL_WIDTH: u16 = 60;
+    const TERMINAL_HEIGHT: u16 = 24;
+
+    let mut harness = EditorTestHarness::new(TERMINAL_WIDTH, TERMINAL_HEIGHT).unwrap();
+
+    // Create multiple lines
+    harness.type_text("Line 1").unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.type_text("Line 2").unwrap();
+    harness
+        .send_key(KeyCode::Enter, KeyModifiers::NONE)
+        .unwrap();
+    harness.type_text("Line 3").unwrap();
+
+    harness.render().unwrap();
+
+    // Move to start of file and position cursor
+    harness
+        .send_key(KeyCode::Home, KeyModifiers::CONTROL)
+        .unwrap();
+    for _ in 0..3 {
+        harness
+            .send_key(KeyCode::Right, KeyModifiers::NONE)
+            .unwrap();
+    }
+    harness.render().unwrap();
+
+    let start_pos = harness.cursor_position();
+    eprintln!("Before add cursor below: pos={}", start_pos);
+
+    // Press Ctrl+Alt+Down to add cursor below
+    harness
+        .send_key(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::ALT)
+        .unwrap();
+    harness.render().unwrap();
+
+    // Verify no crash and cursor count increased
+    let cursor_count = harness.editor().active_state().cursors.count();
+    assert_eq!(
+        cursor_count, 2,
+        "Should have 2 cursors after add cursor below"
+    );
+}

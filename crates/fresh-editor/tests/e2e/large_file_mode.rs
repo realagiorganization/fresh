@@ -117,7 +117,8 @@ fn test_large_file_typing() {
 fn test_large_file_rapid_cursor_movement() {
     let big_txt_path = TestFixture::big_txt_for_test("rapid_cursor_movement").unwrap();
 
-    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    // Use no-wrap mode since this test expects logical line movement
+    let mut harness = EditorTestHarness::new_no_wrap(80, 24).unwrap();
     harness.open_file(&big_txt_path).unwrap();
     harness.render().unwrap();
 
@@ -161,7 +162,8 @@ fn test_large_file_rapid_cursor_movement() {
 fn test_large_file_cursor_movement_and_typing() {
     let big_txt_path = TestFixture::big_txt_for_test("cursor_and_typing").unwrap();
 
-    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    // Use no-wrap mode since this test expects logical line movement
+    let mut harness = EditorTestHarness::new_no_wrap(80, 24).unwrap();
     harness.open_file(&big_txt_path).unwrap();
     harness.render().unwrap();
 
@@ -215,7 +217,8 @@ fn test_large_file_cursor_movement_and_typing() {
 fn test_large_file_cursor_screen_position_accuracy() {
     let big_txt_path = TestFixture::big_txt_for_test("cursor_screen_position").unwrap();
 
-    let mut harness = EditorTestHarness::new(80, 24).unwrap();
+    // Use no-wrap mode since this test expects logical line movement
+    let mut harness = EditorTestHarness::new_no_wrap(80, 24).unwrap();
     harness.open_file(&big_txt_path).unwrap();
     harness.render().unwrap();
 

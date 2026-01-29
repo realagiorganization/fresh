@@ -671,6 +671,25 @@ impl ViewLineMapping {
         let char_idx = self.visual_to_char.get(visual_col).copied()?;
         self.char_source_bytes.get(char_idx).copied().flatten()
     }
+
+    /// Check if this visual row contains the given byte position
+    #[inline]
+    pub fn contains_byte(&self, byte_pos: usize) -> bool {
+        // A row contains a byte if it's in the char_source_bytes range
+        // The first valid source byte marks the start, line_end_byte marks the end
+        if let Some(first_byte) = self.char_source_bytes.iter().find_map(|b| *b) {
+            byte_pos >= first_byte && byte_pos <= self.line_end_byte
+        } else {
+            // Empty/virtual row - only matches if byte_pos equals line_end_byte
+            byte_pos == self.line_end_byte
+        }
+    }
+
+    /// Get the first source byte position in this row (if any)
+    #[inline]
+    pub fn first_source_byte(&self) -> Option<usize> {
+        self.char_source_bytes.iter().find_map(|b| *b)
+    }
 }
 
 /// Type alias for popup area layout information used in mouse hit testing.
@@ -726,4 +745,67 @@ pub(crate) struct CachedLayout {
     pub search_options_layout: Option<crate::view::ui::status_bar::SearchOptionsLayout>,
     /// Menu bar layout for hit testing
     pub menu_layout: Option<crate::view::ui::menu::MenuLayout>,
+}
+
+impl CachedLayout {
+    /// Find which visual row contains the given byte position for a split
+    pub fn find_visual_row(&self, split_id: SplitId, byte_pos: usize) -> Option<usize> {
+        let mappings = self.view_line_mappings.get(&split_id)?;
+        mappings.iter().position(|m| m.contains_byte(byte_pos))
+    }
+
+    /// Get the visual column of a byte position within its visual row
+    pub fn byte_to_visual_column(&self, split_id: SplitId, byte_pos: usize) -> Option<usize> {
+        let mappings = self.view_line_mappings.get(&split_id)?;
+        let row_idx = self.find_visual_row(split_id, byte_pos)?;
+        let row = mappings.get(row_idx)?;
+
+        // Find the visual column that maps to this byte position
+        for (visual_col, &char_idx) in row.visual_to_char.iter().enumerate() {
+            if let Some(source_byte) = row.char_source_bytes.get(char_idx).and_then(|b| *b) {
+                if source_byte == byte_pos {
+                    return Some(visual_col);
+                }
+                // If we've passed the byte position, return previous column
+                if source_byte > byte_pos {
+                    return Some(visual_col.saturating_sub(1));
+                }
+            }
+        }
+        // Byte is at or past end of row - return column after last character
+        // This handles cursor positions at end of line (e.g., after last char before newline)
+        Some(row.visual_to_char.len())
+    }
+
+    /// Move by visual line using the cached mappings
+    /// Returns (new_position, new_visual_column) or None if at boundary
+    pub fn move_visual_line(
+        &self,
+        split_id: SplitId,
+        current_pos: usize,
+        goal_visual_col: usize,
+        direction: i8, // -1 = up, 1 = down
+    ) -> Option<(usize, usize)> {
+        let mappings = self.view_line_mappings.get(&split_id)?;
+        let current_row = self.find_visual_row(split_id, current_pos)?;
+
+        let target_row = if direction < 0 {
+            current_row.checked_sub(1)?
+        } else {
+            let next = current_row + 1;
+            if next >= mappings.len() {
+                return None;
+            }
+            next
+        };
+
+        let target_mapping = mappings.get(target_row)?;
+
+        // Try to get byte at goal visual column, or clamp to line end
+        let new_pos = target_mapping
+            .source_byte_at_visual_col(goal_visual_col)
+            .unwrap_or(target_mapping.line_end_byte);
+
+        Some((new_pos, goal_visual_col))
+    }
 }

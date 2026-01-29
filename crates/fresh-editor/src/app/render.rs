@@ -1959,6 +1959,22 @@ impl Editor {
             .map(|vs| vs.viewport.height)
             .unwrap_or(24);
 
+        // Check if line wrapping is enabled for this split
+        let line_wrap_enabled = self
+            .split_view_states
+            .get(&active_split)
+            .map(|vs| vs.viewport.line_wrap_enabled)
+            .unwrap_or(false);
+
+        // Handle visual line movement using cached layout when line wrap is enabled
+        if line_wrap_enabled {
+            if let Some(events) =
+                self.handle_visual_line_movement(&action, active_split, estimated_line_length)
+            {
+                return Some(events);
+            }
+        }
+
         convert_action_to_events(
             self.active_state_mut(),
             action,
@@ -1967,6 +1983,96 @@ impl Editor {
             estimated_line_length,
             viewport_height,
         )
+    }
+
+    /// Handle visual line movement actions using the cached layout
+    /// Returns Some(events) if the action was handled, None if it should fall through
+    fn handle_visual_line_movement(
+        &mut self,
+        action: &Action,
+        split_id: SplitId,
+        _estimated_line_length: usize,
+    ) -> Option<Vec<Event>> {
+        // Determine direction and whether this is a selection action
+        // Note: We don't intercept BlockSelectUp/Down because block selection has
+        // special semantics (setting block_anchor) that require the default handler
+        let (direction, is_select) = match action {
+            Action::MoveUp => (-1i8, false),
+            Action::MoveDown => (1, false),
+            Action::SelectUp => (-1, true),
+            Action::SelectDown => (1, true),
+            _ => return None, // Not a visual line movement action
+        };
+
+        // First, collect cursor data we need (to avoid borrow conflicts)
+        let cursor_data: Vec<_> = {
+            let state = self.active_state();
+            state
+                .cursors
+                .iter()
+                .map(|(cursor_id, cursor)| {
+                    (
+                        cursor_id,
+                        cursor.position,
+                        cursor.anchor,
+                        cursor.sticky_column,
+                        cursor.deselect_on_move,
+                    )
+                })
+                .collect()
+        };
+
+        let mut events = Vec::new();
+
+        for (cursor_id, position, anchor, sticky_column, deselect_on_move) in cursor_data {
+            // Calculate current visual column from cached layout
+            // If we can't find the position in the layout, bail out and let the default handler deal with it
+            let current_visual_col =
+                match self.cached_layout.byte_to_visual_column(split_id, position) {
+                    Some(col) => col,
+                    None => return None, // Position not in cached layout, use default handler
+                };
+
+            // Use sticky column if set, otherwise use current visual column
+            let goal_visual_col = if sticky_column > 0 {
+                sticky_column
+            } else {
+                current_visual_col
+            };
+
+            // Try to move using cached layout
+            let move_result =
+                self.cached_layout
+                    .move_visual_line(split_id, position, goal_visual_col, direction);
+
+            if let Some((new_pos, new_sticky)) = move_result {
+                // Determine anchor based on action type
+                let new_anchor = if is_select {
+                    Some(anchor.unwrap_or(position))
+                } else if deselect_on_move {
+                    None
+                } else {
+                    anchor
+                };
+
+                events.push(Event::MoveCursor {
+                    cursor_id,
+                    old_position: position,
+                    new_position: new_pos,
+                    old_anchor: anchor,
+                    new_anchor,
+                    old_sticky_column: sticky_column,
+                    new_sticky_column: new_sticky,
+                });
+            }
+            // If move_result is None, we're at a boundary - don't generate an event
+        }
+
+        if events.is_empty() {
+            None // Let the default handler deal with it
+        } else {
+            Some(events)
+        }
     }
 
     // === Search and Replace Methods ===
