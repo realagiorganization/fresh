@@ -762,6 +762,13 @@ impl TextBuffer {
         );
         self.saved_file_size = Some(new_size);
         self.file_path = Some(dest_path.to_path_buf());
+
+        // For large files, consolidate the piece tree to synchronize with new disk offsets.
+        // Without this, pieces referencing "original" file would use old offsets on new content.
+        if self.large_file {
+            self.consolidate_large_file(dest_path, new_size);
+        }
+
         self.mark_saved_snapshot();
         self.original_line_ending = self.line_ending;
         Ok(())
@@ -773,10 +780,43 @@ impl TextBuffer {
     pub fn finalize_external_save(&mut self, dest_path: PathBuf) -> anyhow::Result<()> {
         let new_size = self.fs.metadata(&dest_path)?.size as usize;
         self.saved_file_size = Some(new_size);
-        self.file_path = Some(dest_path);
+        self.file_path = Some(dest_path.clone());
+
+        // For large files, consolidate the piece tree to synchronize with new disk offsets.
+        if self.large_file {
+            self.consolidate_large_file(&dest_path, new_size);
+        }
+
         self.mark_saved_snapshot();
         self.original_line_ending = self.line_ending;
         Ok(())
+    }
+
+    /// Consolidate large file piece tree into a single piece pointing to the new file.
+    /// This ensures that subsequent operations correctly reference the new content and offsets.
+    fn consolidate_large_file(&mut self, path: &Path, file_size: usize) {
+        let buffer = StringBuffer {
+            id: 0,
+            data: BufferData::Unloaded {
+                file_path: path.to_path_buf(),
+                file_offset: 0,
+                bytes: file_size,
+            },
+        };
+
+        self.piece_tree = if file_size > 0 {
+            PieceTree::new(BufferLocation::Stored(0), 0, file_size, None)
+        } else {
+            PieceTree::empty()
+        };
+
+        self.buffers = vec![buffer];
+        self.next_buffer_id = 1;
+
+        tracing::debug!(
+            "Buffer::consolidate_large_file: consolidated into single piece of {} bytes",
+            file_size
+        );
     }
 
     /// Internal helper to create a SudoSaveRequired error.
