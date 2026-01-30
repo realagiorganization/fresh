@@ -1,0 +1,8 @@
+.git
+.github
+target
+**/target
+**/*.swp
+**/*.swo
+**/*.tmp
+**/.DS_Store

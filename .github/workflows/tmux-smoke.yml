@@ -1,0 +1,28 @@
+name: tmux-smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  tmux-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Fresh (release)
+        run: cargo build --release -p fresh-editor
+
+      - name: Launch Fresh in tmux and quit
+        run: |
+          set -euo pipefail
+          ./scripts/tmux_smoke.sh "./target/release/fresh --no-session --no-upgrade-check" "fresh-smoke"
